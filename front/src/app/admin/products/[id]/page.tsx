@@ -183,7 +183,19 @@ export default function ProductDetailPage() {
             <div className="flex justify-between gap-4"><dt className="text-zinc-500">Preço original</dt><dd>{product.originalPrice ? formatCurrency(product.originalPrice) : "—"}</dd></div>
             <div className="flex justify-between gap-4"><dt className="text-zinc-500">Desconto</dt><dd>{product.discount > 0 ? `-${product.discount}%` : "—"}</dd></div>
             <div className="flex justify-between gap-4"><dt className="text-zinc-500">Coleta</dt><dd>{formatDateTime(product.collectedAt)}</dd></div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-zinc-500">Imagem</dt>
+              <dd>{product.imageStatus ?? (product.imageStorageId ? "stored" : "remote")}</dd>
+            </div>
           </dl>
+          {product.displayImageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={product.displayImageUrl}
+              alt=""
+              className="mt-4 h-32 w-32 rounded object-cover"
+            />
+          ) : null}
           <div className="mt-4">
             <p className="mb-1 text-xs text-zinc-500">Data Quality</p>
             <div className="h-2 rounded bg-zinc-800">

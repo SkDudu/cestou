@@ -87,6 +87,26 @@ npm run enrich:brands -- --all
 
 Depois do enrich, rode `npm run validate -- --all` para atualizar scores.
 
+## Image sync (SPEC 008)
+
+Baixa `imageUrl` → Convex File Storage (hash dedupe). Scraper não baixa.
+
+```bash
+# lote pequeno
+npm run sync:images -- --limit=50
+
+# pending (default)
+npm run sync:images
+
+# um supermercado + retry failed
+npm run sync:images -- --supermarket=atacadao --failed
+
+# delay entre downloads (ms)
+npm run sync:images -- --limit=100 --delay=300
+```
+
+UI usa `displayImageUrl` (storage Convex) com fallback na URL do mercado.
+
 ## Env (só runtime)
 
 | Var | Default | Desc |

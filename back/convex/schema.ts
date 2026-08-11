@@ -48,6 +48,21 @@ export default defineSchema({
     originalPrice: v.optional(v.number()),
     url: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
+    /** SPEC 008 — Convex file storage */
+    imageStorageId: v.optional(v.id("_storage")),
+    imageStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("stored"),
+        v.literal("failed"),
+        v.literal("invalid"),
+      ),
+    ),
+    imageHash: v.optional(v.string()),
+    imageContentType: v.optional(v.string()),
+    imageSize: v.optional(v.number()),
+    imageDownloadedAt: v.optional(v.number()),
+    imageError: v.optional(v.string()),
     rawData: v.optional(v.any()),
     collectedAt: v.number(),
   })
@@ -55,10 +70,20 @@ export default defineSchema({
     .index("by_job", ["scrapingJobId"])
     .index("by_collectedAt", ["collectedAt"])
     .index("by_supermarket_collectedAt", ["supermarketId", "collectedAt"])
+    .index("by_imageStatus", ["imageStatus"])
     .searchIndex("search_name", {
       searchField: "name",
       filterFields: ["supermarketId"],
     }),
+
+  /** Dedup table: SHA-256 → storageId (SPEC 008) */
+  imageAssets: defineTable({
+    hash: v.string(),
+    storageId: v.id("_storage"),
+    contentType: v.string(),
+    size: v.number(),
+    createdAt: v.number(),
+  }).index("by_hash", ["hash"]),
 
   prices: defineTable({
     productId: v.id("products"),

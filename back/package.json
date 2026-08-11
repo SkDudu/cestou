@@ -11,6 +11,7 @@
     "scrape:atacadao": "SCRAPER_SUPERMARKET=atacadao npm run scrape --workspace=scraper --",
     "validate": "npm run validate --workspace=scraper --",
     "enrich:brands": "npm run enrich:brands --workspace=scraper --",
+    "sync:images": "npm run sync:images --workspace=scraper --",
     "convex:dev": "npx convex dev",
     "convex:deploy": "npx convex deploy"
   },

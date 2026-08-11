@@ -13,6 +13,7 @@
     "scrape:atacadao": "SCRAPER_SUPERMARKET=atacadao npm run scrape",
     "validate": "tsc && node --env-file=../.env dist/validate.js",
     "enrich:brands": "tsc && node --env-file=../.env dist/enrich-brands.js",
+    "sync:images": "tsc && node --env-file=../.env dist/sync-images.js",
     "selfcheck": "tsc && node dist/selfcheck.js"
   },
   "dependencies": {

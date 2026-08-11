@@ -9,6 +9,7 @@
  */
 
 import type * as dashboard from "../dashboard.js";
+import type * as images from "../images.js";
 import type * as prices from "../prices.js";
 import type * as productValidations from "../productValidations.js";
 import type * as products from "../products.js";
@@ -25,6 +26,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
+  images: typeof images;
   prices: typeof prices;
   productValidations: typeof productValidations;
   products: typeof products;

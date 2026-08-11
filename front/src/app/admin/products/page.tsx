@@ -104,9 +104,13 @@ export default function ProductsPage() {
             {products.map((p) => (
               <tr key={p._id} className="border-b border-zinc-900 hover:bg-zinc-900/40">
                 <td className="px-3 py-2">
-                  {p.imageUrl ? (
+                  {p.displayImageUrl ?? p.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.imageUrl} alt="" className="h-10 w-10 rounded object-cover" />
+                    <img
+                      src={p.displayImageUrl ?? p.imageUrl!}
+                      alt=""
+                      className="h-10 w-10 rounded object-cover"
+                    />
                   ) : (
                     <div className="flex h-10 w-10 items-center justify-center rounded bg-zinc-800 text-xs text-zinc-500">
                       —

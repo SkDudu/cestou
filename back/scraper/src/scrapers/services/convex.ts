@@ -179,6 +179,87 @@ export async function setBrand(args: {
   return await getClient().mutation(api.rawProducts.setBrand, args);
 }
 
+export async function imageGenerateUploadUrl(): Promise<string> {
+  return await getClient().mutation(api.images.generateUploadUrl, {});
+}
+
+export async function imageFindByHash(
+  hash: string,
+): Promise<{ storageId: string; hash: string } | null> {
+  return await getClient().query(api.images.findByHash, { hash });
+}
+
+export async function imageEnsureAsset(args: {
+  hash: string;
+  storageId: string;
+  contentType: string;
+  size: number;
+}): Promise<string> {
+  return await getClient().mutation(api.images.ensureAsset, args);
+}
+
+export async function imageAttach(args: {
+  rawProductId: string;
+  storageId: string;
+  hash: string;
+  contentType: string;
+  size: number;
+  sourceUrl?: string;
+  force?: boolean;
+}): Promise<{ skipped: boolean }> {
+  return await getClient().mutation(api.images.attachToRaw, args);
+}
+
+export async function imageMarkFailed(args: {
+  rawProductId: string;
+  status: "failed" | "invalid";
+  error: string;
+}): Promise<{ skipped: boolean }> {
+  return await getClient().mutation(api.images.markFailed, args);
+}
+
+export async function imageListPending(args: {
+  supermarketId?: string;
+  numItems?: number;
+  cursor?: string | null;
+  includeFailed?: boolean;
+}): Promise<{
+  page: Array<{
+    _id: string;
+    name: string;
+    imageUrl: string;
+    imageStatus?: string;
+    supermarketId: string;
+  }>;
+  continueCursor: string;
+  isDone: boolean;
+}> {
+  return await getClient().query(api.images.listPending, {
+    supermarketId: args.supermarketId,
+    includeFailed: args.includeFailed,
+    paginationOpts: {
+      numItems: args.numItems ?? 50,
+      cursor: args.cursor ?? null,
+    },
+  });
+}
+
+export async function imageUpload(
+  uploadUrl: string,
+  bytes: Buffer,
+  contentType: string,
+): Promise<string> {
+  const res = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "Content-Type": contentType },
+    body: new Uint8Array(bytes),
+  });
+  if (!res.ok) throw new Error(`Convex upload ${res.status}`);
+  const json = (await res.json()) as { storageId: string };
+  if (!json.storageId) throw new Error("Convex upload missing storageId");
+  return json.storageId;
+}
+
 export async function findSupermarketId(slug: string): Promise<string | null> {
   const list = await getClient().query(api.supermarkets.list, {});
   const found = (list as Array<{ _id: string; slug: string }>).find(

@@ -50,6 +50,9 @@ async function enrichPage(ctx: QueryCtx, page: Doc<"rawProducts">[]) {
         .query("productValidations")
         .withIndex("by_rawProduct", (q) => q.eq("rawProductId", raw._id))
         .unique();
+      const storedImageUrl = raw.imageStorageId
+        ? await ctx.storage.getUrl(raw.imageStorageId)
+        : null;
       return {
         ...raw,
         supermarketName: supermarket?.name ?? "—",
@@ -58,6 +61,8 @@ async function enrichPage(ctx: QueryCtx, page: Doc<"rawProducts">[]) {
         incompleteIssues: getIncompleteReason(raw),
         isIncomplete: isIncomplete(raw),
         validationStatus: validation?.status ?? "pending",
+        /** prefer Convex storage; fallback to supermarket CDN */
+        displayImageUrl: storedImageUrl ?? raw.imageUrl ?? null,
       };
     }),
   );
@@ -224,6 +229,9 @@ export const get = query({
     }
 
     const product = raw.productId ? await ctx.db.get(raw.productId) : null;
+    const storedImageUrl = raw.imageStorageId
+      ? await ctx.storage.getUrl(raw.imageStorageId)
+      : null;
 
     return {
       ...raw,
@@ -237,6 +245,7 @@ export const get = query({
       incompleteIssues: getIncompleteReason(raw),
       isIncomplete: isIncomplete(raw),
       qualityScore: validation?.score ?? computeQualityScore(raw),
+      displayImageUrl: storedImageUrl ?? raw.imageUrl ?? null,
     };
   },
 });
