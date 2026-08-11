@@ -10,6 +10,7 @@
     "scrape": "tsc && node --env-file=../.env dist/index.js",
     "scrape:sao-luiz": "SCRAPER_SUPERMARKET=sao-luiz npm run scrape",
     "scrape:pao-de-acucar": "SCRAPER_SUPERMARKET=pao-de-acucar npm run scrape",
+    "scrape:atacadao": "SCRAPER_SUPERMARKET=atacadao npm run scrape",
     "validate": "tsc && node --env-file=../.env dist/validate.js",
     "enrich:brands": "tsc && node --env-file=../.env dist/enrich-brands.js",
     "selfcheck": "tsc && node dist/selfcheck.js"

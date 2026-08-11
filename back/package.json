@@ -8,6 +8,7 @@
     "scrape": "npm run scrape --workspace=scraper --",
     "scrape:sao-luiz": "SCRAPER_SUPERMARKET=sao-luiz npm run scrape --workspace=scraper --",
     "scrape:pao-de-acucar": "SCRAPER_SUPERMARKET=pao-de-acucar npm run scrape --workspace=scraper --",
+    "scrape:atacadao": "SCRAPER_SUPERMARKET=atacadao npm run scrape --workspace=scraper --",
     "validate": "npm run validate --workspace=scraper --",
     "enrich:brands": "npm run enrich:brands --workspace=scraper --",
     "convex:dev": "npx convex dev",

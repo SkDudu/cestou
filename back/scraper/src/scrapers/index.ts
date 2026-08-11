@@ -1,3 +1,4 @@
+import { AtacadaoScraper } from "./atacadao/index.js";
 import { DemoScraper } from "./demo/index.js";
 import { PaoDeAcucarScraper } from "./pao-de-acucar/index.js";
 import { SaoLuizScraper } from "./sao-luiz/index.js";
@@ -7,6 +8,7 @@ const registry: Record<string, () => SupermarketScraper> = {
   demo: () => new DemoScraper(),
   "sao-luiz": () => new SaoLuizScraper(),
   "pao-de-acucar": () => new PaoDeAcucarScraper(),
+  atacadao: () => new AtacadaoScraper(),
 };
 
 export function getScraper(slug: string): SupermarketScraper {

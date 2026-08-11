@@ -28,12 +28,16 @@ npm run scrape:sao-luiz
 # Pão de Açúcar (Fortaleza CEP 60160-000)
 npm run scrape:pao-de-acucar
 
+# Atacadão (VTEX API, CEP Fortaleza)
+npm run scrape:atacadao
+
 # default = SCRAPER_SUPERMARKET no .env (sao-luiz)
 npm run scrape
 
 # smoke — uma query
 npm run scrape:pao-de-acucar -- --query="arroz"
 npm run scrape:sao-luiz -- --query="arroz"
+npm run scrape:atacadao -- --query="arroz"
 
 # override via CLI
 npm run scrape -- --supermarket=pao-de-acucar --query="leite"
@@ -101,6 +105,7 @@ Depois do enrich, rode `npm run validate -- --all` para atualizar scores.
 
 - `sao-luiz` → [loja 355](https://mercadinhossaoluiz.com.br/loja/355) (Mercadapp)
 - `pao-de-acucar` → [paodeacucar.com](https://www.paodeacucar.com) (GPA API, CEP Fortaleza)
+- `atacadao` → [atacadao.com.br](https://www.atacadao.com.br) (VTEX catalog API, CEP Fortaleza)
 - `demo` → books.toscrape.com
 
 ## Dashboard (SPEC 005)
