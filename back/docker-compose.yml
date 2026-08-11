@@ -1,0 +1,10 @@
+services:
+  scraper:
+    build:
+      context: ./scraper
+    env_file:
+      - .env
+    environment:
+      # container → host Convex (`npx convex dev`)
+      CONVEX_URL: http://host.docker.internal:3210
+    restart: "no"

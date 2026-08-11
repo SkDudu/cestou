@@ -1,0 +1,23 @@
+{
+  "name": "smart-grocery",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:scraper": "npm run start --workspace=scraper",
+    "build:scraper": "npm run build --workspace=scraper",
+    "scrape": "npm run scrape --workspace=scraper --",
+    "scrape:sao-luiz": "SCRAPER_SUPERMARKET=sao-luiz npm run scrape --workspace=scraper --",
+    "scrape:pao-de-acucar": "SCRAPER_SUPERMARKET=pao-de-acucar npm run scrape --workspace=scraper --",
+    "validate": "npm run validate --workspace=scraper --",
+    "enrich:brands": "npm run enrich:brands --workspace=scraper --",
+    "convex:dev": "npx convex dev",
+    "convex:deploy": "npx convex deploy"
+  },
+  "workspaces": [
+    "scraper"
+  ],
+  "devDependencies": {
+    "convex": "^1.21.0",
+    "typescript": "^5.7.0"
+  }
+}
