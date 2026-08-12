@@ -8,14 +8,15 @@
  * @module
  */
 
+import type * as clearData from "../clearData.js";
+import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
-import type * as images from "../images.js";
-import type * as prices from "../prices.js";
-import type * as productValidations from "../productValidations.js";
-import type * as products from "../products.js";
-import type * as rawProducts from "../rawProducts.js";
-import type * as scrapeErrors from "../scrapeErrors.js";
-import type * as scrapingJobs from "../scrapingJobs.js";
+import type * as flyerErrors from "../flyerErrors.js";
+import type * as flyerPages from "../flyerPages.js";
+import type * as flyerSources from "../flyerSources.js";
+import type * as flyers from "../flyers.js";
+import type * as flyersInternal from "../flyersInternal.js";
+import type * as offers from "../offers.js";
 import type * as supermarkets from "../supermarkets.js";
 
 import type {
@@ -25,14 +26,15 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  clearData: typeof clearData;
+  crons: typeof crons;
   dashboard: typeof dashboard;
-  images: typeof images;
-  prices: typeof prices;
-  productValidations: typeof productValidations;
-  products: typeof products;
-  rawProducts: typeof rawProducts;
-  scrapeErrors: typeof scrapeErrors;
-  scrapingJobs: typeof scrapingJobs;
+  flyerErrors: typeof flyerErrors;
+  flyerPages: typeof flyerPages;
+  flyerSources: typeof flyerSources;
+  flyers: typeof flyers;
+  flyersInternal: typeof flyersInternal;
+  offers: typeof offers;
   supermarkets: typeof supermarkets;
 }>;
 

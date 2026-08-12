@@ -5,20 +5,18 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node --env-file=../.env dist/index.js",
-    "dev": "tsc && node --env-file=../.env dist/index.js",
-    "scrape": "tsc && node --env-file=../.env dist/index.js",
-    "scrape:sao-luiz": "SCRAPER_SUPERMARKET=sao-luiz npm run scrape",
-    "scrape:pao-de-acucar": "SCRAPER_SUPERMARKET=pao-de-acucar npm run scrape",
-    "scrape:atacadao": "SCRAPER_SUPERMARKET=atacadao npm run scrape",
-    "validate": "tsc && node --env-file=../.env dist/validate.js",
-    "enrich:brands": "tsc && node --env-file=../.env dist/enrich-brands.js",
-    "sync:images": "tsc && node --env-file=../.env dist/sync-images.js",
-    "selfcheck": "tsc && node dist/selfcheck.js"
+    "flyers:discover": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-discovery.js",
+    "flyers:download": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-download.js",
+    "flyers:extract": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-extraction.js",
+    "flyers:reextract": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-extraction.js --force",
+    "flyers:expire": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-expiration.js",
+    "flyers:sync": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-sync.js",
+    "selfcheck": "tsc && node dist/flyers/selfcheck.js"
   },
   "dependencies": {
     "convex": "^1.21.0",
-    "playwright": "^1.50.0"
+    "playwright": "^1.50.0",
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

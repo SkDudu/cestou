@@ -2,12 +2,11 @@ import Link from "next/link";
 
 const nav = [
   { href: "/admin", label: "Overview", section: "main" },
-  { href: "/admin/products", label: "Products", section: "data" },
-  { href: "/admin/prices", label: "Prices", section: "data" },
-  { href: "/admin/validation", label: "Validation", section: "data" },
-  { href: "/admin/supermarkets", label: "Supermarkets", section: "data" },
-  { href: "/admin/runs", label: "Runs", section: "scraper" },
-  { href: "/admin/errors", label: "Errors", section: "scraper" },
+  { href: "/admin/supermarkets", label: "Supermercados", section: "data" },
+  { href: "/admin/flyers", label: "Encartes", section: "data" },
+  { href: "/admin/offers", label: "Ofertas", section: "data" },
+  { href: "/admin/validation", label: "Validação", section: "data" },
+  { href: "/admin/errors", label: "Erros", section: "ops" },
 ];
 
 export function AdminSidebar() {
@@ -15,9 +14,9 @@ export function AdminSidebar() {
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 text-zinc-100">
       <div className="border-b border-zinc-800 px-4 py-5">
         <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
-          Scraper Dashboard
+          Flyer Dashboard
         </p>
-        <p className="mt-1 text-sm font-medium text-zinc-200">Smart Grocery</p>
+        <p className="mt-1 text-sm font-medium text-zinc-200">Cestou</p>
       </div>
       <nav className="flex-1 overflow-y-auto px-2 py-4 text-sm">
         <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
@@ -35,7 +34,7 @@ export function AdminSidebar() {
             </Link>
           ))}
         <p className="mt-4 px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-          Data
+          Dados
         </p>
         {nav
           .filter((i) => i.section === "data")
@@ -49,10 +48,10 @@ export function AdminSidebar() {
             </Link>
           ))}
         <p className="mt-4 px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-          Scraper
+          Ops
         </p>
         {nav
-          .filter((i) => i.section === "scraper")
+          .filter((i) => i.section === "ops")
           .map((item) => (
             <Link
               key={item.href}

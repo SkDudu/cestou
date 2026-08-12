@@ -1,91 +1,155 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { paginationOptsValidator } from "convex/server";
 
 export const ensure = mutation({
   args: {
     name: v.string(),
     slug: v.string(),
-    website: v.optional(v.string()),
+    city: v.string(),
+    state: v.string(),
+    country: v.string(),
+    websiteUrl: v.optional(v.string()),
+    active: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("supermarkets")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        name: args.name,
+        city: args.city,
+        state: args.state,
+        country: args.country,
+        websiteUrl: args.websiteUrl,
+        active: args.active ?? existing.active,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("supermarkets", {
+      name: args.name,
+      slug: args.slug,
+      city: args.city,
+      state: args.state,
+      country: args.country,
+      websiteUrl: args.websiteUrl,
+      active: args.active ?? true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const create = mutation({
+  args: {
+    name: v.string(),
+    slug: v.string(),
+    city: v.string(),
+    state: v.string(),
+    country: v.string(),
+    websiteUrl: v.optional(v.string()),
+    active: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("supermarkets")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .unique();
+    if (existing) throw new Error(`Slug already exists: ${args.slug}`);
 
-    if (existing) return existing._id;
-
+    const now = Date.now();
     return await ctx.db.insert("supermarkets", {
       name: args.name,
       slug: args.slug,
-      website: args.website,
-      active: true,
-      createdAt: Date.now(),
+      city: args.city,
+      state: args.state,
+      country: args.country,
+      websiteUrl: args.websiteUrl,
+      active: args.active ?? true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const update = mutation({
+  args: {
+    id: v.id("supermarkets"),
+    name: v.optional(v.string()),
+    city: v.optional(v.string()),
+    state: v.optional(v.string()),
+    country: v.optional(v.string()),
+    websiteUrl: v.optional(v.string()),
+    active: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const { id, ...patch } = args;
+    const existing = await ctx.db.get(id);
+    if (!existing) throw new Error("Supermarket not found");
+    await ctx.db.patch(id, {
+      ...Object.fromEntries(
+        Object.entries(patch).filter(([, v]) => v !== undefined),
+      ),
+      updatedAt: Date.now(),
     });
   },
 });
 
 export const getBySlug = query({
   args: { slug: v.string() },
-  handler: async (ctx, args) => {
-    return await ctx.db
+  handler: async (ctx, args) =>
+    ctx.db
       .query("supermarkets")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .unique();
-  },
+      .unique(),
+});
+
+export const listNames = query({
+  args: {},
+  handler: async (ctx) => ctx.db.query("supermarkets").collect(),
 });
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const supermarkets = await ctx.db.query("supermarkets").collect();
-
     return await Promise.all(
       supermarkets.map(async (s) => {
-        const rawProducts = await ctx.db
-          .query("rawProducts")
-          .withIndex("by_supermarket_collectedAt", (q) =>
-            q.eq("supermarketId", s._id),
-          )
-          .collect();
-
-        const jobs = await ctx.db
-          .query("scrapingJobs")
+        const sources = await ctx.db
+          .query("flyerSources")
           .withIndex("by_supermarket", (q) => q.eq("supermarketId", s._id))
           .collect();
-
-        const validations = await ctx.db
-          .query("productValidations")
+        const flyers = await ctx.db
+          .query("flyers")
+          .withIndex("by_supermarket", (q) => q.eq("supermarketId", s._id))
           .collect();
-
-        const rawIds = new Set(rawProducts.map((r) => r._id));
-        const smValidations = validations.filter((v) =>
-          rawIds.has(v.rawProductId),
-        );
-
-        const lastJob = [...jobs].sort((a, b) => b.startedAt - a.startedAt)[0];
-        const completed = jobs.filter((j) => j.status === "completed").length;
-        const failed = jobs.filter((j) => j.status === "failed").length;
-        const promotions = rawProducts.filter(
-          (r) => r.originalPrice !== undefined && r.originalPrice > r.price,
+        const activeFlyer = flyers
+          .filter(
+            (f) =>
+              f.status === "processed" ||
+              f.status === "downloaded" ||
+              f.status === "processing",
+          )
+          .sort((a, b) => (b.validUntil ?? 0) - (a.validUntil ?? 0))[0];
+        const offerCount = (
+          await ctx.db
+            .query("offers")
+            .withIndex("by_supermarket", (q) => q.eq("supermarketId", s._id))
+            .collect()
         ).length;
 
         return {
           ...s,
-          productCount: rawProducts.length,
-          promotionCount: promotions,
-          validCount: smValidations.filter((v) => v.status === "validated").length,
-          invalidCount: smValidations.filter((v) => v.status === "invalid").length,
-          lastCollectedAt: lastJob?.finishedAt ?? lastJob?.startedAt ?? null,
-          lastJobStatus: lastJob?.status ?? null,
-          successRate:
-            jobs.length === 0 ? 0 : Math.round((completed / jobs.length) * 100),
-          failedJobs: failed,
-          isOnline:
-            lastJob?.status === "running" ||
-            (lastJob?.finishedAt !== undefined &&
-              Date.now() - lastJob.finishedAt < 24 * 60 * 60 * 1000),
+          sourceCount: sources.length,
+          activeSourceCount: sources.filter((x) => x.active).length,
+          flyerCount: flyers.length,
+          offerCount,
+          activeFlyer,
         };
       }),
     );
@@ -98,45 +162,23 @@ export const get = query({
     const supermarket = await ctx.db.get(args.id);
     if (!supermarket) return null;
 
-    const rawProducts = await ctx.db
-      .query("rawProducts")
-      .withIndex("by_supermarket_collectedAt", (q) =>
-        q.eq("supermarketId", args.id),
-      )
-      .collect();
-
-    const jobs = await ctx.db
-      .query("scrapingJobs")
+    const sources = await ctx.db
+      .query("flyerSources")
       .withIndex("by_supermarket", (q) => q.eq("supermarketId", args.id))
       .collect();
-
-    const validations = await ctx.db.query("productValidations").collect();
-    const rawIds = new Set(rawProducts.map((r) => r._id));
-    const smValidations = validations.filter((v) => rawIds.has(v.rawProductId));
-
-    const lastJob = [...jobs].sort((a, b) => b.startedAt - a.startedAt)[0];
-    const completed = jobs.filter((j) => j.status === "completed").length;
-    const promotions = rawProducts.filter(
-      (r) => r.originalPrice !== undefined && r.originalPrice > r.price,
-    ).length;
-
-    const recentJobs = [...jobs]
-      .sort((a, b) => b.startedAt - a.startedAt)
+    const flyers = await ctx.db
+      .query("flyers")
+      .withIndex("by_supermarket", (q) => q.eq("supermarketId", args.id))
+      .collect();
+    const recentFlyers = [...flyers]
+      .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 20);
 
     return {
       ...supermarket,
-      productCount: rawProducts.length,
-      promotionCount: promotions,
-      validCount: smValidations.filter((v) => v.status === "validated").length,
-      invalidCount: smValidations.filter((v) => v.status === "invalid").length,
-      suspiciousCount: smValidations.filter((v) => v.status === "suspicious")
-        .length,
-      lastCollectedAt: lastJob?.finishedAt ?? lastJob?.startedAt ?? null,
-      lastJobStatus: lastJob?.status ?? null,
-      successRate:
-        jobs.length === 0 ? 0 : Math.round((completed / jobs.length) * 100),
-      recentJobs,
+      sources,
+      recentFlyers,
+      flyerCount: flyers.length,
     };
   },
 });

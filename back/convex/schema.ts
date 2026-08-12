@@ -1,172 +1,136 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const validationStatus = v.union(
+const flyerStatus = v.union(
+  v.literal("discovered"),
+  v.literal("downloading"),
+  v.literal("downloaded"),
+  v.literal("processing"),
+  v.literal("processed"),
+  v.literal("expired"),
+  v.literal("failed"),
+);
+
+const flyerSourceType = v.union(
+  v.literal("pdf"),
+  v.literal("image"),
+  v.literal("web"),
+  v.literal("dynamic"),
+);
+
+const offerValidationStatus = v.union(
   v.literal("pending"),
   v.literal("validated"),
+  v.literal("rejected"),
   v.literal("suspicious"),
-  v.literal("invalid"),
+);
+
+const flyerErrorStage = v.union(
+  v.literal("DISCOVERY"),
+  v.literal("DOWNLOAD"),
+  v.literal("STORAGE"),
+  v.literal("OCR"),
+  v.literal("PARSER"),
+  v.literal("VALIDATION"),
 );
 
 export default defineSchema({
-  products: defineTable({
-    name: v.string(),
-    normalizedName: v.string(),
-    brand: v.optional(v.string()),
-    brandSource: v.optional(v.string()),
-    brandConfidence: v.optional(v.number()),
-    category: v.optional(v.string()),
-    subcategory: v.optional(v.string()),
-    quantity: v.optional(v.number()),
-    unit: v.optional(v.string()),
-    barcode: v.optional(v.string()),
-    imageUrl: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_normalizedName", ["normalizedName"])
-    .index("by_barcode", ["barcode"]),
-
   supermarkets: defineTable({
     name: v.string(),
     slug: v.string(),
-    website: v.optional(v.string()),
+    city: v.string(),
+    state: v.string(),
+    country: v.string(),
     active: v.boolean(),
+    websiteUrl: v.optional(v.string()),
     createdAt: v.number(),
+    updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
 
-  rawProducts: defineTable({
+  flyerSources: defineTable({
     supermarketId: v.id("supermarkets"),
-    scrapingJobId: v.optional(v.id("scrapingJobs")),
-    productId: v.optional(v.id("products")),
-    externalId: v.optional(v.string()),
+    type: flyerSourceType,
+    url: v.string(),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_supermarket", ["supermarketId"])
+    .index("by_supermarket_active", ["supermarketId", "active"]),
+
+  flyers: defineTable({
+    supermarketId: v.id("supermarkets"),
+    sourceId: v.id("flyerSources"),
+    title: v.optional(v.string()),
+    originalUrl: v.string(),
+    storageId: v.optional(v.id("_storage")),
+    fileType: v.optional(v.string()),
+    fileSize: v.optional(v.number()),
+    fileHash: v.optional(v.string()),
+    validFrom: v.optional(v.number()),
+    validUntil: v.optional(v.number()),
+    status: flyerStatus,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_supermarket", ["supermarketId"])
+    .index("by_status", ["status"])
+    .index("by_validUntil", ["validUntil"])
+    .index("by_source", ["sourceId"])
+    .index("by_fileHash", ["fileHash"])
+    .index("by_identity", [
+      "supermarketId",
+      "sourceId",
+      "validFrom",
+      "validUntil",
+    ]),
+
+  flyerPages: defineTable({
+    flyerId: v.id("flyers"),
+    pageNumber: v.number(),
+    storageId: v.id("_storage"),
+    createdAt: v.number(),
+  })
+    .index("by_flyer", ["flyerId"])
+    .index("by_flyer_page", ["flyerId", "pageNumber"]),
+
+  offers: defineTable({
+    flyerId: v.id("flyers"),
+    supermarketId: v.id("supermarkets"),
     name: v.string(),
     brand: v.optional(v.string()),
-    brandSource: v.optional(v.string()),
-    brandConfidence: v.optional(v.number()),
+    quantity: v.optional(v.string()),
+    unit: v.optional(v.string()),
     price: v.number(),
     originalPrice: v.optional(v.number()),
-    url: v.optional(v.string()),
-    imageUrl: v.optional(v.string()),
-    /** SPEC 008 — Convex file storage */
-    imageStorageId: v.optional(v.id("_storage")),
-    imageStatus: v.optional(
-      v.union(
-        v.literal("pending"),
-        v.literal("stored"),
-        v.literal("failed"),
-        v.literal("invalid"),
-      ),
-    ),
-    imageHash: v.optional(v.string()),
-    imageContentType: v.optional(v.string()),
-    imageSize: v.optional(v.number()),
-    imageDownloadedAt: v.optional(v.number()),
-    imageError: v.optional(v.string()),
-    rawData: v.optional(v.any()),
-    collectedAt: v.number(),
-  })
-    .index("by_supermarket_externalId", ["supermarketId", "externalId"])
-    .index("by_job", ["scrapingJobId"])
-    .index("by_collectedAt", ["collectedAt"])
-    .index("by_supermarket_collectedAt", ["supermarketId", "collectedAt"])
-    .index("by_imageStatus", ["imageStatus"])
-    .searchIndex("search_name", {
-      searchField: "name",
-      filterFields: ["supermarketId"],
-    }),
-
-  /** Dedup table: SHA-256 → storageId (SPEC 008) */
-  imageAssets: defineTable({
-    hash: v.string(),
-    storageId: v.id("_storage"),
-    contentType: v.string(),
-    size: v.number(),
+    discountPercentage: v.optional(v.number()),
+    pageNumber: v.optional(v.number()),
+    rawText: v.optional(v.string()),
+    extractionConfidence: v.optional(v.number()),
+    sourceType: v.literal("flyer"),
+    validationStatus: offerValidationStatus,
+    validFrom: v.optional(v.number()),
+    validUntil: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_hash", ["hash"]),
-
-  prices: defineTable({
-    productId: v.id("products"),
-    supermarketId: v.id("supermarkets"),
-    price: v.number(),
-    originalPrice: v.optional(v.number()),
-    discount: v.optional(v.number()),
-    collectedAt: v.number(),
-    source: v.string(),
+    updatedAt: v.number(),
   })
-    .index("by_product", ["productId"])
+    .index("by_flyer", ["flyerId"])
     .index("by_supermarket", ["supermarketId"])
-    .index("by_product_supermarket", ["productId", "supermarketId"])
-    .index("by_collectedAt", ["collectedAt"]),
+    .index("by_validationStatus", ["validationStatus"])
+    .index("by_confidence", ["extractionConfidence"])
+    .index("by_supermarket_status", ["supermarketId", "validationStatus"]),
 
-  scrapingJobs: defineTable({
+  flyerErrors: defineTable({
+    flyerId: v.optional(v.id("flyers")),
     supermarketId: v.id("supermarkets"),
-    type: v.string(),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("running"),
-      v.literal("completed"),
-      v.literal("failed"),
-    ),
-    query: v.optional(v.string()),
-    startedAt: v.number(),
-    finishedAt: v.optional(v.number()),
-    productsFound: v.optional(v.number()),
-    productsSaved: v.optional(v.number()),
-    error: v.optional(v.string()),
-  })
-    .index("by_supermarket", ["supermarketId"])
-    .index("by_startedAt", ["startedAt"])
-    .index("by_status", ["status"]),
-
-  productValidations: defineTable({
-    rawProductId: v.id("rawProducts"),
-    status: validationStatus,
-    /** rules | human | ai — SPEC 006 */
-    source: v.optional(
-      v.union(v.literal("rules"), v.literal("human"), v.literal("ai")),
-    ),
-    /** status from rules before human override */
-    automatedStatus: v.optional(validationStatus),
-    score: v.optional(v.number()),
-    issues: v.optional(
-      v.array(
-        v.object({
-          ruleId: v.string(),
-          severity: v.union(
-            v.literal("info"),
-            v.literal("warning"),
-            v.literal("error"),
-          ),
-          code: v.string(),
-          message: v.string(),
-          field: v.optional(v.string()),
-          value: v.optional(v.any()),
-        }),
-      ),
-    ),
-    rulesVersion: v.optional(v.string()),
-    reason: v.optional(v.string()),
-    notes: v.optional(v.string()),
-    validatedAt: v.optional(v.number()),
-  })
-    .index("by_rawProduct", ["rawProductId"])
-    .index("by_status", ["status"])
-    .index("by_source", ["source"]),
-
-  scrapeErrors: defineTable({
-    scrapingJobId: v.optional(v.id("scrapingJobs")),
-    supermarketId: v.id("supermarkets"),
-    query: v.optional(v.string()),
-    type: v.string(),
+    stage: flyerErrorStage,
     message: v.string(),
     stack: v.optional(v.string()),
-    url: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("resolved")),
     createdAt: v.number(),
   })
     .index("by_supermarket", ["supermarketId"])
-    .index("by_createdAt", ["createdAt"])
-    .index("by_job", ["scrapingJobId"])
-    .index("by_status", ["status"]),
+    .index("by_flyer", ["flyerId"])
+    .index("by_status", ["status"])
+    .index("by_createdAt", ["createdAt"]),
 });
