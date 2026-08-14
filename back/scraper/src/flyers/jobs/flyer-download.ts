@@ -1,4 +1,4 @@
-import { getFlyerScraper } from "../sources/index.js";
+import { downloadFromPageUrls } from "../core/download-pages.js";
 import {
   attachFlyerFile,
   findFlyerByHash,
@@ -10,62 +10,22 @@ import {
   upsertFlyerPage,
 } from "../core/flyer-storage.js";
 import { flyerLog } from "../core/flyer-logger.js";
-import { closeSaoLuizBrowser } from "../sources/sao-luiz/scraper.js";
-import type { FlyerSourceRef } from "../core/flyer-types.js";
 
-async function resolveSourcesBySlug(
-  slug: string,
-  cache: Map<string, FlyerSourceRef[]>,
-): Promise<FlyerSourceRef[]> {
-  if (cache.has(slug)) return cache.get(slug)!;
-  const scraper = getFlyerScraper(slug);
-  if (!scraper) {
-    cache.set(slug, []);
-    return [];
-  }
-  const list = await scraper.findFlyers();
-  cache.set(slug, list);
-  return list;
-}
-
-function pickSource(
-  flyer: {
-    originalUrl: string;
-    title?: string;
-    validFrom?: number;
-    validUntil?: number;
-  },
-  candidates: FlyerSourceRef[],
-): FlyerSourceRef | null {
-  const byUrl = candidates.find((c) => c.originalUrl === flyer.originalUrl);
-  if (byUrl) return byUrl;
-
-  const idFromUrl = flyer.originalUrl.match(/\/(\d+)\/?$/)?.[1];
-  if (idFromUrl) {
-    const byId = candidates.find((c) => c.externalId === idFromUrl);
-    if (byId) return byId;
-  }
-
-  if (flyer.title) {
-    const byTitle = candidates.find((c) => c.title === flyer.title);
-    if (byTitle) return byTitle;
-  }
-
-  if (flyer.validFrom !== undefined && flyer.validUntil !== undefined) {
-    const byDates = candidates.find(
-      (c) =>
-        c.validFrom === flyer.validFrom && c.validUntil === flyer.validUntil,
+export async function downloadPending(opts?: {
+  supermarketId?: string;
+  flyerIds?: string[];
+}) {
+  let pending = await listPendingDownload();
+  if (opts?.supermarketId) {
+    pending = pending.filter(
+      (f: { supermarketId: string }) => f.supermarketId === opts.supermarketId,
     );
-    if (byDates) return byDates;
   }
-
-  return null;
-}
-
-export async function downloadPending() {
-  const pending = await listPendingDownload();
+  if (opts?.flyerIds?.length) {
+    const set = new Set(opts.flyerIds);
+    pending = pending.filter((f: { _id: string }) => set.has(f._id));
+  }
   let downloaded = 0;
-  const liveCache = new Map<string, FlyerSourceRef[]>();
 
   for (const flyer of pending) {
     try {
@@ -73,18 +33,21 @@ export async function downloadPending() {
       const sm = await getSupermarket(flyer.supermarketId);
       if (!sm?.slug) throw new Error("Supermarket missing slug");
 
-      const candidates = await resolveSourcesBySlug(sm.slug, liveCache);
-      const source = pickSource(flyer, candidates);
-      if (!source?.pageUrls?.length) {
+      const storedPages = (flyer as { pageUrls?: string[] }).pageUrls;
+      if (!storedPages?.length) {
         throw new Error(
-          `Could not resolve page URLs for flyer ${flyer.title ?? flyer._id}`,
+          `Flyer ${flyer.title ?? flyer._id} has no pageUrls — re-run discover-flyer in Flow Builder`,
         );
       }
 
-      const scraper = getFlyerScraper(sm.slug);
-      if (!scraper) throw new Error(`No scraper for ${sm.slug}`);
-
-      const downloadedFlyer = await scraper.downloadFlyer(source);
+      const downloadedFlyer = await downloadFromPageUrls({
+        supermarketSlug: sm.slug,
+        sourceUrl: flyer.originalUrl,
+        type: "image",
+        title: flyer.title,
+        originalUrl: flyer.originalUrl,
+        pageUrls: storedPages,
+      });
 
       const existing = await findFlyerByHash(downloadedFlyer.fileHash);
       if (existing && existing._id !== flyer._id) {
@@ -127,7 +90,7 @@ export async function downloadPending() {
 
       flyerLog.info(
         "DOWNLOAD",
-        `Flyer ${flyer._id} (${source.title ?? ""}): ${downloadedFlyer.pages.length} pages stored`,
+        `Flyer ${flyer._id} (${flyer.title ?? downloadedFlyer.source.title ?? ""}): ${downloadedFlyer.pages.length} pages stored`,
       );
       downloaded++;
     } catch (err) {
@@ -143,7 +106,6 @@ export async function downloadPending() {
     }
   }
 
-  await closeSaoLuizBrowser();
   return { downloaded, pending: pending.length };
 }
 

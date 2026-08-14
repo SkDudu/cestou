@@ -25,11 +25,25 @@ export default function AdminOverviewPage() {
         <MetricCard label="Supermercados" value={formatNumber(metrics.supermarkets)} />
         <MetricCard label="Encartes ativos" value={formatNumber(metrics.activeFlyers)} />
         <MetricCard label="Processados" value={formatNumber(metrics.processedFlyers)} />
+        <MetricCard label="Parciais" value={formatNumber(metrics.partialFlyers)} />
         <MetricCard label="Ofertas" value={formatNumber(metrics.offersExtracted)} />
         <MetricCard label="Validadas" value={formatNumber(metrics.offersValidated)} />
         <MetricCard label="Pendentes" value={formatNumber(metrics.offersPending)} />
         <MetricCard label="Rejeitadas" value={formatNumber(metrics.offersRejected)} />
         <MetricCard label="Erros abertos" value={formatNumber(metrics.extractionErrors)} />
+        <MetricCard
+          label="Páginas MiMo"
+          value={formatNumber(metrics.offersMimoPages)}
+        />
+        <MetricCard
+          label="Páginas Tesseract"
+          value={formatNumber(metrics.offersTesseractPages)}
+        />
+        <MetricCard label="Falhas IA" value={formatNumber(metrics.aiFailures)} />
+        <MetricCard
+          label="Latência média"
+          value={`${formatNumber(metrics.avgExtractionLatencyMs)} ms`}
+        />
       </div>
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
@@ -70,7 +84,11 @@ export default function AdminOverviewPage() {
             {!metrics.recentFlyers.length ? (
               <tr>
                 <td colSpan={4} className="px-3 py-6 text-center text-zinc-500">
-                  Nenhum encarte ainda. Rode <code>npm run flyers:sync</code>.
+                  Nenhum encarte ainda. Use o{" "}
+                  <Link href="/admin/scraper" className="text-zinc-300 underline">
+                    Flow Builder
+                  </Link>
+                  .
                 </td>
               </tr>
             ) : null}

@@ -60,6 +60,7 @@ export async function createDiscoveredFlyer(args: {
   sourceId: string;
   title?: string;
   originalUrl: string;
+  pageUrls?: string[];
   validFrom?: number;
   validUntil?: number;
 }): Promise<string> {
@@ -77,6 +78,7 @@ export async function setFlyerStatus(
     | "downloading"
     | "downloaded"
     | "processing"
+    | "partially_processed"
     | "processed"
     | "expired"
     | "failed",
@@ -141,14 +143,16 @@ export async function insertOffers(args: {
   validFrom?: number;
   validUntil?: number;
   offers: ParsedOffer[];
-  replace?: boolean;
-}) {
+    replace?: boolean;
+    replacePageNumbers?: number[];
+  }) {
   return await getClient().mutation(api.offers.insertBatch, {
     flyerId: args.flyerId,
     supermarketId: args.supermarketId,
     validFrom: args.validFrom,
     validUntil: args.validUntil,
     replace: args.replace,
+    replacePageNumbers: args.replacePageNumbers,
     offers: args.offers.map((o) => ({
       name: o.name,
       brand: o.brand,
@@ -173,7 +177,8 @@ export async function insertFlyerError(args: {
     | "STORAGE"
     | "OCR"
     | "PARSER"
-    | "VALIDATION";
+    | "VALIDATION"
+    | "AI_VISION";
   message: string;
   stack?: string;
 }) {
@@ -186,6 +191,101 @@ export async function insertFlyerError(args: {
 
 export async function markExpired() {
   return await getClient().mutation(api.flyers.markExpired, {});
+}
+
+export async function insertExtraction(args: {
+  flyerId: string;
+  pageId: string;
+  pageNumber: number;
+  provider: "mimo-v2.5" | "tesseract-rules";
+  model: string;
+  promptVersion: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  rawResponse?: string;
+  offerCount?: number;
+  extractionConfidence?: number;
+  error?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  durationMs?: number;
+}) {
+  const payload: Record<string, unknown> = {
+    flyerId: args.flyerId,
+    pageId: args.pageId,
+    pageNumber: args.pageNumber,
+    provider: args.provider,
+    model: args.model,
+    promptVersion: args.promptVersion,
+    status: args.status,
+  };
+  if (args.rawResponse !== undefined) payload.rawResponse = args.rawResponse;
+  if (args.offerCount !== undefined) payload.offerCount = args.offerCount;
+  if (args.extractionConfidence !== undefined) {
+    payload.extractionConfidence = args.extractionConfidence;
+  }
+  if (args.error !== undefined) payload.error = args.error;
+  if (args.inputTokens !== undefined) payload.inputTokens = args.inputTokens;
+  if (args.outputTokens !== undefined) payload.outputTokens = args.outputTokens;
+  if (args.totalTokens !== undefined) payload.totalTokens = args.totalTokens;
+  if (args.durationMs !== undefined) payload.durationMs = args.durationMs;
+  return await getClient().mutation(api.flyerExtractions.insert, payload);
+}
+
+export async function findCompletedExtraction(args: {
+  pageId: string;
+  model: string;
+  promptVersion: string;
+}) {
+  return await getClient().query(api.flyerExtractions.findCompleted, args);
+}
+
+export async function listScraperFlows(supermarketId?: string) {
+  return await getClient().query(
+    api.scraperFlows.list,
+    supermarketId ? { supermarketId: supermarketId as never } : {},
+  );
+}
+
+export async function getScraperFlow(id: string) {
+  return await getClient().query(api.scraperFlows.get, { id: id as never });
+}
+
+export async function createScraperFlow(args: {
+  supermarketId: string;
+  name: string;
+  startUrl: string;
+  config?: string;
+}) {
+  return await getClient().mutation(api.scraperFlows.create, args as never);
+}
+
+export async function replaceScraperSteps(
+  flowId: string,
+  steps: Array<{ type: string; config: string; order: number }>,
+) {
+  return await getClient().mutation(api.scraperSteps.replaceAll, {
+    flowId: flowId as never,
+    steps: steps as never,
+  });
+}
+
+export async function startScraperRun(flowId: string) {
+  return await getClient().mutation(api.scraperRuns.start, {
+    flowId: flowId as never,
+  });
+}
+
+export async function finishScraperRun(args: {
+  id: string;
+  status: "running" | "success" | "partial" | "failed";
+  stepsExecuted: number;
+  flyersFound: number;
+  storesFound: number;
+  error?: string;
+  log?: string;
+}) {
+  return await getClient().mutation(api.scraperRuns.finish, args as never);
 }
 
 export async function fetchStorageUrl(storageId: string): Promise<string | null> {

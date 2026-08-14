@@ -35,13 +35,6 @@ export type FlyerMetadata = {
   validUntil?: number;
 };
 
-export interface FlyerScraper {
-  /** All flyers currently published for this supermarket (not just one). */
-  findFlyers(): Promise<FlyerSourceRef[]>;
-  downloadFlyer(source: FlyerSourceRef): Promise<DownloadedFlyer>;
-  extractMetadata(flyer: DownloadedFlyer): Promise<FlyerMetadata>;
-}
-
 export type OCRResult = {
   text: string;
   confidence?: number;
@@ -67,3 +60,30 @@ export type ParsedOffer = {
   rawText?: string;
   extractionConfidence?: number;
 };
+
+export type FlyerOfferExtractorName = "mimo-v2.5" | "tesseract-rules";
+
+export type FlyerOfferExtractionResult = {
+  offers: ParsedOffer[];
+  rawResponse: string;
+  provider: FlyerOfferExtractorName;
+  model?: string;
+  latencyMs: number;
+  pageConfidence?: number;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+};
+
+export interface FlyerOfferExtractor {
+  readonly name: FlyerOfferExtractorName;
+  extractOffers(page: {
+    flyerId: string;
+    pageNumber: number;
+    imageUrl?: string;
+    imageBuffer?: Buffer;
+    contentType?: string;
+  }): Promise<FlyerOfferExtractionResult>;
+}

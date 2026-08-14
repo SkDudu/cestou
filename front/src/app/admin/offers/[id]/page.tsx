@@ -79,6 +79,14 @@ export default function OfferDetailPage() {
             </Link>
           </dd>
         </div>
+        <div>
+          <dt className="text-zinc-500">Extração</dt>
+          <dd>
+            {offer.extraction
+              ? `${offer.extraction.provider}${offer.extraction.model ? ` · ${offer.extraction.model}` : ""} · ${offer.extraction.status}`
+              : "—"}
+          </dd>
+        </div>
       </dl>
 
       {offer.pageUrl ? (
@@ -98,7 +106,7 @@ export default function OfferDetailPage() {
       ) : null}
 
       {offer.rawText ? (
-        <div>
+        <div className="mb-6">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
             Raw text
           </h2>
@@ -106,6 +114,17 @@ export default function OfferDetailPage() {
             {offer.rawText}
           </pre>
         </div>
+      ) : null}
+
+      {offer.extraction?.rawResponse ? (
+        <details className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Raw response da página
+          </summary>
+          <pre className="mt-3 max-h-96 overflow-auto text-xs text-zinc-400">
+            {offer.extraction.rawResponse}
+          </pre>
+        </details>
       ) : null}
     </div>
   );

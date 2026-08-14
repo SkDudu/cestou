@@ -42,11 +42,14 @@ export function validateBuffer(buffer: Buffer, contentTypeHint?: string) {
   return detected;
 }
 
-export async function downloadUrl(url: string): Promise<{
+export async function downloadUrl(
+  url: string,
+  opts?: { anyHttps?: boolean },
+): Promise<{
   buffer: Buffer;
   contentType: string;
 }> {
-  assertAllowedUrl(url);
+  assertAllowedUrl(url, opts);
   const max = flyerConfig.maxSizeMb * 1024 * 1024;
   let lastErr: unknown;
 

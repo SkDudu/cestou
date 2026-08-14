@@ -1329,15 +1329,19 @@ SPEC 010  Flyer Pipeline
        ↓
 SPEC 011  AI Vision Offer Extraction (DeepSeek)  → back/docs/ai-vision-offer-extraction.md
        ↓
-SPEC 012  Product Normalization
+SPEC 012  MiMo-V2.5 Flyer Extraction  → back/docs/mimo-v25-flyer-extraction.md
        ↓
-SPEC 013  Product Canonicalization
+SPEC 013  São Luiz Store & Flyer Discovery  → back/docs/sao-luiz-store-flyer-discovery.md
        ↓
-SPEC 014  Price History
+SPEC 014  Product Normalization
        ↓
-SPEC 015  Shopping List
+SPEC 015  Product Canonicalization
        ↓
-SPEC 016  Price Comparison
+SPEC 016  Price History
+       ↓
+SPEC 017  Shopping List
+       ↓
+SPEC 018  Price Comparison
 ```
 
 A numeração pode ser ajustada conforme novas SPECs forem inseridas.

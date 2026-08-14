@@ -512,12 +512,16 @@ SPEC 010  Flyer Pipeline (download + storage + admin)
        ↓
 SPEC 011  AI Vision Offer Extraction (DeepSeek)   ← este documento
        ↓
-SPEC 012  Product Normalization
+SPEC 012  MiMo-V2.5 Flyer Extraction  → back/docs/mimo-v25-flyer-extraction.md
+       ↓
+SPEC 013  São Luiz Store & Flyer Discovery  → back/docs/sao-luiz-store-flyer-discovery.md
+       ↓
+SPEC 014  Product Normalization
        ↓
 …
 ```
 
-A numeração “Product Normalization” anterior (011) desloca-se para **012+**.
+A numeração “Product Normalization” anterior (011) desloca-se para **014+**. MiMo-V2.5 é **SPEC 012**. Discovery de lojas São Luiz é **SPEC 013**.
 
 ---
 

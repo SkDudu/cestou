@@ -9,6 +9,7 @@ const stage = v.union(
   v.literal("OCR"),
   v.literal("PARSER"),
   v.literal("VALIDATION"),
+  v.literal("AI_VISION"),
 );
 
 export const insert = mutation({

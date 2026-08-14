@@ -37,21 +37,29 @@ npm run convex:dev
 | `npm run convex:dev` | Convex local (:3210) |
 | `npm run convex:deploy` | Deploy Convex |
 
-### Flyer pipeline (SPEC 010)
+### Flow Builder + extract
 
 | Comando | Descrição |
 |---------|-----------|
-| `npm run flyers:discover` | Seed São Luiz + descobrir encarte atual |
+| `npm run flows:session-worker` | Worker Playwright p/ dashboard (:8791) |
+| `npm run flows:run -- --flow=<id>` | Rodar fluxo via CLI |
+| `npm run flows:record` | Gravador CLI (opcional; preferir dashboard) |
 | `npm run flyers:download` | Baixar páginas → Convex Storage |
-| `npm run flyers:extract` | OCR (Tesseract) + parser → offers |
-| `npm run flyers:reextract` | Re-OCR com `--force` (substitui ofertas) |
-| `npm run flyers:expire` | Marcar flyers com `validUntil` passado |
-| `npm run flyers:sync` | expire → discover → download → extract |
+| `npm run flyers:extract` | MiMo-V2.5 por página (fallback Tesseract) → offers |
+| `npm run flyers:reextract` | Re-extrai com `--force` |
+| `npm run mimo:test` | Smoke test da API MiMo |
+| `npm run flyers:test-extraction` | Extrai uma página sem persistir |
+| `npx convex run clearData:wipeAll` | Apagar tudo do banco |
 
 ```bash
-npm run flyers:sync
-npm run selfcheck --workspace=scraper
+# front: /admin/scraper → Iniciar worker | Abrir navegador | Rodar fluxo
+npm run flows:session-worker
+npm run flows:run -- --flow=<id> --ctx.storeId=355
 ```
+
+Admin Flow Builder: `/admin/scraper`. **Iniciar worker** no dashboard sobe o Playwright (`POST /api/browser-worker`). Worker: `NEXT_PUBLIC_BROWSER_SESSION_URL=http://127.0.0.1:8791` (default).
+
+Pipeline do fluxo: `discover-flyer` → `download-flyers` → `extract-offers` (MiMo) → ofertas no Convex.
 
 ---
 
@@ -62,4 +70,4 @@ npm run selfcheck --workspace=scraper
 | `npm run dev` | Next.js admin em :3000 |
 | `npm run build` | Build produção |
 
-Rotas admin: `/admin`, `/admin/supermarkets`, `/admin/flyers`, `/admin/offers`, `/admin/validation`, `/admin/errors`.
+Rotas admin: `/admin`, `/admin/supermarkets`, `/admin/scraper`, `/admin/flyers`, `/admin/offers`, `/admin/validation`, `/admin/errors`.

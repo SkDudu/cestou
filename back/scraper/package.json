@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "flyers:discover": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-discovery.js",
     "flyers:download": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-download.js",
     "flyers:extract": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-extraction.js",
     "flyers:reextract": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-extraction.js --force",
-    "flyers:expire": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-expiration.js",
-    "flyers:sync": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-sync.js",
+    "mimo:test": "tsc && node --env-file=../.env dist/flyers/jobs/mimo-test.js",
+    "flyers:test-extraction": "tsc && node --env-file=../.env dist/flyers/jobs/flyer-test-extraction.js",
+    "flows:run": "tsc && node --env-file=../.env dist/flyers/jobs/flow-run.js",
+    "flows:record": "tsc && node --env-file=../.env dist/flyers/jobs/flow-record.js",
+    "flows:session-worker": "tsc && node --env-file=../.env dist/flyers/jobs/flow-session-worker.js",
     "selfcheck": "tsc && node dist/flyers/selfcheck.js"
   },
   "dependencies": {

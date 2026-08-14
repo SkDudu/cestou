@@ -1,0 +1,15 @@
+{
+  "pageNumber": 1,
+  "offers": [
+    {
+      "name": "Arroz Camil Tipo 1",
+      "brand": "Camil",
+      "quantity": "5",
+      "unit": "kg",
+      "price": 27.99,
+      "originalPrice": 34.9,
+      "discount": 19.8,
+      "pageNumber": 1
+    }
+  ]
+}

@@ -10,7 +10,11 @@ export const wipeAll = mutation({
   args: {},
   handler: async (ctx) => {
     const tables = [
+      "scraperRuns",
+      "scraperSteps",
+      "scraperFlows",
       "offers",
+      "flyerExtractions",
       "flyerPages",
       "flyerErrors",
       "flyers",

@@ -6,6 +6,7 @@ const nav = [
   { href: "/admin/flyers", label: "Encartes", section: "data" },
   { href: "/admin/offers", label: "Ofertas", section: "data" },
   { href: "/admin/validation", label: "Validação", section: "data" },
+  { href: "/admin/scraper", label: "Flow Builder", section: "ops" },
   { href: "/admin/errors", label: "Erros", section: "ops" },
 ];
 

@@ -6,5 +6,6 @@ dist/
 .convex/
 scraper/node_modules/
 scraper/dist/
+scraper/debug/
 
 .env.local

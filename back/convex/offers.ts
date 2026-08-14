@@ -31,6 +31,8 @@ export const insertBatch = mutation({
     ),
     /** Replace existing offers for this flyer (re-extract). */
     replace: v.optional(v.boolean()),
+    /** Replace only these page numbers (partial retry). */
+    replacePageNumbers: v.optional(v.array(v.number())),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -38,7 +40,8 @@ export const insertBatch = mutation({
       .withIndex("by_flyer", (q) => q.eq("flyerId", args.flyerId))
       .collect();
 
-    if (existing.length > 0 && !args.replace) {
+    const pages = args.replacePageNumbers;
+    if (existing.length > 0 && !args.replace && !pages?.length) {
       return { inserted: 0, skipped: true, deleted: 0 };
     }
 
@@ -47,6 +50,14 @@ export const insertBatch = mutation({
       for (const row of existing) {
         await ctx.db.delete(row._id);
         deleted++;
+      }
+    } else if (pages?.length) {
+      const drop = new Set(pages);
+      for (const row of existing) {
+        if (row.pageNumber !== undefined && drop.has(row.pageNumber)) {
+          await ctx.db.delete(row._id);
+          deleted++;
+        }
       }
     }
 
@@ -91,6 +102,39 @@ export const setValidationStatus = mutation({
       validationStatus: args.validationStatus,
       updatedAt: Date.now(),
     });
+  },
+});
+
+/** Mark all pending offers as validated (optional supermarket filter). */
+export const validateAllPending = mutation({
+  args: {
+    supermarketId: v.optional(v.id("supermarkets")),
+  },
+  handler: async (ctx, args) => {
+    const pending = args.supermarketId
+      ? await ctx.db
+          .query("offers")
+          .withIndex("by_supermarket_status", (q) =>
+            q
+              .eq("supermarketId", args.supermarketId!)
+              .eq("validationStatus", "pending"),
+          )
+          .collect()
+      : await ctx.db
+          .query("offers")
+          .withIndex("by_validationStatus", (q) =>
+            q.eq("validationStatus", "pending"),
+          )
+          .collect();
+
+    const now = Date.now();
+    for (const offer of pending) {
+      await ctx.db.patch(offer._id, {
+        validationStatus: "validated",
+        updatedAt: now,
+      });
+    }
+    return { updated: pending.length };
   },
 });
 
@@ -221,11 +265,23 @@ export const get = query({
         .unique();
       if (page) pageUrl = await ctx.storage.getUrl(page.storageId);
     }
+    let extraction = null;
+    if (offer.pageNumber !== undefined) {
+      const rows = await ctx.db
+        .query("flyerExtractions")
+        .withIndex("by_flyer_page", (q) =>
+          q.eq("flyerId", offer.flyerId).eq("pageNumber", offer.pageNumber!),
+        )
+        .collect();
+      extraction =
+        [...rows].sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
+    }
     return {
       ...offer,
       supermarket,
       flyer,
       pageUrl,
+      extraction,
     };
   },
 });

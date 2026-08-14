@@ -15,6 +15,7 @@ const statuses = [
   "downloading",
   "downloaded",
   "processing",
+  "partially_processed",
   "processed",
   "expired",
   "failed",
@@ -34,6 +35,7 @@ export default function FlyersPage() {
           | "downloading"
           | "downloaded"
           | "processing"
+          | "partially_processed"
           | "processed"
           | "expired"
           | "failed")

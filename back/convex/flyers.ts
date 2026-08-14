@@ -7,6 +7,7 @@ const flyerStatus = v.union(
   v.literal("downloading"),
   v.literal("downloaded"),
   v.literal("processing"),
+  v.literal("partially_processed"),
   v.literal("processed"),
   v.literal("expired"),
   v.literal("failed"),
@@ -56,22 +57,28 @@ export const createDiscovered = mutation({
     sourceId: v.id("flyerSources"),
     title: v.optional(v.string()),
     originalUrl: v.string(),
+    pageUrls: v.optional(v.array(v.string())),
     validFrom: v.optional(v.number()),
     validUntil: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    if (args.validFrom !== undefined && args.validUntil !== undefined) {
-      const existing = await ctx.db
-        .query("flyers")
-        .withIndex("by_identity", (q) =>
-          q
-            .eq("supermarketId", args.supermarketId)
-            .eq("sourceId", args.sourceId)
-            .eq("validFrom", args.validFrom)
-            .eq("validUntil", args.validUntil),
-        )
-        .unique();
-      if (existing) return existing._id;
+    // Dedupe by originalUrl per store — date-only identity collided Açougue/Peixaria
+    const byUrl = await ctx.db
+      .query("flyers")
+      .withIndex("by_supermarket", (q) =>
+        q.eq("supermarketId", args.supermarketId),
+      )
+      .filter((q) => q.eq(q.field("originalUrl"), args.originalUrl))
+      .first();
+    if (byUrl) {
+      const patch: Record<string, unknown> = { updatedAt: Date.now() };
+      if (args.pageUrls?.length) patch.pageUrls = args.pageUrls;
+      if (args.title) patch.title = args.title;
+      if (byUrl.status === "failed" && args.pageUrls?.length) {
+        patch.status = "discovered";
+      }
+      if (Object.keys(patch).length > 1) await ctx.db.patch(byUrl._id, patch);
+      return byUrl._id;
     }
 
     const now = Date.now();
@@ -80,6 +87,7 @@ export const createDiscovered = mutation({
       sourceId: args.sourceId,
       title: args.title,
       originalUrl: args.originalUrl,
+      pageUrls: args.pageUrls,
       validFrom: args.validFrom,
       validUntil: args.validUntil,
       status: "discovered",
@@ -209,11 +217,15 @@ export const listPendingExtract = query({
       .query("flyers")
       .withIndex("by_status", (q) => q.eq("status", "downloaded"))
       .collect();
-    return downloaded;
+    const partial = await ctx.db
+      .query("flyers")
+      .withIndex("by_status", (q) => q.eq("status", "partially_processed"))
+      .collect();
+    return [...downloaded, ...partial];
   },
 });
 
-/** Re-OCR candidates: downloaded or already processed (has pages). */
+/** Re-OCR candidates: downloaded, partial, or already processed (has pages). */
 export const listForExtract = query({
   args: { includeProcessed: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
@@ -221,12 +233,16 @@ export const listForExtract = query({
       .query("flyers")
       .withIndex("by_status", (q) => q.eq("status", "downloaded"))
       .collect();
-    if (!args.includeProcessed) return downloaded;
+    const partial = await ctx.db
+      .query("flyers")
+      .withIndex("by_status", (q) => q.eq("status", "partially_processed"))
+      .collect();
+    if (!args.includeProcessed) return [...downloaded, ...partial];
     const processed = await ctx.db
       .query("flyers")
       .withIndex("by_status", (q) => q.eq("status", "processed"))
       .collect();
-    return [...downloaded, ...processed];
+    return [...downloaded, ...partial, ...processed];
   },
 });
 
@@ -301,7 +317,9 @@ export const listNearExpiration = query({
         f.validUntil !== undefined &&
         f.validUntil >= now &&
         f.validUntil <= cutoff &&
-        (f.status === "processed" || f.status === "downloaded"),
+        (f.status === "processed" ||
+          f.status === "downloaded" ||
+          f.status === "partially_processed"),
     );
   },
 });

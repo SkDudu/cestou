@@ -11,14 +11,45 @@ export const flyerConfig = {
   concurrency: Number(process.env.FLYER_CONCURRENCY ?? 2),
   allowedHosts: (
     process.env.FLYER_ALLOWED_HOSTS ??
-    "mercadapp.com.br,merconnect.mercadapp.com.br,cdn.mercadapp.services,mercadinhossaoluiz.com.br"
+    "mercadapp.com.br,merconnect.mercadapp.com.br,cdn.mercadapp.services,mercadinhossaoluiz.com.br,atacadao.com.br,vtexassets.com,carrefour.com.br,apigw.cloud.carrefour.com.br"
   )
     .split(",")
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean),
+  mimoApiKey: process.env.MIMO_API_KEY ?? "",
+  mimoBaseUrl: (
+    process.env.MIMO_BASE_URL ?? "https://api.xiaomimimo.com/v1"
+  ).replace(/\/$/, ""),
+  mimoModel: process.env.MIMO_MODEL ?? "mimo-v2.5",
+  mimoMaxCompletionTokens: Number(
+    process.env.MIMO_MAX_COMPLETION_TOKENS ?? 4096,
+  ),
+  mimoTimeout: Number(process.env.MIMO_TIMEOUT ?? 120000),
+  mimoMaxRetries: Number(process.env.MIMO_MAX_RETRIES ?? 3),
+  mimoConcurrency: Number(process.env.MIMO_CONCURRENCY ?? 1),
+  aiEnabled: (process.env.FLYER_AI_ENABLED ?? "true") !== "false",
+  aiProvider: (process.env.FLYER_AI_PROVIDER ?? "mimo").toLowerCase(),
+  aiFallbackOnEmpty:
+    (process.env.FLYER_AI_FALLBACK_ON_EMPTY ?? "true") !== "false",
+  aiPromptVersion: process.env.FLYER_AI_PROMPT_VERSION ?? "flyer-offers-v1",
+  aiMaxImageEdgePx: Number(process.env.FLYER_AI_MAX_IMAGE_EDGE_PX ?? 2048),
+
+  // Defaults for flow context / supermarket bootstrap
+  saoLuizBaseUrl: (
+    process.env.SAO_LUIZ_BASE_URL ?? "https://mercadinhossaoluiz.com.br"
+  ).replace(/\/$/, ""),
+  discoveryCity: process.env.DISCOVERY_CITY ?? "Fortaleza",
+  discoveryState: process.env.DISCOVERY_STATE ?? "CE",
+
+  browserHeadless: (process.env.BROWSER_HEADLESS ?? "true") !== "false",
+  browserTimeout: Number(process.env.BROWSER_TIMEOUT ?? 30000),
+  browserNavigationTimeout: Number(
+    process.env.BROWSER_NAVIGATION_TIMEOUT ?? 30000,
+  ),
+  scraperMaxRetries: Number(process.env.SCRAPER_MAX_RETRIES ?? 3),
 };
 
-export function assertAllowedUrl(url: string) {
+export function assertAllowedUrl(url: string, opts?: { anyHttps?: boolean }) {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -28,6 +59,7 @@ export function assertAllowedUrl(url: string) {
   if (parsed.protocol !== "https:") {
     throw new Error(`Only HTTPS allowed: ${url}`);
   }
+  if (opts?.anyHttps) return;
   const host = parsed.hostname.toLowerCase();
   const ok = flyerConfig.allowedHosts.some(
     (allowed) => host === allowed || host.endsWith(`.${allowed}`),

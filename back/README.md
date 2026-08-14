@@ -3,8 +3,9 @@
 ## Stack
 
 - Node.js + TypeScript
-- Playwright (descoberta São Luiz / Mercadapp)
-- Tesseract.js (OCR)
+- Playwright (Flow Builder / session worker)
+- Tesseract.js (OCR fallback)
+- MiMo-V2.5 (extração primária de ofertas)
 - Convex (dados + file storage)
 - Next.js admin (`front/`)
 
@@ -22,12 +23,16 @@ npx convex dev
 
 ## Flyers
 
+Path principal: admin `/admin/scraper` (Flow Builder).
+
 ```bash
-npm run flyers:discover   # seed São Luiz + descobrir encarte
-npm run flyers:download   # baixar páginas → Convex Storage
-npm run flyers:extract    # OCR + parser → offers
-npm run flyers:expire     # marcar encartes vencidos
-npm run flyers:sync       # expire → discover → download → extract
+npm run flows:session-worker   # Playwright :8791 (ou Iniciar worker no admin)
+npm run flows:run -- --flow=<id>
+npm run flyers:download        # baixar páginas → Convex Storage
+npm run flyers:extract         # MiMo-V2.5 (fallback Tesseract) → offers
+npm run flyers:reextract       # force replace ofertas
+npm run mimo:test -- --image=scraper/fixtures/flyers/sao-luiz/page-01.jpeg
+npm run flyers:test-extraction -- --page=3
 ```
 
 Self-check do parser:
@@ -44,7 +49,7 @@ npm install
 npm run dev
 ```
 
-Abra `/admin` — overview, supermercados, encartes, ofertas, validação, erros.
+Abra `/admin` — overview, supermercados, Flow Builder, encartes, ofertas, validação, erros.
 
 ## Wipe local
 
