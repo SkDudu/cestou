@@ -3,6 +3,7 @@ import { flyerLog } from "../core/flyer-logger.js";
 import {
   finishScraperRun,
   getScraperFlow,
+  scheduleNextCheck,
   startScraperRun,
 } from "../core/flyer-storage.js";
 import { runFlow, type FlowRunResult } from "../runner/flow-runner.js";
@@ -10,21 +11,32 @@ import type { FlowStep, StepType } from "../types/flows.js";
 
 export type FlowLogFn = (line: string) => void;
 
+export type ExecuteFlowOpts = {
+  onLog?: FlowLogFn;
+  signal?: AbortSignal;
+  pipeline?: "discovery" | "full";
+};
+
 export async function executeFlowById(
   flowId: string,
   ctx: Record<string, string>,
-  onLog?: FlowLogFn,
+  onLog?: FlowLogFn | ExecuteFlowOpts,
   signal?: AbortSignal,
 ): Promise<FlowRunResult & { runId: string }> {
+  const opts: ExecuteFlowOpts =
+    typeof onLog === "function" || onLog === undefined
+      ? { onLog, signal }
+      : onLog;
+  const pipeline = opts.pipeline ?? "full";
   const log = (line: string) => {
     flyerLog.info("FLOW", line);
-    onLog?.(line);
+    opts.onLog?.(line);
   };
 
   const flow = await getScraperFlow(flowId);
   if (!flow) throw new Error(`Flow not found: ${flowId}`);
 
-  const steps: FlowStep[] = (flow.steps ?? []).map(
+  let steps: FlowStep[] = (flow.steps ?? []).map(
     (s: { order: number; type: string; config: string }) => ({
       order: s.order,
       type: s.type as StepType,
@@ -32,8 +44,11 @@ export async function executeFlowById(
     }),
   );
 
-  // Pipeline tail: discover → download → MiMo extract
-  if (steps.some((s) => s.type === "discover-flyer")) {
+  if (pipeline === "discovery") {
+    steps = steps.filter(
+      (s) => s.type !== "download-flyers" && s.type !== "extract-offers",
+    );
+  } else if (steps.some((s) => s.type === "discover-flyer")) {
     if (!steps.some((s) => s.type === "download-flyers")) {
       steps.push({
         order: steps.length,
@@ -59,7 +74,7 @@ export async function executeFlowById(
   };
 
   const runId = (await startScraperRun(flowId)) as string;
-  log(`run ${runId} — ${flow.name} v${flow.version}`);
+  log(`run ${runId} — ${flow.name} v${flow.version} pipeline=${pipeline}`);
   log(`ctx ${JSON.stringify(fullCtx)}`);
   log(`steps ${steps.length}`);
 
@@ -77,7 +92,7 @@ export async function executeFlowById(
       timeoutMs: flyerConfig.browserTimeout,
       maxRetries: flyerConfig.scraperMaxRetries,
       onLog: log,
-      signal,
+      signal: opts.signal,
     },
   );
 
@@ -102,11 +117,20 @@ export async function executeFlowById(
 
   log(result.ok ? "SUCCESS" : cancelled ? "STOPPED" : "FAILED");
   log(
-    `steps=${result.stepsExecuted} stores=${result.storesFound} flyers=${result.flyersFound} offers=${result.offersFound}`,
+    `steps=${result.stepsExecuted} stores=${result.storesFound} flyers=${result.flyersFound} new=${result.newFlyers} offers=${result.offersFound}`,
   );
   if (result.error) log(`error: ${result.error}`);
   for (const line of summary.split("\n")) {
     if (line) log(line);
+  }
+
+  if (result.ok && pipeline === "full") {
+    const scheduled = (await scheduleNextCheck(flowId)) as {
+      nextRunAt?: number;
+    };
+    if (scheduled?.nextRunAt) {
+      log(`next site check ${new Date(scheduled.nextRunAt).toISOString()}`);
+    }
   }
 
   return { ...result, runId };

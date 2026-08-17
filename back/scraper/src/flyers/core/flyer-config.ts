@@ -47,6 +47,7 @@ export const flyerConfig = {
     process.env.BROWSER_NAVIGATION_TIMEOUT ?? 30000,
   ),
   scraperMaxRetries: Number(process.env.SCRAPER_MAX_RETRIES ?? 3),
+  schedulerPollMs: Number(process.env.FLYER_SCHEDULER_POLL_MS ?? 60_000),
 };
 
 export function assertAllowedUrl(url: string, opts?: { anyHttps?: boolean }) {

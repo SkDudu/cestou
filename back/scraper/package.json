@@ -13,6 +13,7 @@
     "flows:run": "tsc && node --env-file=../.env dist/flyers/jobs/flow-run.js",
     "flows:record": "tsc && node --env-file=../.env dist/flyers/jobs/flow-record.js",
     "flows:session-worker": "tsc && node --env-file=../.env dist/flyers/jobs/flow-session-worker.js",
+    "flows:scheduler": "tsc && node --env-file=../.env dist/flyers/jobs/flow-scheduler.js",
     "selfcheck": "tsc && node dist/flyers/selfcheck.js"
   },
   "dependencies": {

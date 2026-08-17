@@ -21,7 +21,9 @@ function parseCtx(): Record<string, string> {
 export async function runFlowJob() {
   const flowId = argVal("flow");
   if (!flowId) throw new Error("Usage: flows:run -- --flow=<id>");
-  const result = await executeFlowById(flowId, parseCtx());
+  const result = await executeFlowById(flowId, parseCtx(), {
+    pipeline: process.argv.includes("--discovery") ? "discovery" : "full",
+  });
   if (!result.ok) process.exitCode = 1;
 }
 

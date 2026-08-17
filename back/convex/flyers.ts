@@ -51,6 +51,30 @@ export const findByHash = query({
       .first(),
 });
 
+function discoveredPatch(
+  args: {
+    title?: string;
+    pageUrls?: string[];
+    validFrom?: number;
+    validUntil?: number;
+    externalId?: string;
+    originalUrl?: string;
+  },
+  existingStatus: string,
+) {
+  const patch: Record<string, unknown> = { updatedAt: Date.now() };
+  if (args.pageUrls?.length) patch.pageUrls = args.pageUrls;
+  if (args.title) patch.title = args.title;
+  if (args.externalId) patch.externalId = args.externalId;
+  if (args.validFrom !== undefined) patch.validFrom = args.validFrom;
+  if (args.validUntil !== undefined) patch.validUntil = args.validUntil;
+  if (args.originalUrl) patch.originalUrl = args.originalUrl;
+  if (existingStatus === "failed" && args.pageUrls?.length) {
+    patch.status = "discovered";
+  }
+  return patch;
+}
+
 export const createDiscovered = mutation({
   args: {
     supermarketId: v.id("supermarkets"),
@@ -60,6 +84,7 @@ export const createDiscovered = mutation({
     pageUrls: v.optional(v.array(v.string())),
     validFrom: v.optional(v.number()),
     validUntil: v.optional(v.number()),
+    externalId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Dedupe by originalUrl per store — date-only identity collided Açougue/Peixaria
@@ -71,18 +96,28 @@ export const createDiscovered = mutation({
       .filter((q) => q.eq(q.field("originalUrl"), args.originalUrl))
       .first();
     if (byUrl) {
-      const patch: Record<string, unknown> = { updatedAt: Date.now() };
-      if (args.pageUrls?.length) patch.pageUrls = args.pageUrls;
-      if (args.title) patch.title = args.title;
-      if (byUrl.status === "failed" && args.pageUrls?.length) {
-        patch.status = "discovered";
-      }
+      const patch = discoveredPatch(args, byUrl.status);
       if (Object.keys(patch).length > 1) await ctx.db.patch(byUrl._id, patch);
-      return byUrl._id;
+      return { id: byUrl._id, created: false };
+    }
+
+    if (args.externalId) {
+      const byExt = await ctx.db
+        .query("flyers")
+        .withIndex("by_supermarket_externalId", (q) =>
+          q
+            .eq("supermarketId", args.supermarketId)
+            .eq("externalId", args.externalId),
+        )
+        .first();
+      if (byExt) {
+        await ctx.db.patch(byExt._id, discoveredPatch(args, byExt.status));
+        return { id: byExt._id, created: false };
+      }
     }
 
     const now = Date.now();
-    return await ctx.db.insert("flyers", {
+    const id = await ctx.db.insert("flyers", {
       supermarketId: args.supermarketId,
       sourceId: args.sourceId,
       title: args.title,
@@ -90,10 +125,12 @@ export const createDiscovered = mutation({
       pageUrls: args.pageUrls,
       validFrom: args.validFrom,
       validUntil: args.validUntil,
+      externalId: args.externalId,
       status: "discovered",
       createdAt: now,
       updatedAt: now,
     });
+    return { id, created: true };
   },
 });
 
@@ -109,6 +146,26 @@ export const setStatus = mutation({
       status: args.status,
       updatedAt: Date.now(),
     });
+  },
+});
+
+export const patchValidity = mutation({
+  args: {
+    id: v.id("flyers"),
+    validFrom: v.optional(v.number()),
+    validUntil: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const flyer = await ctx.db.get(args.id);
+    if (!flyer) throw new Error("Flyer not found");
+    const patch: Record<string, unknown> = { updatedAt: Date.now() };
+    if (args.validFrom !== undefined && flyer.validFrom === undefined) {
+      patch.validFrom = args.validFrom;
+    }
+    if (args.validUntil !== undefined && flyer.validUntil === undefined) {
+      patch.validUntil = args.validUntil;
+    }
+    if (Object.keys(patch).length > 1) await ctx.db.patch(args.id, patch);
   },
 });
 

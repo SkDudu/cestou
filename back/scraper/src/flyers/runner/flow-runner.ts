@@ -18,6 +18,7 @@ export type FlowRunResult = {
   storesFound: number;
   flyersFound: number;
   offersFound: number;
+  newFlyers: number;
   error?: string;
   stepLogs: Array<{ order: number; type: string; result: StepResult }>;
 };
@@ -47,6 +48,7 @@ export async function runFlow(
   let storesFound = 0;
   let flyersFound = 0;
   let offersFound = 0;
+  let newFlyers = 0;
 
   const state: FlowState = {
     ctx: { ...ctx, startUrl: flow.startUrl },
@@ -72,6 +74,7 @@ export async function runFlow(
         storesFound: 0,
         flyersFound: 0,
         offersFound: 0,
+        newFlyers: 0,
         error: "cancelled",
         stepLogs,
       };
@@ -112,6 +115,7 @@ export async function runFlow(
       storesFound += result.storesFound ?? 0;
       flyersFound += result.flyersFound ?? 0;
       offersFound += result.offersFound ?? 0;
+      newFlyers += result.newFlyers ?? 0;
       if (!result.ok) {
         say(`✕ ${step.type}: ${result.message}`);
         return {
@@ -120,6 +124,7 @@ export async function runFlow(
           storesFound,
           flyersFound,
           offersFound,
+          newFlyers,
           error: `Step ${step.order} (${step.type}): ${result.message}`,
           stepLogs,
         };
@@ -134,6 +139,7 @@ export async function runFlow(
       storesFound,
       flyersFound,
       offersFound: offersFound || state.offersFound,
+      newFlyers,
       stepLogs,
     };
   } catch (err) {
@@ -145,6 +151,7 @@ export async function runFlow(
         storesFound,
         flyersFound,
         offersFound,
+        newFlyers,
         error: "cancelled",
         stepLogs,
       };

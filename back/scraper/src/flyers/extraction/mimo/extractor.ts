@@ -117,6 +117,8 @@ export class MimoVisionExtractor implements FlyerOfferExtractor {
           model: flyerConfig.mimoModel,
           latencyMs,
           pageConfidence: parsed.confidence,
+          validFrom: parsed.validFrom,
+          validUntil: parsed.validUntil,
           usage: {
             promptTokens: json.usage?.prompt_tokens,
             completionTokens: json.usage?.completion_tokens,

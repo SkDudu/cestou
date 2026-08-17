@@ -4,9 +4,9 @@ import { internal } from "./_generated/api";
 const crons = cronJobs();
 
 crons.interval(
-  "mark expired flyers",
+  "check flyer lifecycle",
   { hours: 1 },
-  internal.flyersInternal.markExpiredInternal,
+  internal.flyersInternal.checkFlyerLifecycle,
   {},
 );
 

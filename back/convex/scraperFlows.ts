@@ -92,6 +92,9 @@ export const update = mutation({
     for (const [k, val] of Object.entries(rest)) {
       if (val !== undefined) patch[k] = val;
     }
+    if (args.status === "active" && flow.status !== "active") {
+      patch.discoveryAttempts = 0;
+    }
     if (bumpVersion) patch.version = flow.version + 1;
     await ctx.db.patch(id, patch);
   },
@@ -111,5 +114,104 @@ export const remove = mutation({
       .collect();
     for (const r of runs) await ctx.db.delete(r._id);
     await ctx.db.delete(args.id);
+  },
+});
+
+export const listDue = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const flows = await ctx.db
+      .query("scraperFlows")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
+    return flows.filter(
+      (f) => f.nextRunAt !== undefined && f.nextRunAt <= now,
+    );
+  },
+});
+
+const HOUR = 60 * 60 * 1000;
+const MAX_ATTEMPTS = 4;
+
+export const scheduleNextCheck = mutation({
+  args: { flowId: v.id("scraperFlows") },
+  handler: async (ctx, args) => {
+    const flow = await ctx.db.get(args.flowId);
+    if (!flow) throw new Error("Flow not found");
+    const now = Date.now();
+    const flyers = await ctx.db
+      .query("flyers")
+      .withIndex("by_supermarket", (q) =>
+        q.eq("supermarketId", flow.supermarketId),
+      )
+      .collect();
+    let next: number | undefined;
+    for (const f of flyers) {
+      if (
+        f.status === "expired" ||
+        f.status === "failed" ||
+        f.validUntil === undefined
+      ) {
+        continue;
+      }
+      next = next === undefined ? f.validUntil : Math.min(next, f.validUntil);
+    }
+    if (next === undefined) {
+      await ctx.db.patch(flow._id, { lastRunAt: now, updatedAt: now });
+      return { nextRunAt: flow.nextRunAt };
+    }
+    const nextRunAt = next <= now ? now : next;
+    await ctx.db.patch(flow._id, {
+      lastRunAt: now,
+      discoveryAttempts: 0,
+      nextRunAt,
+      updatedAt: now,
+    });
+    return { nextRunAt };
+  },
+});
+
+export const recordDiscoveryResult = mutation({
+  args: {
+    flowId: v.id("scraperFlows"),
+    ok: v.boolean(),
+    newFlyers: v.number(),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const flow = await ctx.db.get(args.flowId);
+    if (!flow) throw new Error("Flow not found");
+    const now = Date.now();
+
+    if (args.ok && args.newFlyers > 0) {
+      await ctx.db.patch(flow._id, {
+        lastRunAt: now,
+        discoveryAttempts: 0,
+        updatedAt: now,
+      });
+      return { status: flow.status, attempts: 0 };
+    }
+
+    const attempts = (flow.discoveryAttempts ?? 0) + 1;
+    const delay = Math.min(8 * HOUR, HOUR << (attempts - 1));
+    const patch: Record<string, unknown> = {
+      lastRunAt: now,
+      discoveryAttempts: attempts,
+      nextRunAt: now + delay,
+      updatedAt: now,
+    };
+    if (attempts >= MAX_ATTEMPTS) {
+      patch.status = "error";
+      await ctx.db.insert("flyerErrors", {
+        supermarketId: flow.supermarketId,
+        stage: "DISCOVERY",
+        message: args.error ?? `Discovery failed after ${attempts} attempts`,
+        status: "open",
+        createdAt: now,
+      });
+    }
+    await ctx.db.patch(flow._id, patch);
+    return { status: attempts >= MAX_ATTEMPTS ? "error" : flow.status, attempts };
   },
 });

@@ -15,9 +15,11 @@ import {
   insertOffers,
   listForExtract,
   listPendingExtract,
+  patchFlyerValidity,
   setFlyerStatus,
 } from "../core/flyer-storage.js";
 import type { ParsedOffer } from "../core/flyer-types.js";
+import { parseValidity, shouldExtractNow } from "../core/validity.js";
 
 type PageRow = {
   _id: string;
@@ -103,6 +105,22 @@ export async function extractPending(opts?: {
 
   for (const flyer of flyers) {
     try {
+      const windowMs =
+        flyerConfig.discoveryBeforeExpirationHours * 60 * 60 * 1000;
+      if (
+        !force &&
+        !shouldExtractNow(
+          flyer as { validFrom?: number },
+          Date.now(),
+          windowMs,
+        )
+      ) {
+        flyerLog.info(
+          "OCR",
+          `skip ${flyer._id} upcoming validFrom=${(flyer as { validFrom?: number }).validFrom}`,
+        );
+        continue;
+      }
       await setFlyerStatus(flyer._id, "processing");
 
       const full = await getFlyer(flyer._id);
@@ -183,6 +201,8 @@ export async function extractPending(opts?: {
 
             const offers = parts.flatMap((p) => p.offers);
             const failed = parts.every((p) => p.status === "failed");
+            const validFrom = parts.find((p) => p.validFrom)?.validFrom;
+            const validUntil = parts.find((p) => p.validUntil)?.validUntil;
             const result = {
               offers,
               status: failed ? ("failed" as const) : parts[0]!.status,
@@ -240,6 +260,8 @@ export async function extractPending(opts?: {
               offers: result.offers,
               failed: result.status === "failed",
               skipped: false,
+              validFrom,
+              validUntil,
             };
           } catch (err) {
             flyerLog.error(
@@ -280,12 +302,31 @@ export async function extractPending(opts?: {
       const failedCount = results.filter((r) => r.failed).length;
       const okCount = results.filter((r) => !r.failed && !r.skipped).length;
 
+      const mimoFrom = ran.find((r) => r.validFrom)?.validFrom;
+      const mimoUntil = ran.find((r) => r.validUntil)?.validUntil;
+      const tz =
+        (full as { supermarket?: { timezone?: string } }).supermarket
+          ?.timezone || "America/Fortaleza";
+      const parsedFrom = parseValidity(mimoFrom, tz, "from");
+      const parsedUntil = parseValidity(mimoUntil, tz, "until");
+      if (parsedFrom !== undefined || parsedUntil !== undefined) {
+        await patchFlyerValidity({
+          id: flyer._id,
+          validFrom: parsedFrom,
+          validUntil: parsedUntil,
+        });
+      }
+
+      const fresh = await getFlyer(flyer._id);
+      const offerFrom = fresh?.validFrom ?? flyer.validFrom;
+      const offerUntil = fresh?.validUntil ?? flyer.validUntil;
+
       if (ran.length && offers.length) {
         await insertOffers({
           flyerId: flyer._id,
           supermarketId: flyer.supermarketId,
-          validFrom: flyer.validFrom,
-          validUntil: flyer.validUntil,
+          validFrom: offerFrom,
+          validUntil: offerUntil,
           offers,
           replace: force && !pageFilter,
           replacePageNumbers:

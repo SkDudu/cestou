@@ -10,6 +10,7 @@ import { formatDateTime, formatNumber } from "@/lib/format";
 
 export default function AdminOverviewPage() {
   const metrics = useQuery(api.dashboard.metrics);
+  const automation = useQuery(api.dashboard.automation);
 
   if (metrics === undefined) {
     return <p className="text-sm text-zinc-500">Carregando…</p>;
@@ -45,6 +46,115 @@ export default function AdminOverviewPage() {
           value={`${formatNumber(metrics.avgExtractionLatencyMs)} ms`}
         />
       </div>
+
+      {automation ? (
+        <>
+          <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Automação
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard
+              label="Flows ativos"
+              value={formatNumber(automation.flowsActive)}
+            />
+            <MetricCard
+              label="Flows com erro"
+              value={formatNumber(automation.flowsError)}
+            />
+            <MetricCard
+              label="Encartes vigentes"
+              value={formatNumber(automation.flyersVigente)}
+            />
+            <MetricCard
+              label="Expirados"
+              value={formatNumber(automation.flyersExpired)}
+            />
+            <MetricCard
+              label="Aguardando download"
+              value={formatNumber(automation.pendingDownload)}
+            />
+            <MetricCard
+              label="Aguardando análise"
+              value={formatNumber(automation.pendingExtract)}
+            />
+          </div>
+          <div className="mt-4 overflow-hidden rounded-lg border border-zinc-800">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-zinc-800 bg-zinc-900/80 text-xs uppercase text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2">Supermercado</th>
+                  <th className="px-3 py-2">Flow</th>
+                  <th className="px-3 py-2">Último</th>
+                  <th className="px-3 py-2">Próximo</th>
+                  <th className="px-3 py-2">Flyer vigente</th>
+                </tr>
+              </thead>
+              <tbody>
+                {automation.flows.map((f) => (
+                  <tr key={f._id} className="border-b border-zinc-900">
+                    <td className="px-3 py-2">
+                      <Link
+                        href={`/admin/supermarkets/${f.supermarketId}`}
+                        className="text-zinc-200 hover:underline"
+                      >
+                        {f.supermarketName}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={f.status} />
+                      {f.status === "error" ? (
+                        <Link
+                          href="/admin/scraper"
+                          className="ml-2 text-xs text-rose-400 underline"
+                        >
+                          Reconfigurar
+                        </Link>
+                      ) : null}
+                      {f.lastError ? (
+                        <p className="mt-1 max-w-xs truncate text-xs text-zinc-500">
+                          {f.lastError}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400">
+                      {formatDateTime(f.lastRunAt)}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400">
+                      {formatDateTime(f.nextRunAt)}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400">
+                      {f.currentFlyerTitle ?? "—"}
+                      {f.currentValidFrom || f.currentValidUntil ? (
+                        <span className="block text-xs text-zinc-600">
+                          {formatDateTime(f.currentValidFrom)} →{" "}
+                          {formatDateTime(f.currentValidUntil)}
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+                {!automation.flows.length ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-3 py-6 text-center text-zinc-500"
+                    >
+                      Nenhum flow. Configure no{" "}
+                      <Link
+                        href="/admin/scraper"
+                        className="text-zinc-300 underline"
+                      >
+                        Flow Builder
+                      </Link>
+                      .
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
         Encartes recentes

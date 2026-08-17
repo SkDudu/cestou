@@ -1,5 +1,6 @@
 import http from "node:http";
 import { flyerLog } from "../core/flyer-logger.js";
+import { runSchedulerLoop } from "../jobs/flow-scheduler.js";
 import { executeFlowById } from "../runner/execute-flow.js";
 import {
   addSemantic,
@@ -393,6 +394,7 @@ export function startSessionServer() {
       "SESSION",
       `Browser session worker on http://${host}:${port}`,
     );
+    void runSchedulerLoop(() => runBusy);
   });
 
   return server;

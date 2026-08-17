@@ -50,6 +50,7 @@ export default defineSchema({
     country: v.string(),
     active: v.boolean(),
     websiteUrl: v.optional(v.string()),
+    timezone: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
@@ -70,6 +71,8 @@ export default defineSchema({
     sourceId: v.id("flyerSources"),
     title: v.optional(v.string()),
     originalUrl: v.string(),
+    /** Provider flyer id (`?id=` / data-flyer-id). Not flyerSources._id. */
+    externalId: v.optional(v.string()),
     /** Direct page image/PDF URLs (flow discovery / flipbooks) — skip live scraper. */
     pageUrls: v.optional(v.array(v.string())),
     storageId: v.optional(v.id("_storage")),
@@ -92,7 +95,8 @@ export default defineSchema({
       "sourceId",
       "validFrom",
       "validUntil",
-    ]),
+    ])
+    .index("by_supermarket_externalId", ["supermarketId", "externalId"]),
 
   flyerPages: defineTable({
     flyerId: v.id("flyers"),
@@ -187,6 +191,8 @@ export default defineSchema({
     config: v.optional(v.string()),
     schedule: v.optional(v.string()),
     nextRunAt: v.optional(v.number()),
+    lastRunAt: v.optional(v.number()),
+    discoveryAttempts: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

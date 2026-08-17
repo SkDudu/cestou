@@ -70,6 +70,8 @@ export type FlyerOfferExtractionResult = {
   model?: string;
   latencyMs: number;
   pageConfidence?: number;
+  validFrom?: string;
+  validUntil?: string;
   usage?: {
     promptTokens?: number;
     completionTokens?: number;

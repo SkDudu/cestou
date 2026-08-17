@@ -17,6 +17,7 @@ export type StepResult = {
   storesFound?: number;
   flyersFound?: number;
   offersFound?: number;
+  newFlyers?: number;
   candidates?: unknown[];
 };
 
@@ -271,6 +272,7 @@ async function runStepOnce(
           ok: true,
           message: `[FLYER] ${useElement ? "scoped DOM" : "page"} | Candidates: ${dom.length} | Valid: ${candidates.length} saved=${persisted}`,
           flyersFound: persisted || candidates.length,
+          newFlyers: persisted,
           candidates,
         };
       } finally {

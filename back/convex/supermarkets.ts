@@ -10,6 +10,7 @@ export const ensure = mutation({
     country: v.string(),
     websiteUrl: v.optional(v.string()),
     active: v.optional(v.boolean()),
+    timezone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -26,6 +27,7 @@ export const ensure = mutation({
         country: args.country,
         websiteUrl: args.websiteUrl,
         active: args.active ?? existing.active,
+        timezone: args.timezone ?? existing.timezone,
         updatedAt: now,
       });
       return existing._id;
@@ -39,6 +41,7 @@ export const ensure = mutation({
       country: args.country,
       websiteUrl: args.websiteUrl,
       active: args.active ?? true,
+      timezone: args.timezone,
       createdAt: now,
       updatedAt: now,
     });
@@ -54,6 +57,7 @@ export const create = mutation({
     country: v.string(),
     websiteUrl: v.optional(v.string()),
     active: v.optional(v.boolean()),
+    timezone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -71,6 +75,7 @@ export const create = mutation({
       country: args.country,
       websiteUrl: args.websiteUrl,
       active: args.active ?? true,
+      timezone: args.timezone,
       createdAt: now,
       updatedAt: now,
     });
@@ -86,6 +91,7 @@ export const update = mutation({
     country: v.optional(v.string()),
     websiteUrl: v.optional(v.string()),
     active: v.optional(v.boolean()),
+    timezone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...patch } = args;

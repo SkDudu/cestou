@@ -29,6 +29,11 @@ export async function downloadPending(opts?: {
 
   for (const flyer of pending) {
     try {
+      if ((flyer as { storageId?: string }).storageId) {
+        flyerLog.info("DOWNLOAD", `skip ${flyer._id} already stored`);
+        await setFlyerStatus(flyer._id, "downloaded");
+        continue;
+      }
       await setFlyerStatus(flyer._id, "downloading");
       const sm = await getSupermarket(flyer.supermarketId);
       if (!sm?.slug) throw new Error("Supermarket missing slug");

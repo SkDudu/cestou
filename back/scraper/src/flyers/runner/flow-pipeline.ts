@@ -2,13 +2,18 @@ import type { Page, Response } from "playwright";
 import {
   createDiscoveredFlyer,
   ensureFlyerSource,
+  getSupermarket,
 } from "../core/flyer-storage.js";
+import { parseValidity } from "../core/validity.js";
 import type { FlowState, NetworkFlyerDoc } from "../types/flows.js";
 
 export type DiscoveredCandidate = {
   originalUrl: string;
   title?: string;
   pageUrls: string[];
+  externalId?: string;
+  validFrom?: string;
+  validUntil?: string;
 };
 
 export function isFlyerHref(u: string): boolean {
@@ -201,6 +206,12 @@ export function flyerKey(u: string): string {
   return u;
 }
 
+export function flyerExternalId(u: string, explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  const key = flyerKey(u);
+  return key !== u ? key : undefined;
+}
+
 export function flyerKind(u: string): "pdf" | "api" | "flipbook" | "image" {
   if (/\.pdf(\?|$)/i.test(u)) return "pdf";
   if (/flipbook|\/flip(\/|\?|$)/i.test(u)) return "flipbook";
@@ -221,6 +232,7 @@ export function buildCandidates(
       originalUrl: url,
       title: d.text || d.id,
       pageUrls: [url],
+      externalId: flyerExternalId(d.url, d.id),
     });
   }
 
@@ -234,10 +246,15 @@ export function buildCandidates(
           n.url,
           ...existing.pageUrls.filter((u) => u !== n.url),
         ];
+        if (!existing.externalId) {
+          existing.externalId = flyerExternalId(n.url);
+        }
       } else if (!existing.pageUrls.includes(n.url)) {
         existing.pageUrls.push(n.url);
       }
       if (n.title && !existing.title) existing.title = n.title;
+      if (n.validFrom && !existing.validFrom) existing.validFrom = n.validFrom;
+      if (n.validUntil && !existing.validUntil) existing.validUntil = n.validUntil;
       continue;
     }
     if (dom.length) continue;
@@ -246,6 +263,9 @@ export function buildCandidates(
       originalUrl: n.url,
       title: n.title,
       pageUrls: [n.url],
+      externalId: flyerExternalId(n.url),
+      validFrom: n.validFrom,
+      validUntil: n.validUntil,
     });
   }
 
@@ -268,6 +288,9 @@ export async function persistDiscovered(
     url: state.ctx.startUrl || candidates[0]?.originalUrl || "flow",
     active: true,
   });
+  const sm = await getSupermarket(supermarketId);
+  const tz =
+    (sm as { timezone?: string } | null)?.timezone || "America/Fortaleza";
 
   const ids: string[] = [];
   let created = 0;
@@ -275,15 +298,18 @@ export async function persistDiscovered(
     const pages = c.pageUrls.filter(isDocHref);
     const original = isDocHref(c.originalUrl) ? c.originalUrl : pages[0];
     if (!original || !pages.length) continue;
-    const id = await createDiscoveredFlyer({
+    const res = await createDiscoveredFlyer({
       supermarketId,
       sourceId,
       title: c.title,
       originalUrl: original,
       pageUrls: pages,
+      externalId: c.externalId ?? flyerExternalId(original),
+      validFrom: parseValidity(c.validFrom, tz, "from"),
+      validUntil: parseValidity(c.validUntil, tz, "until"),
     });
-    ids.push(id);
-    created++;
+    ids.push(res.id);
+    if (res.created) created++;
   }
   state.discoveredFlyerIds.push(...ids);
   return { created, ids };

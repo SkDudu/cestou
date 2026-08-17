@@ -11,6 +11,7 @@
     "flows:run": "npm run flows:run --workspace=scraper --",
     "flows:record": "npm run flows:record --workspace=scraper --",
     "flows:session-worker": "npm run flows:session-worker --workspace=scraper",
+    "flows:scheduler": "npm run flows:scheduler --workspace=scraper",
     "convex:dev": "npx convex dev",
     "convex:deploy": "npx convex deploy"
   },

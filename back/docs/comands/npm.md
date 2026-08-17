@@ -41,8 +41,9 @@ npm run convex:dev
 
 | Comando | Descrição |
 |---------|-----------|
-| `npm run flows:session-worker` | Worker Playwright p/ dashboard (:8791) |
-| `npm run flows:run -- --flow=<id>` | Rodar fluxo via CLI |
+| `npm run flows:session-worker` | Worker Playwright p/ dashboard (:8791). Poller de discovery entra no mesmo processo. |
+| `npm run flows:scheduler` | Poller sozinho (prod sem dashboard). Dev: não precisa se o worker já está up. |
+| `npm run flows:run -- --flow=<id>` | Rodar fluxo via CLI (`--discovery` = sem download/MiMo) |
 | `npm run flows:record` | Gravador CLI (opcional; preferir dashboard) |
 | `npm run flyers:download` | Baixar páginas → Convex Storage |
 | `npm run flyers:extract` | MiMo-V2.5 por página (fallback Tesseract) → offers |
@@ -59,7 +60,11 @@ npm run flows:run -- --flow=<id> --ctx.storeId=355
 
 Admin Flow Builder: `/admin/scraper`. **Iniciar worker** no dashboard sobe o Playwright (`POST /api/browser-worker`). Worker: `NEXT_PUBLIC_BROWSER_SESSION_URL=http://127.0.0.1:8791` (default).
 
-Pipeline do fluxo: `discover-flyer` → `download-flyers` → `extract-offers` (MiMo) → ofertas no Convex.
+Pipeline manual (dashboard / `flows:run`): `discover-flyer` → `download-flyers` → `extract-offers` (MiMo) → `nextRunAt = validUntil` do flyer.
+
+Na data final, o mesmo worker faz discovery-only. Flyer igual (URL/hash) → skip. Flyer novo → baixa + MiMo → novo `validUntil`.
+
+`npm run flows:scheduler` só se quiser poller sem o worker do dashboard.
 
 ---
 

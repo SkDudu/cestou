@@ -63,8 +63,14 @@ export async function createDiscoveredFlyer(args: {
   pageUrls?: string[];
   validFrom?: number;
   validUntil?: number;
-}): Promise<string> {
-  return await getClient().mutation(api.flyers.createDiscovered, args);
+  externalId?: string;
+}): Promise<{ id: string; created: boolean }> {
+  const res = (await getClient().mutation(api.flyers.createDiscovered, args)) as
+    | { id: string; created: boolean }
+    | string;
+  // ponytail: old mutation returned id string
+  if (typeof res === "string") return { id: res, created: true };
+  return res;
 }
 
 export async function findFlyerByHash(fileHash: string) {
@@ -238,6 +244,36 @@ export async function findCompletedExtraction(args: {
   promptVersion: string;
 }) {
   return await getClient().query(api.flyerExtractions.findCompleted, args);
+}
+
+export async function patchFlyerValidity(args: {
+  id: string;
+  validFrom?: number;
+  validUntil?: number;
+}) {
+  await getClient().mutation(api.flyers.patchValidity, args);
+}
+
+export async function scheduleNextCheck(flowId: string) {
+  return await getClient().mutation(api.scraperFlows.scheduleNextCheck, {
+    flowId: flowId as never,
+  });
+}
+
+export async function listDueFlows() {
+  return await getClient().query(api.scraperFlows.listDue, {});
+}
+
+export async function recordDiscoveryResult(args: {
+  flowId: string;
+  ok: boolean;
+  newFlyers: number;
+  error?: string;
+}) {
+  return await getClient().mutation(
+    api.scraperFlows.recordDiscoveryResult,
+    args as never,
+  );
 }
 
 export async function listScraperFlows(supermarketId?: string) {

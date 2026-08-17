@@ -15,7 +15,12 @@ import {
   collectFlyerDocsFromJson,
   flyerKey,
   isFlyerHref,
+  buildCandidates,
 } from "./runner/flow-pipeline.js";
+import {
+  parseValidity,
+  shouldExtractNow,
+} from "./core/validity.js";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -94,6 +99,18 @@ assert(vision.offers[0]!.discountPercentage === 19.8, `discount ${vision.offers[
 assert(vision.offers[0]!.pageNumber === 2, "vision page");
 assert(vision.offers[0]!.brand === "Camil", "brand title case");
 assert(vision.confidence === 0.94, "page confidence");
+assert(
+  parseMimoOffers(
+    JSON.stringify({
+      offers: [{ name: "Arroz Camil Tipo 1", price: 27.99 }],
+      validFrom: "13/08",
+      validUntil: "20/08",
+      confidence: 0.9,
+    }),
+    1,
+  ).validUntil === "20/08",
+  "mimo period",
+);
 
 const stringPrice = guardOffers(
   [{ name: "Leite Integral", price: "R$ 27,99", originalPrice: "34,90", unit: "KG" }],
@@ -175,5 +192,44 @@ const located = parseLocateFlyers(
 assert(located.index === 3, "locate index");
 assert(located.selectors[0] === '[data-section="flyers"]', "locate sel");
 assert(located.label === "Folhetos", "locate label");
+
+const until = parseValidity("20/08/2026", "America/Fortaleza", "until");
+assert(until !== undefined, "parse until");
+const untilDate = new Date(until!);
+assert(
+  untilDate.getUTCHours() === 2 && untilDate.getUTCMinutes() === 59,
+  `until utc ${untilDate.toISOString()}`,
+);
+const from = parseValidity("13/08/2026 00:00", "America/Fortaleza", "from");
+assert(from !== undefined && from < until!, "from before until");
+const shortUntil = parseValidity("20/08", "America/Fortaleza", "until");
+assert(shortUntil !== undefined, "short until");
+const isoZ = parseValidity("2026-08-20T23:59:59-03:00");
+assert(isoZ === until || Math.abs((isoZ ?? 0) - (until ?? 0)) < 2000, "iso offset");
+
+assert(shouldExtractNow({}), "no date extract");
+assert(shouldExtractNow({ validFrom: Date.now() - 1000 }), "past extract");
+assert(
+  !shouldExtractNow({ validFrom: Date.now() + 48 * 60 * 60 * 1000 }),
+  "far upcoming skip",
+);
+assert(
+  shouldExtractNow({ validFrom: Date.now() + 2 * 60 * 60 * 1000 }),
+  "window extract",
+);
+
+const withDates = buildCandidates(
+  [],
+  [
+    {
+      url: "https://apigw.example/Flyer/?id=NEW1",
+      title: "Super",
+      validFrom: "13/08/2026",
+      validUntil: "20/08/2026",
+    },
+  ],
+);
+assert(withDates[0]?.validUntil === "20/08/2026", "candidate until");
+assert(withDates[0]?.externalId === "NEW1", "candidate externalId");
 
 console.log("flyers selfcheck ok", offers.length, "rule offers");
