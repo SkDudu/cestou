@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou Basket Grid logo concept</title>
+  <desc id="desc">Abstract basket-grid mark for Cestou, avoiding literal grocery imagery while keeping an operational dashboard feel.</desc>
+  <rect width="512" height="512" fill="#151917"/>
+  <rect x="96" y="96" width="320" height="320" fill="#101411" stroke="#333B35" stroke-width="2"/>
+  <path d="M156 190H356L326 346H186L156 190Z" fill="#202622" stroke="#F4F5EF" stroke-width="16" stroke-linejoin="miter"/>
+  <path d="M206 190L224 346" stroke="#333B35" stroke-width="12" stroke-linecap="square"/>
+  <path d="M256 190V346" stroke="#333B35" stroke-width="12" stroke-linecap="square"/>
+  <path d="M306 190L288 346" stroke="#333B35" stroke-width="12" stroke-linecap="square"/>
+  <path d="M178 254H334" stroke="#E7A93B" stroke-width="18" stroke-linecap="square"/>
+  <path d="M194 306H318" stroke="#68A87A" stroke-width="18" stroke-linecap="square"/>
+  <rect x="302" y="245" width="38" height="36" fill="#D66A5E"/>
+  <path d="M196 166H316" stroke="#E7A93B" stroke-width="18" stroke-linecap="square"/>
+</svg>

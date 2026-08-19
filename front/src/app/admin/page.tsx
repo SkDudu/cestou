@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { SetupFlowNav } from "@/components/admin/SetupFlowNav";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { formatDateTime, formatNumber } from "@/lib/format";
 
@@ -22,6 +23,21 @@ export default function AdminOverviewPage() {
         title="Overview"
         description="Pipeline flyer-first — encartes e ofertas"
       />
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Cadastrar mercado
+        </h2>
+        <SetupFlowNav currentStep={1} />
+        <p className="text-sm text-zinc-500">
+          Comece em{" "}
+          <Link href="/admin/supermarkets" className="text-zinc-300 underline">
+            Supermercados
+          </Link>
+          : mercado → fontes → fluxo → executar.
+        </p>
+      </section>
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard label="Supermercados" value={formatNumber(metrics.supermarkets)} />
         <MetricCard label="Encartes ativos" value={formatNumber(metrics.activeFlyers)} />

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { SetupFlowNav } from "@/components/admin/SetupFlowNav";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { BrowserSessionPanel } from "@/components/admin/BrowserSessionPanel";
 import { FlowRunPanel } from "@/components/admin/FlowRunPanel";
@@ -85,6 +86,12 @@ export default function ScraperFlowDetailPage() {
           Voltar
         </Link>
       </PageHeader>
+
+      <SetupFlowNav
+        currentStep={4}
+        supermarketId={data.supermarketId}
+        flowId={id}
+      />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <StatusBadge status={data.status} />

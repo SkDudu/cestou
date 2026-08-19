@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { SetupFlowNav } from "@/components/admin/SetupFlowNav";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { formatNumber } from "@/lib/format";
 
@@ -22,7 +23,7 @@ export default function SupermarketsPage() {
     setError(null);
     const fd = new FormData(e.currentTarget);
     try {
-      await create({
+      const id = await create({
         name: String(fd.get("name") ?? ""),
         slug: String(fd.get("slug") ?? ""),
         city: String(fd.get("city") ?? "Fortaleza"),
@@ -31,8 +32,7 @@ export default function SupermarketsPage() {
         websiteUrl: String(fd.get("websiteUrl") ?? "") || undefined,
         active: true,
       });
-      setOpen(false);
-      e.currentTarget.reset();
+      window.location.href = `/admin/supermarkets/${id}`;
     } catch (err) {
       setError(String(err));
     }
@@ -52,6 +52,8 @@ export default function SupermarketsPage() {
           {open ? "Fechar" : "Novo"}
         </button>
       </PageHeader>
+
+      <SetupFlowNav currentStep={1} />
 
       {open ? (
         <form

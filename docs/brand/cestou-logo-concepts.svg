@@ -1,0 +1,67 @@
+<svg width="1600" height="1000" viewBox="0 0 1600 1000" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou logo concepts</title>
+  <desc id="desc">Four logo concept boards for Cestou using the canonical night, moss, amber, and alert palette.</desc>
+  <rect width="1600" height="1000" fill="#151917"/>
+  <rect x="48" y="48" width="1504" height="904" fill="#101411"/>
+  <rect x="48" y="48" width="1504" height="904" stroke="#333B35" stroke-width="2"/>
+
+  <text x="96" y="118" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="44" font-weight="700">CESTOU</text>
+  <text x="96" y="152" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="14" font-weight="500" letter-spacing="2">LOGO CONCEPTS / OPS CONSOLE</text>
+  <text x="1324" y="118" fill="#E7A93B" font-family="Geist Mono, ui-monospace, monospace" font-size="18" font-weight="600">v1.0</text>
+
+  <g transform="translate(96 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <rect x="64" y="56" width="192" height="192" fill="#E7A93B"/>
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M193.333 98.667H129.333C116.815 98.667 106.667 108.815 106.667 121.333V182.667C106.667 195.185 116.815 205.333 129.333 205.333H193.333V176H137.333V128H193.333V98.667Z" fill="#171917"/>
+    <rect x="193.333" y="98.667" width="20" height="29.333" fill="#171917"/>
+    <rect x="193.333" y="176" width="20" height="29.333" fill="#171917"/>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">BLOCK</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Canonical mark</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <g transform="translate(464 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <path d="M221.333 82.667H141.333C119.242 82.667 101.333 100.576 101.333 122.667V181.333C101.333 203.424 119.242 221.333 141.333 221.333H221.333" stroke="#F4F5EF" stroke-width="32" stroke-linecap="square" stroke-linejoin="miter"/>
+    <path d="M149.333 130.667H234.667" stroke="#E7A93B" stroke-width="14.667" stroke-linecap="square"/>
+    <path d="M149.333 173.333H208" stroke="#68A87A" stroke-width="14.667" stroke-linecap="square"/>
+    <rect x="234.667" y="118.667" width="18.667" height="38.667" fill="#D66A5E"/>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">COMPARE</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Offers vs threshold</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <g transform="translate(832 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <rect x="64" y="56" width="192" height="192" fill="#202622"/>
+    <path d="M197.2 99.2H137.2C120.632 99.2 107.2 112.632 107.2 129.2V174.8C107.2 191.368 120.632 204.8 137.2 204.8H197.2" stroke="#E7A93B" stroke-width="24" stroke-linecap="square" stroke-linejoin="miter"/>
+    <path d="M136 152H155.2L166 129.2L182.8 182L194.8 152H224.8" stroke="#171917" stroke-width="13.2" stroke-linecap="square" stroke-linejoin="miter"/>
+    <path d="M136 152H155.2L166 129.2L182.8 182L194.8 152H224.8" stroke="#F4F5EF" stroke-width="4.8" stroke-linecap="square" stroke-linejoin="miter"/>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">SIGNAL</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Scanline console</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <g transform="translate(1200 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <rect x="64" y="56" width="192" height="192" fill="#101411"/>
+    <rect x="96.4" y="95.6" width="94.8" height="25.2" fill="#202622" stroke="#333B35" stroke-width="1.2"/>
+    <rect x="96.4" y="139.4" width="127.2" height="25.2" fill="#202622" stroke="#333B35" stroke-width="1.2"/>
+    <rect x="96.4" y="183.2" width="74.4" height="25.2" fill="#202622" stroke="#333B35" stroke-width="1.2"/>
+    <rect x="191.2" y="95.6" width="32.4" height="25.2" fill="#E7A93B"/>
+    <rect x="223.6" y="139.4" width="20.4" height="25.2" fill="#68A87A"/>
+    <rect x="170.8" y="183.2" width="21.6" height="25.2" fill="#D66A5E"/>
+    <path d="M83.2 152H248.8" stroke="#E7A93B" stroke-width="4.8" stroke-linecap="square"/>
+    <path d="M248.8 77.6V226.4" stroke="#F4F5EF" stroke-width="6" stroke-linecap="square"/>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">THRESHOLD</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Non-letter system mark</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <text x="96" y="812" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="14">Palette: #151917 #101411 #202622 #333B35 #F4F5EF #78817A #E7A93B #68A87A #D66A5E</text>
+  <text x="96" y="852" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="22" font-weight="600">Instrument panel, wet asphalt, amber LED. Grocery comparison without grocery clipart.</text>
+</svg>

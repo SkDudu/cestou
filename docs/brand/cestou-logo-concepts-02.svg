@@ -1,0 +1,88 @@
+<svg width="1600" height="1000" viewBox="0 0 1600 1000" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou logo concepts 02</title>
+  <desc id="desc">Second exploration board with four different Cestou logo styles using the canonical operations console palette.</desc>
+  <rect width="1600" height="1000" fill="#151917"/>
+  <rect x="48" y="48" width="1504" height="904" fill="#101411"/>
+  <rect x="48" y="48" width="1504" height="904" stroke="#333B35" stroke-width="2"/>
+
+  <text x="96" y="118" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="44" font-weight="700">CESTOU</text>
+  <text x="96" y="152" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="14" font-weight="500" letter-spacing="2">LOGO CONCEPTS 02 / DIFFERENT STYLES</text>
+  <text x="1302" y="118" fill="#E7A93B" font-family="Geist Mono, ui-monospace, monospace" font-size="18" font-weight="600">v1.1</text>
+
+  <g transform="translate(96 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <g transform="translate(64 56) scale(0.6)">
+      <rect width="320" height="320" fill="#101411" stroke="#333B35" stroke-width="3.333"/>
+      <path d="M70 70H250V250H70V70Z" stroke="#333B35" stroke-width="4"/>
+      <path d="M80 160H240" stroke="#E7A93B" stroke-width="16" stroke-linecap="square"/>
+      <path d="M160 80V240" stroke="#E7A93B" stroke-width="16" stroke-linecap="square"/>
+      <path d="M110 110H210V210H110V110Z" stroke="#F4F5EF" stroke-width="18" stroke-linejoin="miter"/>
+      <rect x="208" y="142" width="42" height="36" fill="#68A87A"/>
+      <rect x="70" y="70" width="40" height="40" fill="#E7A93B"/>
+      <rect x="210" y="210" width="40" height="40" fill="#D66A5E"/>
+    </g>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">CALIPER</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Precision validation</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <g transform="translate(464 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <g transform="translate(64 56) scale(0.6)">
+      <rect width="320" height="320" fill="#191E1B" stroke="#333B35" stroke-width="3.333"/>
+      <path d="M64 86L160 46L256 86L160 126L64 86Z" fill="#E7A93B"/>
+      <path d="M64 160L160 120L256 160L160 200L64 160Z" fill="#202622" stroke="#333B35" stroke-width="4"/>
+      <path d="M64 234L160 194L256 234L160 274L64 234Z" fill="#202622" stroke="#333B35" stroke-width="4"/>
+      <path d="M120 86H200" stroke="#171917" stroke-width="18" stroke-linecap="square"/>
+      <path d="M114 160H190" stroke="#68A87A" stroke-width="14" stroke-linecap="square"/>
+      <path d="M196 160H230" stroke="#D66A5E" stroke-width="14" stroke-linecap="square"/>
+      <path d="M100 234H220" stroke="#F4F5EF" stroke-width="14" stroke-linecap="square"/>
+    </g>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">STACK</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Flyers to offers</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <g transform="translate(832 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <g transform="translate(64 56) scale(0.6)">
+      <rect width="320" height="320" fill="#101411" stroke="#333B35" stroke-width="3.333"/>
+      <rect x="52" y="52" width="76" height="76" fill="#202622" stroke="#333B35" stroke-width="4"/>
+      <rect x="192" y="52" width="76" height="76" fill="#202622" stroke="#333B35" stroke-width="4"/>
+      <rect x="122" y="192" width="76" height="76" fill="#E7A93B"/>
+      <path d="M128 90H192" stroke="#E7A93B" stroke-width="18" stroke-linecap="square"/>
+      <path d="M230 128V162L160 192" stroke="#68A87A" stroke-width="18" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M90 128V162L160 192" stroke="#D66A5E" stroke-width="18" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M142 230H178" stroke="#171917" stroke-width="16" stroke-linecap="square"/>
+      <path d="M152 240L180 212" stroke="#171917" stroke-width="14" stroke-linecap="square"/>
+    </g>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">ROUTE</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Ingest to validated</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <g transform="translate(1200 214)">
+    <rect width="320" height="492" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+    <g transform="translate(64 56) scale(0.6)">
+      <rect width="320" height="320" fill="#101411" stroke="#333B35" stroke-width="3.333"/>
+      <path d="M60 94H260L230 250H90L60 94Z" fill="#202622" stroke="#F4F5EF" stroke-width="16" stroke-linejoin="miter"/>
+      <path d="M110 94L128 250" stroke="#333B35" stroke-width="12" stroke-linecap="square"/>
+      <path d="M160 94V250" stroke="#333B35" stroke-width="12" stroke-linecap="square"/>
+      <path d="M210 94L192 250" stroke="#333B35" stroke-width="12" stroke-linecap="square"/>
+      <path d="M82 158H238" stroke="#E7A93B" stroke-width="18" stroke-linecap="square"/>
+      <path d="M98 210H222" stroke="#68A87A" stroke-width="18" stroke-linecap="square"/>
+      <rect x="206" y="149" width="38" height="36" fill="#D66A5E"/>
+      <path d="M100 70H220" stroke="#E7A93B" stroke-width="18" stroke-linecap="square"/>
+    </g>
+    <text x="40" y="322" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="24" font-weight="700">BASKET GRID</text>
+    <text x="40" y="354" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="13">Abstract basket system</text>
+    <text x="40" y="402" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="700">CESTOU</text>
+    <rect x="40" y="438" width="240" height="2" fill="#333B35"/>
+  </g>
+
+  <text x="96" y="812" fill="#78817A" font-family="Geist Mono, ui-monospace, monospace" font-size="14">Same palette, different symbol language: validation target, flyer stack, flow route, abstract basket grid.</text>
+  <text x="96" y="852" fill="#F4F5EF" font-family="Geist, system-ui, sans-serif" font-size="22" font-weight="600">Precise, operational, no flourish. The mark should feel like a tool, not a supermarket promo.</text>
+</svg>

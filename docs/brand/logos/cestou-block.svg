@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou Block logo concept</title>
+  <desc id="desc">Amber square C mark for Cestou, built as an operational block with hard edges.</desc>
+  <rect width="512" height="512" fill="#151917"/>
+  <rect x="112" y="112" width="288" height="288" fill="#E7A93B"/>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M306 176H210C191.222 176 176 191.222 176 210V302C176 320.778 191.222 336 210 336H306V292H222V220H306V176Z" fill="#171917"/>
+  <rect x="306" y="176" width="30" height="44" fill="#171917"/>
+  <rect x="306" y="292" width="30" height="44" fill="#171917"/>
+  <rect x="112" y="404" width="288" height="2" fill="#333B35"/>
+  <rect x="112" y="106" width="288" height="2" fill="#333B35"/>
+</svg>

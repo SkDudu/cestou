@@ -1,0 +1,13 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou Stack logo concept</title>
+  <desc id="desc">Layered flyer and extracted offer stack mark for Cestou, built from hard-edged operational panels.</desc>
+  <rect width="512" height="512" fill="#151917"/>
+  <rect x="96" y="96" width="320" height="320" fill="#191E1B" stroke="#333B35" stroke-width="2"/>
+  <path d="M160 182L256 142L352 182L256 222L160 182Z" fill="#E7A93B"/>
+  <path d="M160 256L256 216L352 256L256 296L160 256Z" fill="#202622" stroke="#333B35" stroke-width="4"/>
+  <path d="M160 330L256 290L352 330L256 370L160 330Z" fill="#202622" stroke="#333B35" stroke-width="4"/>
+  <path d="M216 182H296" stroke="#171917" stroke-width="18" stroke-linecap="square"/>
+  <path d="M210 256H286" stroke="#68A87A" stroke-width="14" stroke-linecap="square"/>
+  <path d="M292 256H326" stroke="#D66A5E" stroke-width="14" stroke-linecap="square"/>
+  <path d="M196 330H316" stroke="#F4F5EF" stroke-width="14" stroke-linecap="square"/>
+</svg>

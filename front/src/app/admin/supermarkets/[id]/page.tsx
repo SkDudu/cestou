@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { SetupFlowNav } from "@/components/admin/SetupFlowNav";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { formatDateTime } from "@/lib/format";
 
@@ -49,14 +50,30 @@ export default function SupermarketDetailPage() {
   return (
     <div>
       <PageHeader title={data.name} description={`${data.city}/${data.state} · ${data.slug}`}>
-        <button
-          type="button"
-          onClick={() => updateSm({ id, active: !data.active })}
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200"
-        >
-          {data.active ? "Desativar" : "Ativar"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/admin/supermarkets"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-900"
+          >
+            Voltar
+          </Link>
+          <Link
+            href={`/admin/scraper?supermarketId=${id}${data.websiteUrl ? `&startUrl=${encodeURIComponent(data.websiteUrl)}` : ""}`}
+            className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900"
+          >
+            Próximo: criar fluxo
+          </Link>
+          <button
+            type="button"
+            onClick={() => updateSm({ id, active: !data.active })}
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200"
+          >
+            {data.active ? "Desativar" : "Ativar"}
+          </button>
+        </div>
       </PageHeader>
+
+      <SetupFlowNav currentStep={2} supermarketId={id} />
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">

@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { SetupFlowNav } from "@/components/admin/SetupFlowNav";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { WorkerStartButton } from "@/components/admin/WorkerStartButton";
 import { checkWorkerHealth } from "@/lib/browser-session";
@@ -14,12 +16,28 @@ const inputClass =
   "rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200";
 
 export default function ScraperFlowsPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-zinc-500">Carregando…</p>}>
+      <ScraperFlowsPageContent />
+    </Suspense>
+  );
+}
+
+function ScraperFlowsPageContent() {
+  const searchParams = useSearchParams();
+  const presetSupermarketId = searchParams.get("supermarketId") ?? "";
+  const presetStartUrl = searchParams.get("startUrl") ?? "";
+
   const flows = useQuery(api.scraperFlows.list, {});
   const markets = useQuery(api.supermarkets.listNames);
   const create = useMutation(api.scraperFlows.create);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(presetSupermarketId));
   const [error, setError] = useState<string | null>(null);
   const [workerOnline, setWorkerOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (presetSupermarketId) setOpen(true);
+  }, [presetSupermarketId]);
 
   useEffect(() => {
     let alive = true;
@@ -81,12 +99,22 @@ export default function ScraperFlowsPage() {
         </div>
       </PageHeader>
 
+      <SetupFlowNav
+        currentStep={3}
+        supermarketId={presetSupermarketId || undefined}
+      />
+
       {open ? (
         <form
           onSubmit={onSubmit}
           className="mb-6 grid gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 sm:grid-cols-2"
         >
-          <select name="supermarketId" required className={inputClass}>
+          <select
+            name="supermarketId"
+            required
+            className={inputClass}
+            defaultValue={presetSupermarketId}
+          >
             <option value="">Supermercado</option>
             {(markets ?? []).map((m) => (
               <option key={m._id} value={m._id}>
@@ -104,6 +132,7 @@ export default function ScraperFlowsPage() {
             name="startUrl"
             required
             placeholder="https://..."
+            defaultValue={presetStartUrl}
             className={`${inputClass} sm:col-span-2`}
           />
           {error ? (

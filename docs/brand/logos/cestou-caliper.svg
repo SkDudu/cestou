@@ -1,0 +1,13 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou Caliper logo concept</title>
+  <desc id="desc">A precision caliper and validation target mark for Cestou, using the canonical amber, moss, alert, and night palette.</desc>
+  <rect width="512" height="512" fill="#151917"/>
+  <rect x="96" y="96" width="320" height="320" fill="#101411" stroke="#333B35" stroke-width="2"/>
+  <path d="M166 166H346V346H166V166Z" stroke="#333B35" stroke-width="4"/>
+  <path d="M176 256H336" stroke="#E7A93B" stroke-width="16" stroke-linecap="square"/>
+  <path d="M256 176V336" stroke="#E7A93B" stroke-width="16" stroke-linecap="square"/>
+  <path d="M206 206H306V306H206V206Z" stroke="#F4F5EF" stroke-width="18" stroke-linejoin="miter"/>
+  <rect x="304" y="238" width="42" height="36" fill="#68A87A"/>
+  <rect x="166" y="166" width="40" height="40" fill="#E7A93B"/>
+  <rect x="306" y="306" width="40" height="40" fill="#D66A5E"/>
+</svg>

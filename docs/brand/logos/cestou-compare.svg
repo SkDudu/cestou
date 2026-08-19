@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou Compare logo concept</title>
+  <desc id="desc">Geometric C mark with comparison rails and an amber validation threshold.</desc>
+  <rect width="512" height="512" fill="#151917"/>
+  <rect x="84" y="84" width="344" height="344" fill="#101411"/>
+  <path d="M332 152H212C178.863 152 152 178.863 152 212V300C152 333.137 178.863 360 212 360H332" stroke="#F4F5EF" stroke-width="48" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M224 224H352" stroke="#E7A93B" stroke-width="22" stroke-linecap="square"/>
+  <path d="M224 288H312" stroke="#68A87A" stroke-width="22" stroke-linecap="square"/>
+  <rect x="352" y="206" width="28" height="58" fill="#D66A5E"/>
+  <rect x="84" y="84" width="344" height="344" stroke="#333B35" stroke-width="2"/>
+</svg>

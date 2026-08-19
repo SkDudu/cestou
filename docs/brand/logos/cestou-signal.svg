@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou Signal logo concept</title>
+  <desc id="desc">Technical C mark with scanline signal, inspired by a night operations console.</desc>
+  <rect width="512" height="512" fill="#151917"/>
+  <rect x="96" y="96" width="320" height="320" fill="#202622"/>
+  <path d="M318 168H218C190.386 168 168 190.386 168 218V294C168 321.614 190.386 344 218 344H318" stroke="#E7A93B" stroke-width="40" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M216 256H248L266 218L294 306L314 256H364" stroke="#171917" stroke-width="22" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M216 256H248L266 218L294 306L314 256H364" stroke="#F4F5EF" stroke-width="8" stroke-linecap="square" stroke-linejoin="miter"/>
+  <rect x="96" y="96" width="320" height="320" stroke="#333B35" stroke-width="2"/>
+  <rect x="128" y="128" width="256" height="2" fill="#333B35"/>
+  <rect x="128" y="382" width="256" height="2" fill="#333B35"/>
+</svg>

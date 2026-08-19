@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Cestou Threshold logo concept</title>
+  <desc id="desc">Non-letter logo concept for Cestou, showing extracted offers passing through a validation threshold.</desc>
+  <rect width="512" height="512" fill="#151917"/>
+  <rect x="96" y="96" width="320" height="320" fill="#101411"/>
+  <rect x="150" y="162" width="158" height="42" fill="#202622" stroke="#333B35" stroke-width="2"/>
+  <rect x="150" y="235" width="212" height="42" fill="#202622" stroke="#333B35" stroke-width="2"/>
+  <rect x="150" y="308" width="124" height="42" fill="#202622" stroke="#333B35" stroke-width="2"/>
+  <rect x="308" y="162" width="54" height="42" fill="#E7A93B"/>
+  <rect x="362" y="235" width="34" height="42" fill="#68A87A"/>
+  <rect x="274" y="308" width="36" height="42" fill="#D66A5E"/>
+  <path d="M128 256H404" stroke="#E7A93B" stroke-width="8" stroke-linecap="square"/>
+  <path d="M404 132V380" stroke="#F4F5EF" stroke-width="10" stroke-linecap="square"/>
+  <rect x="96" y="96" width="320" height="320" stroke="#333B35" stroke-width="2"/>
+  <rect x="116" y="116" width="36" height="2" fill="#78817A"/>
+  <rect x="116" y="394" width="36" height="2" fill="#78817A"/>
+</svg>
