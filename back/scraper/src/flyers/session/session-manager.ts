@@ -2,13 +2,32 @@ import { randomUUID } from "node:crypto";
 import { chromium, type Browser } from "playwright";
 import { flyerConfig } from "../core/flyer-config.js";
 import { flyerLog } from "../core/flyer-logger.js";
+import { mimoAnalyzeFlow } from "../extraction/mimo/analyze-flow.js";
 import { mimoLocateFlyers } from "../extraction/mimo/locate.js";
-import { buildContextOptions } from "../browser/context.js";
+import {
+  buildContextOptions,
+  buildLaunchOptions,
+  denyNativePermissionPrompts,
+} from "../browser/context.js";
 import { normalizeAction } from "../recorder/action-normalizer.js";
 import { replaceScraperSteps } from "../core/flyer-storage.js";
 import type { RecordedAction, ScopeMetadata, StepType } from "../types/flows.js";
-import { attachNetworkHarvester, buildCandidates, flyerKind, scanDomFlyerCandidates } from "../runner/flow-pipeline.js";
+import { attachNetworkHarvester } from "../runner/flow-pipeline.js";
+import {
+  allowsImageUrls,
+  discoverWithFlyerSource,
+  filterFlyerDownloadButtons,
+  mergeDownloadHints,
+  sanitizeFlyerSource,
+} from "../runner/flyer-discover.js";
 import { bindRecorder, recordElementAt } from "./action-bridge.js";
+import {
+  capturePageChrome,
+  captureTargetSnapshot,
+  dumpGalleryScope,
+  packTeachPayload,
+  scrollGalleryIntoView,
+} from "./click-snapshot.js";
 import {
   dumpFlyerCandidates,
   formatFlyerCandidates,
@@ -21,6 +40,7 @@ import {
 import {
   emit,
   pushAction,
+  slimAction,
   touch,
   type LiveSession,
   type SessionEvent,
@@ -41,6 +61,8 @@ export type SessionConfig = {
 
 function cfg(): SessionConfig {
   return {
+    // Headed by default: Mercadapp AppNotice often missing in headless.
+    // Run path stays headless + dismissBlockingDialogs.
     headless: process.env.BROWSER_SESSION_HEADLESS === "true",
     timeoutMs: Number(process.env.BROWSER_TIMEOUT ?? 30000),
     fps: Number(process.env.BROWSER_SESSION_FPS ?? 2),
@@ -65,6 +87,7 @@ async function takeFrame(session: LiveSession) {
       height: vp.height,
       jpegBase64: buf.toString("base64"),
     });
+    session.lastJpegBase64 = buf.toString("base64");
     const url = session.page.url();
     if (url !== session.currentUrl) {
       session.currentUrl = url;
@@ -87,6 +110,29 @@ function startScreenshotLoop(session: LiveSession) {
   session.screenshotTimer = setInterval(() => {
     void takeFrame(session);
   }, ms);
+}
+
+function enqueueSnapshot(session: LiveSession, action: RecordedAction) {
+  const run = async () => {
+    const snap =
+      action.kind === "navigation" || !action.selectors?.length
+        ? await capturePageChrome(session.page)
+        : await captureTargetSnapshot(session.page, action.selectors);
+    pushAction(session, {
+      ...action,
+      url: action.url ?? session.currentUrl,
+      snapshot: snap,
+    });
+  };
+  session.snapQueue = (session.snapQueue ?? Promise.resolve())
+    .then(run)
+    .catch((err) => {
+      flyerLog.info("SESSION", `snapshot fail: ${String(err)}`);
+      pushAction(session, {
+        ...action,
+        url: action.url ?? session.currentUrl,
+      });
+    });
 }
 
 export function getSession(id: string): LiveSession | undefined {
@@ -116,6 +162,11 @@ export async function destroySession(sessionId: string) {
   flyerLog.info("SESSION", `closed ${sessionId}`);
 }
 
+export async function destroyAllSessions() {
+  const ids = [...sessions.keys()];
+  for (const id of ids) await destroySession(id);
+}
+
 export async function createSession(args: {
   flowId: string;
   startUrl: string;
@@ -135,13 +186,14 @@ export async function createSession(args: {
   const viewport = { width: 1280, height: 720 };
   let browser: Browser | null = null;
 
-  browser = await chromium.launch({ headless: c.headless });
+  browser = await chromium.launch(buildLaunchOptions({ headless: c.headless }));
   const context = await browser.newContext({
     ...buildContextOptions(),
     viewport,
   });
   context.setDefaultTimeout(c.timeoutMs);
   const page = await context.newPage();
+  // deny after goto — about:blank is opaque origin
 
   const session: LiveSession = {
     sessionId,
@@ -152,7 +204,7 @@ export async function createSession(args: {
     lastActivityAt: Date.now(),
     viewport,
     currentUrl: args.startUrl,
-    recording: false,
+    recording: true,
     actions: [],
     networkFlyers: [],
     page,
@@ -171,7 +223,7 @@ export async function createSession(args: {
   session.harvestDispose = harvest.dispose;
 
   await bindRecorder(page, (action) => {
-    pushAction(session, action);
+    enqueueSnapshot(session, action);
   });
 
   page.on("framenavigated", (frame) => {
@@ -186,18 +238,46 @@ export async function createSession(args: {
       waitUntil: "domcontentloaded",
       timeout: c.timeoutMs,
     });
-    session.actions.push({
+    await denyNativePermissionPrompts(
+      context,
+      page,
+      new URL(page.url()).origin,
+    ).catch(() => undefined);
+    enqueueSnapshot(session, {
       kind: "navigation",
       url: args.startUrl,
       description: "Start URL",
     });
     session.currentUrl = page.url();
-    session.status = "ready";
-    emit(session, { type: "status", status: "ready" });
+    session.status = "recording";
+    emit(session, { type: "status", status: "recording" });
     emit(session, { type: "url", url: session.currentUrl });
     startScreenshotLoop(session);
     void takeFrame(session);
-    flyerLog.info("SESSION", `created ${sessionId} flow=${args.flowId}`);
+    // Notice SPA often pops ~0.5–2s after shell — capture again so preview shows it.
+    void (async () => {
+      await page.waitForTimeout(1500);
+      const has =
+        (await page
+          .locator(
+            '[role="dialog"] button:has-text("Continuar"), button:has-text("Continuar")',
+          )
+          .count()
+          .catch(() => 0)) > 0;
+      if (has) {
+        flyerLog.info(
+          "SESSION",
+          "dialog Continuar detectado — janela Chromium / preview",
+        );
+      } else {
+        flyerLog.info("SESSION", "dialog Continuar não encontrado após goto");
+      }
+      await takeFrame(session);
+    })();
+    flyerLog.info(
+      "SESSION",
+      `created ${sessionId} flow=${args.flowId} headless=${c.headless}`,
+    );
     return session;
   } catch (err) {
     session.status = "error";
@@ -217,7 +297,7 @@ export function subscribe(
   session.subscribers.add(handler);
   handler({ type: "status", status: session.status });
   handler({ type: "url", url: session.currentUrl });
-  handler({ type: "actions", actions: session.actions });
+  handler({ type: "actions", actions: session.actions.map(slimAction) });
   return () => session.subscribers.delete(handler);
 }
 
@@ -236,7 +316,7 @@ export async function clickAt(sessionId: string, x: number, y: number) {
   touch(session);
   await session.page.mouse.click(x, y);
   const action = await recordElementAt(session.page, x, y);
-  if (action) pushAction(session, action);
+  if (action) enqueueSnapshot(session, action);
   await takeFrame(session);
 }
 
@@ -284,6 +364,23 @@ function forcePush(session: LiveSession, action: RecordedAction) {
   touch(session);
   emit(session, { type: "action", action });
   emit(session, { type: "actions", actions: session.actions });
+}
+
+/** Drop recorded click/action by index while session still live. */
+export function removeAction(sessionId: string, index: number) {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error("Session not found");
+  if (index < 0 || index >= session.actions.length) {
+    throw new Error(`Invalid action index: ${index}`);
+  }
+  session.actions.splice(index, 1);
+  session.proposed = undefined;
+  touch(session);
+  emit(session, {
+    type: "actions",
+    actions: session.actions.map(slimAction),
+  });
+  return { actions: session.actions.map(slimAction) };
 }
 
 export async function hoverScope(sessionId: string, x: number, y: number) {
@@ -395,12 +492,27 @@ export async function probeScope(
     linkCount: el.querySelectorAll("a[href]").length,
     imageCount: el.querySelectorAll("img").length,
   }));
-  const dom = await scanDomFlyerCandidates(session.page, used);
-  const candidates = buildCandidates(dom, session.networkFlyers);
+  const source =
+    session.flyerSource ??
+    ({
+      kind: "pdf-links" as const,
+      downloadStrategy: "direct-url" as const,
+      urlFrom: "href" as const,
+    });
+  const candidates = await discoverWithFlyerSource({
+    page: session.page,
+    scopeSelector: used,
+    network: session.networkFlyers,
+    source,
+  });
   const flyers = candidates.map((c) => ({
     url: c.originalUrl,
     title: c.title,
-    kind: flyerKind(c.originalUrl),
+    kind: c.pageUrls.some((u) => /\.pdf(\?|$)/i.test(u))
+      ? "pdf"
+      : allowsImageUrls(source)
+        ? "image"
+        : "api",
   }));
   return {
     found: true,
@@ -416,6 +528,7 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
   selectors: string[];
   label: string;
   source: "mimo" | "heuristic";
+  flyerSource?: import("../types/flows.js").FlyerSource;
 }> {
   const session = getSession(sessionId);
   if (!session) throw new Error("Session not found");
@@ -430,7 +543,12 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
     .catch(() => undefined);
 
   const dump = await dumpFlyerCandidates(session.page);
-  const buf = await session.page.screenshot({ type: "jpeg", quality: 50 });
+  const gallery = await dumpGalleryScope(session.page);
+  await scrollGalleryIntoView(session.page, gallery);
+  const buf = await session.page.screenshot({
+    type: "jpeg",
+    quality: cfg().jpegQuality,
+  });
   const imageUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
 
   const ctrl = new AbortController();
@@ -442,10 +560,25 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
       url: session.page.url(),
       network: session.networkFlyers.map((f) => f.url),
       candidates: formatFlyerCandidates(dump),
+      gallery: gallery ? JSON.stringify(gallery, null, 2) : undefined,
       signal: ctrl.signal,
     });
   } finally {
     clearTimeout(timer);
+  }
+
+  // Baixar = hint only. Upgrade to click-download solely when PDF/a[download] proven.
+  const realDownloads = filterFlyerDownloadButtons(
+    gallery?.downloadButtons ?? [],
+  );
+  const tabSels = (gallery?.tabButtons ?? []).flatMap((b) => b.selectors);
+  const hintedSource = mergeDownloadHints(parsed.flyerSource, realDownloads, {
+    kind: gallery?.tabButtons.length ? "tabs" : undefined,
+    tabSelectors: tabSels,
+  });
+  if (hintedSource) parsed.flyerSource = hintedSource;
+  else if (parsed.flyerSource) {
+    parsed.flyerSource = sanitizeFlyerSource(parsed.flyerSource);
   }
 
   const fromIndex =
@@ -492,6 +625,7 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
   }
   pick.selectors = working.length ? working : [used];
   if (parsed.label) pick.label = parsed.label;
+  if (parsed.flyerSource) session.flyerSource = parsed.flyerSource;
 
   session.scopeChain = [pick, ...pick.ancestors];
   session.scopeIndex = 0;
@@ -501,7 +635,7 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
   const probe = await probeScope(sessionId, pick.selectors);
   flyerLog.info(
     "SESSION",
-    `locate-flyers source=${source} sel=${pick.selectors[0]} flyers=${probe.flyers.length}`,
+    `locate-flyers source=${source} sel=${pick.selectors[0]} flyers=${probe.flyers.length} kind=${parsed.flyerSource?.kind ?? "?"}`,
   );
   return {
     pick,
@@ -509,6 +643,7 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
     selectors: pick.selectors,
     label: pick.label,
     source,
+    flyerSource: parsed.flyerSource,
   };
 }
 
@@ -519,10 +654,12 @@ export async function confirmScope(
     label?: string;
     purpose?: string;
     metadata?: ScopeMetadata;
+    flyerSource?: import("../types/flows.js").FlyerSource;
   },
 ) {
   const session = getSession(sessionId);
   if (!session) throw new Error("Session not found");
+  if (args.flyerSource) session.flyerSource = args.flyerSource;
   session.actions = session.actions.filter(
     (a) => a.kind !== "scope" && a.value !== "discover-flyer",
   );
@@ -564,9 +701,89 @@ export async function addSemantic(
   emit(session, { type: "actions", actions: session.actions });
 }
 
+export async function analyzeSession(sessionId: string) {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error("Session not found");
+  if (session.snapQueue) await session.snapQueue;
+  if (!session.actions.length) throw new Error("Nenhum clique gravado");
+  const gallery = await dumpGalleryScope(session.page);
+  await scrollGalleryIntoView(session.page, gallery);
+  const buf = await session.page.screenshot({
+    type: "jpeg",
+    quality: cfg().jpegQuality,
+  });
+  const jpeg = buf.toString("base64");
+  if (!jpeg) throw new Error("Sem screenshot da sessão");
+  session.lastJpegBase64 = jpeg;
+  const payload = packTeachPayload({
+    startUrl: session.startUrl,
+    currentUrl: session.currentUrl,
+    networkFlyers: session.networkFlyers.map((n) => n.url),
+    actions: session.actions,
+    gallery: gallery ?? undefined,
+  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), flyerConfig.mimoTimeout);
+  try {
+    const analyzed = await mimoAnalyzeFlow({
+      payload,
+      imageUrl: `data:image/jpeg;base64,${jpeg}`,
+      signal: ctrl.signal,
+    });
+    // Baixar hint only — force click-download solely with proven PDF/a[download]
+    const realDownloads = filterFlyerDownloadButtons(
+      gallery?.downloadButtons ?? [],
+    );
+    const tabSels = (gallery?.tabButtons ?? []).flatMap((b) => b.selectors);
+    analyzed.steps = analyzed.steps.map((s) => {
+      if (s.type !== "discover-flyer") return s;
+      const merged = mergeDownloadHints(s.config.flyerSource, realDownloads, {
+        kind: gallery?.tabButtons.length ? "tabs" : undefined,
+        tabSelectors: tabSels,
+      });
+      if (!merged && !s.config.flyerSource) return s;
+      return {
+        ...s,
+        config: {
+          ...s.config,
+          flyerSource: merged
+            ? merged
+            : sanitizeFlyerSource(s.config.flyerSource!),
+        },
+      };
+    });
+    session.proposed = analyzed;
+    const disc = analyzed.steps.find((s) => s.type === "discover-flyer");
+    if (disc?.config.flyerSource) {
+      session.flyerSource = disc.config.flyerSource;
+    }
+    flyerLog.info(
+      "SESSION",
+      `analyze ${sessionId} steps=${analyzed.steps.length}`,
+    );
+    return analyzed;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function saveSession(sessionId: string): Promise<{ steps: number }> {
   const session = sessions.get(sessionId);
   if (!session) throw new Error("Session not found");
+
+  if (session.proposed?.steps.length) {
+    const rows = session.proposed.steps.map((s, i) => ({
+      type: s.type,
+      config: JSON.stringify(s.config),
+      order: i,
+    }));
+    await replaceScraperSteps(session.flowId, rows);
+    flyerLog.info(
+      "SESSION",
+      `saved proposed ${rows.length} steps → ${session.flowId}`,
+    );
+    return { steps: rows.length };
+  }
 
   const steps: Array<{ type: StepType; config: string; order: number }> = [];
   let order = 0;
@@ -597,7 +814,13 @@ export async function saveSession(sessionId: string): Promise<{ steps: number }>
         type: a.value,
         config: JSON.stringify(
           a.value === "discover-flyer"
-            ? { scope, duration: 3000 }
+            ? {
+                scope,
+                duration: 3000,
+                ...(session.flyerSource
+                  ? { flyerSource: session.flyerSource }
+                  : {}),
+              }
             : { duration: 3000 },
         ),
         order: order++,
@@ -617,7 +840,11 @@ export async function saveSession(sessionId: string): Promise<{ steps: number }>
   if (hasScope && !steps.some((s) => s.type === "discover-flyer")) {
     steps.push({
       type: "discover-flyer",
-      config: JSON.stringify({ scope: "element", duration: 3000 }),
+      config: JSON.stringify({
+        scope: "element",
+        duration: 3000,
+        ...(session.flyerSource ? { flyerSource: session.flyerSource } : {}),
+      }),
       order: order++,
     });
   }

@@ -3,6 +3,7 @@ import { flyerLog } from "../core/flyer-logger.js";
 import {
   finishScraperRun,
   getScraperFlow,
+  markExpired,
   scheduleNextCheck,
   startScraperRun,
 } from "../core/flyer-storage.js";
@@ -48,13 +49,16 @@ export async function executeFlowById(
     steps = steps.filter(
       (s) => s.type !== "download-flyers" && s.type !== "extract-offers",
     );
+    log("pipeline=discovery — só navegação/discover (sem download/extract)");
   } else if (steps.some((s) => s.type === "discover-flyer")) {
+    let added = false;
     if (!steps.some((s) => s.type === "download-flyers")) {
       steps.push({
         order: steps.length,
         type: "download-flyers",
         config: {},
       });
+      added = true;
     }
     if (!steps.some((s) => s.type === "extract-offers")) {
       steps.push({
@@ -62,21 +66,32 @@ export async function executeFlowById(
         type: "extract-offers",
         config: {},
       });
+      added = true;
+    }
+    if (added) {
+      log(
+        "pipeline=full — auto steps: download-flyers + extract-offers",
+      );
     }
   }
 
   const fullCtx = {
-    uf: flyerConfig.discoveryState,
-    city: flyerConfig.discoveryCity,
-    storeId: "355",
     supermarketId: String(flow.supermarketId ?? ""),
     ...ctx,
   };
 
   const runId = (await startScraperRun(flowId)) as string;
   log(`run ${runId} — ${flow.name} v${flow.version} pipeline=${pipeline}`);
+  if (pipeline === "full") {
+    const expired = (await markExpired()) as { expired?: number };
+    if (expired.expired) {
+      log(`expire imediato: ${expired.expired} flyer(s) com validUntil < now`);
+    }
+  }
   log(`ctx ${JSON.stringify(fullCtx)}`);
-  log(`steps ${steps.length}`);
+  log(
+    `steps ${steps.length}: ${steps.map((s) => s.type).join(" → ")}`,
+  );
 
   const result = await runFlow(
     {
@@ -115,9 +130,9 @@ export async function executeFlowById(
     log: cancelled ? `cancelled\n${summary}` : summary,
   });
 
-  log(result.ok ? "SUCCESS" : cancelled ? "STOPPED" : "FAILED");
+  log(result.ok ? "✓ SUCCESS" : cancelled ? "■ STOPPED" : "✕ FAILED");
   log(
-    `steps=${result.stepsExecuted} stores=${result.storesFound} flyers=${result.flyersFound} new=${result.newFlyers} offers=${result.offersFound}`,
+    `resumo: steps=${result.stepsExecuted} stores=${result.storesFound} flyers=${result.flyersFound} new=${result.newFlyers} offers=${result.offersFound}`,
   );
   if (result.error) log(`error: ${result.error}`);
   for (const line of summary.split("\n")) {
@@ -129,7 +144,7 @@ export async function executeFlowById(
       nextRunAt?: number;
     };
     if (scheduled?.nextRunAt) {
-      log(`next site check ${new Date(scheduled.nextRunAt).toISOString()}`);
+      log(`próximo check ${new Date(scheduled.nextRunAt).toISOString()}`);
     }
   }
 

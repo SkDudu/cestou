@@ -729,8 +729,8 @@ Overlay: Playwright `page.evaluate` injeta um `div` fixo; screenshot já captura
 | Runner logs | `scraper/src/flyers/runner/flow-runner.ts` |
 | Sessão | `scraper/src/flyers/session/session-manager.ts`, `session-server.ts` |
 | Convex | `convex/schema.ts`, `convex/scraperSteps.ts` |
-| UI | `front/src/components/admin/BrowserSessionPanel.tsx` |
-| Client | `front/src/lib/browser-session.ts` |
+| UI | `front-admin/src/components/admin/BrowserSessionPanel.tsx` |
+| Client | `front-admin/src/lib/browser-session.ts` |
 | Allowlist hosts | `flyer-config` + `apigw.cloud.carrefour.com.br` |
 
 ---

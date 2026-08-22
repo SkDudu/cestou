@@ -15,11 +15,12 @@ import {
   insertOffers,
   listForExtract,
   listPendingExtract,
+  markExpired,
   patchFlyerValidity,
   setFlyerStatus,
 } from "../core/flyer-storage.js";
 import type { ParsedOffer } from "../core/flyer-types.js";
-import { parseValidity, shouldExtractNow } from "../core/validity.js";
+import { parseValidity, extractSkipReason } from "../core/validity.js";
 
 type PageRow = {
   _id: string;
@@ -75,11 +76,23 @@ export async function extractPending(opts?: {
   force?: boolean;
   supermarketId?: string;
   flyerIds?: string[];
+  onLog?: (line: string) => void;
 }) {
+  const say = (tag: string, msg: string) => {
+    flyerLog.info(tag, msg);
+    opts?.onLog?.(`[${tag}] ${msg}`);
+  };
+
   const force = opts?.force ?? process.argv.includes("--force");
   const provider = parseProviderArg();
   const flyerFilter = argValue("flyer");
   const pageFilter = parsePageFilter();
+  if (!force) {
+    const expired = (await markExpired()) as { expired?: number };
+    if (expired.expired) {
+      say("EXTRACT", `marcou expired=${expired.expired} (validUntil < now)`);
+    }
+  }
   let pending = force
     ? await listForExtract(true)
     : await listPendingExtract();
@@ -98,30 +111,39 @@ export async function extractPending(opts?: {
   let processed = 0;
   let offersFound = 0;
 
-  flyerLog.info(
-    "OCR",
-    `Extracting ${flyers.length} flyer(s) provider=${provider} concurrency=${flyerConfig.mimoConcurrency}${force ? " force" : ""}`,
+  say(
+    "EXTRACT",
+    `fila: ${flyers.length} flyer(s) | provider=${provider} concurrency=${flyerConfig.mimoConcurrency}${force ? " force" : ""}`,
   );
+  if (!flyers.length) {
+    say("EXTRACT", "nada pra analisar");
+    await terminateOcr();
+    return { processed: 0, pending: 0, offersFound: 0 };
+  }
 
-  for (const flyer of flyers) {
+  for (let fi = 0; fi < flyers.length; fi++) {
+    const flyer = flyers[fi]!;
+    const label = (flyer as { title?: string }).title ?? flyer._id;
+    const progress = `${fi + 1}/${flyers.length}`;
     try {
       const windowMs =
         flyerConfig.discoveryBeforeExpirationHours * 60 * 60 * 1000;
-      if (
-        !force &&
-        !shouldExtractNow(
-          flyer as { validFrom?: number },
-          Date.now(),
-          windowMs,
-        )
-      ) {
-        flyerLog.info(
-          "OCR",
-          `skip ${flyer._id} upcoming validFrom=${(flyer as { validFrom?: number }).validFrom}`,
-        );
+      const skipWhy = force
+        ? null
+        : extractSkipReason(
+            flyer as { validFrom?: number; validUntil?: number },
+            Date.now(),
+            windowMs,
+          );
+      if (skipWhy) {
+        say("EXTRACT", `${progress} skip (${skipWhy}) — ${label}`);
+        if (skipWhy === "validUntil expirado") {
+          await setFlyerStatus(flyer._id, "expired");
+        }
         continue;
       }
       await setFlyerStatus(flyer._id, "processing");
+      say("EXTRACT", `${progress} em análise — ${label}`);
 
       const full = await getFlyer(flyer._id);
       if (!full?.pages?.length) {
@@ -130,6 +152,10 @@ export async function extractPending(opts?: {
 
       const pages = (full.pages as PageRow[]).filter((p) =>
         pageFilter ? pageFilter.has(p.pageNumber) : true,
+      );
+      say(
+        "EXTRACT",
+        `${progress} ${pages.length} página(s) pra analisar`,
       );
 
       const results = await mapLimit(
@@ -152,9 +178,9 @@ export async function extractPending(opts?: {
               promptVersion: flyerConfig.aiPromptVersion,
             });
             if (done) {
-              flyerLog.info(
-                "AI_VISION",
-                `skip page ${page.pageNumber} (idempotent ${flyerConfig.mimoModel}/${flyerConfig.aiPromptVersion})`,
+              say(
+                "EXTRACT",
+                `${progress} pág ${page.pageNumber}/${pages.length} skip (já analisada)`,
               );
               return {
                 pageNumber: page.pageNumber,
@@ -164,6 +190,11 @@ export async function extractPending(opts?: {
               };
             }
           }
+
+          say(
+            "EXTRACT",
+            `${progress} pág ${page.pageNumber}/${pages.length} analisando…`,
+          );
 
           try {
             const buffer = await downloadPageBuffer(page.url);
@@ -241,9 +272,9 @@ export async function extractPending(opts?: {
               durationMs: result.latencyMs,
             });
 
-            flyerLog.info(
-              "PARSER",
-              `flyer=${flyer._id} page=${page.pageNumber} model=${result.model ?? result.provider} status=${result.status} duration=${result.latencyMs}ms offers=${result.offers.length}${result.error ? ` error=${result.error}` : ""}`,
+            say(
+              "EXTRACT",
+              `${progress} pág ${page.pageNumber}/${pages.length} ${result.status === "failed" ? "✕" : "✓"} offers=${result.offers.length} ${result.latencyMs ?? 0}ms${result.error ? ` — ${result.error}` : ""}`,
             );
 
             if (result.status === "failed") {
@@ -267,6 +298,10 @@ export async function extractPending(opts?: {
             flyerLog.error(
               "OCR",
               `flyer=${flyer._id} page=${page.pageNumber} status=failed error=${String(err)}`,
+            );
+            say(
+              "EXTRACT",
+              `${progress} pág ${page.pageNumber}/${pages.length} ✕ ${String(err)}`,
             );
             await insertFlyerError({
               flyerId: flyer._id,
@@ -350,13 +385,22 @@ export async function extractPending(opts?: {
             ? "downloaded"
             : "processed";
       await setFlyerStatus(flyer._id, nextStatus);
-      flyerLog.info(
-        "PARSER",
-        `Flyer ${flyer._id}: status=${nextStatus} offers=${offers.length} ok=${okCount} failed=${failedCount} skipped=${results.length - ran.length}`,
+      if (offers.length) {
+        say(
+          "EXTRACT",
+          `${progress} ofertas salvas: ${offers.length}`,
+        );
+      }
+      say(
+        "EXTRACT",
+        `${progress} ✓ terminou — ${label} status=${nextStatus} offers=${offers.length} ok=${okCount} fail=${failedCount} skip=${results.length - ran.length}`,
       );
       processed++;
     } catch (err) {
       flyerLog.error("PARSER", `${flyer._id}: ${String(err)}`);
+      opts?.onLog?.(
+        `[EXTRACT] ${progress} ✕ ${label}: ${String(err)}`,
+      );
       const current = await getFlyer(flyer._id);
       if (current?.status === "processing") {
         await setFlyerStatus(flyer._id, "downloaded");
@@ -372,6 +416,10 @@ export async function extractPending(opts?: {
   }
 
   await terminateOcr();
+  say(
+    "EXTRACT",
+    `fim: processados ${processed}/${flyers.length} | ofertas=${offersFound}`,
+  );
   return { processed, pending: flyers.length, offersFound };
 }
 

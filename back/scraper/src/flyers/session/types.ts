@@ -1,5 +1,11 @@
 import type { Page } from "playwright";
-import type { NetworkFlyerDoc, RecordedAction, ScopeMetadata } from "../types/flows.js";
+import type {
+  FlowStep,
+  FlyerSource,
+  NetworkFlyerDoc,
+  RecordedAction,
+  ScopeMetadata,
+} from "../types/flows.js";
 import type { ScopeNode } from "./scope-pick.js";
 
 export type SessionStatus =
@@ -39,6 +45,11 @@ export type LiveSession = {
   scopeChain?: ScopeNode[];
   scopeIndex?: number;
   lastScopeMeta?: ScopeMetadata;
+  lastJpegBase64?: string;
+  proposed?: { startUrl: string; notes?: string; steps: FlowStep[] };
+  snapQueue?: Promise<void>;
+  /** Last MiMo flyerSource from locate-flyers — saved into discover-flyer step. */
+  flyerSource?: FlyerSource;
 };
 
 export function emit(session: LiveSession, ev: SessionEvent) {
@@ -55,6 +66,11 @@ export function touch(session: LiveSession) {
   session.lastActivityAt = Date.now();
 }
 
+export function slimAction(action: RecordedAction): RecordedAction {
+  const { snapshot: _s, ...rest } = action;
+  return rest;
+}
+
 export function pushAction(session: LiveSession, action: RecordedAction) {
   if (!session.recording) return;
   const last = session.actions[session.actions.length - 1];
@@ -65,10 +81,14 @@ export function pushAction(session: LiveSession, action: RecordedAction) {
     JSON.stringify(last.selectors) === JSON.stringify(action.selectors) &&
     Date.now() - session.lastActivityAt < 300
   ) {
+    if (!last.snapshot && action.snapshot) last.snapshot = action.snapshot;
     return;
   }
   session.actions.push(action);
   touch(session);
-  emit(session, { type: "action", action });
-  emit(session, { type: "actions", actions: session.actions });
+  emit(session, { type: "action", action: slimAction(action) });
+  emit(session, {
+    type: "actions",
+    actions: session.actions.map(slimAction),
+  });
 }

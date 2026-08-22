@@ -5,16 +5,35 @@ import {
   getSupermarket,
   insertFlyerError,
   listPendingDownload,
+  markExpired,
   setFlyerStatus,
   uploadBuffer,
   upsertFlyerPage,
 } from "../core/flyer-storage.js";
 import { flyerLog } from "../core/flyer-logger.js";
+import { extractSkipReason } from "../core/validity.js";
+import { flyerConfig } from "../core/flyer-config.js";
 
 export async function downloadPending(opts?: {
   supermarketId?: string;
   flyerIds?: string[];
+  onLog?: (line: string) => void;
+  fetchPage?: (url: string) => Promise<{ buffer: Buffer; contentType: string }>;
+  capturedPages?: Map<
+    string,
+    Array<{ buffer: Buffer; contentType: string; url?: string }>
+  >;
 }) {
+  const say = (msg: string) => {
+    flyerLog.info("DOWNLOAD", msg);
+    opts?.onLog?.(`[DOWNLOAD] ${msg}`);
+  };
+
+  const expired = (await markExpired()) as { expired?: number };
+  if (expired.expired) {
+    say(`marcou expired=${expired.expired} (validUntil < now)`);
+  }
+
   let pending = await listPendingDownload();
   if (opts?.supermarketId) {
     pending = pending.filter(
@@ -27,38 +46,71 @@ export async function downloadPending(opts?: {
   }
   let downloaded = 0;
 
-  for (const flyer of pending) {
+  say(`fila: ${pending.length} flyer(s) pendente(s)`);
+  if (!pending.length) {
+    say("nada pra baixar");
+    return { downloaded: 0, pending: 0 };
+  }
+
+  for (let i = 0; i < pending.length; i++) {
+    const flyer = pending[i]!;
+    const label = flyer.title ?? flyer._id;
+    const progress = `${i + 1}/${pending.length}`;
     try {
+      const windowMs =
+        flyerConfig.discoveryBeforeExpirationHours * 60 * 60 * 1000;
+      const skipWhy = extractSkipReason(
+        flyer as { validFrom?: number; validUntil?: number },
+        Date.now(),
+        windowMs,
+      );
+      if (skipWhy) {
+        say(`${progress} skip (${skipWhy}) — ${label}`);
+        if (skipWhy === "validUntil expirado") {
+          await setFlyerStatus(flyer._id, "expired");
+        }
+        continue;
+      }
       if ((flyer as { storageId?: string }).storageId) {
-        flyerLog.info("DOWNLOAD", `skip ${flyer._id} already stored`);
+        say(`${progress} skip já no storage — ${label}`);
         await setFlyerStatus(flyer._id, "downloaded");
         continue;
       }
       await setFlyerStatus(flyer._id, "downloading");
+      say(`${progress} baixando — ${label}`);
       const sm = await getSupermarket(flyer.supermarketId);
       if (!sm?.slug) throw new Error("Supermarket missing slug");
 
       const storedPages = (flyer as { pageUrls?: string[] }).pageUrls;
-      if (!storedPages?.length) {
+      const captured = opts?.capturedPages?.get(flyer._id);
+      if (!captured?.length && !storedPages?.length) {
         throw new Error(
           `Flyer ${flyer.title ?? flyer._id} has no pageUrls — re-run discover-flyer in Flow Builder`,
         );
       }
+      say(
+        `${progress} ${captured?.length ? `${captured.length} buf` : `${storedPages!.length} página(s)`} → download…`,
+      );
 
-      const downloadedFlyer = await downloadFromPageUrls({
-        supermarketSlug: sm.slug,
-        sourceUrl: flyer.originalUrl,
-        type: "image",
-        title: flyer.title,
-        originalUrl: flyer.originalUrl,
-        pageUrls: storedPages,
-      });
+      const downloadedFlyer = await downloadFromPageUrls(
+        {
+          supermarketSlug: sm.slug,
+          sourceUrl: flyer.originalUrl,
+          type: "image",
+          title: flyer.title,
+          originalUrl: flyer.originalUrl,
+          pageUrls: storedPages,
+        },
+        {
+          fetchPage: opts?.fetchPage,
+          capturedPages: captured,
+        },
+      );
 
       const existing = await findFlyerByHash(downloadedFlyer.fileHash);
       if (existing && existing._id !== flyer._id) {
-        flyerLog.info(
-          "DOWNLOAD",
-          `Duplicate hash of ${existing._id}; marking failed`,
+        say(
+          `${progress} ✕ duplicata hash de ${existing._id} — ${label}`,
         );
         await setFlyerStatus(flyer._id, "failed");
         await insertFlyerError({
@@ -70,6 +122,9 @@ export async function downloadPending(opts?: {
         continue;
       }
 
+      say(
+        `${progress} enviando ${downloadedFlyer.pages.length} página(s) pro storage…`,
+      );
       const cover = downloadedFlyer.pages[0]!;
       const coverStorageId = await uploadBuffer(cover.buffer, cover.contentType);
       const attach = await attachFlyerFile({
@@ -80,6 +135,7 @@ export async function downloadPending(opts?: {
         fileHash: downloadedFlyer.fileHash,
       });
       if (attach.duplicateOf) {
+        say(`${progress} ✕ attach duplicado — ${label}`);
         await setFlyerStatus(flyer._id, "failed");
         continue;
       }
@@ -93,13 +149,13 @@ export async function downloadPending(opts?: {
         });
       }
 
-      flyerLog.info(
-        "DOWNLOAD",
-        `Flyer ${flyer._id} (${flyer.title ?? downloadedFlyer.source.title ?? ""}): ${downloadedFlyer.pages.length} pages stored`,
+      say(
+        `${progress} ✓ enviado — ${label} (${downloadedFlyer.pages.length} págs)`,
       );
       downloaded++;
     } catch (err) {
       flyerLog.error("DOWNLOAD", `${flyer._id}: ${String(err)}`);
+      opts?.onLog?.(`[DOWNLOAD] ${progress} ✕ ${label}: ${String(err)}`);
       await setFlyerStatus(flyer._id, "failed");
       await insertFlyerError({
         flyerId: flyer._id,
@@ -111,6 +167,7 @@ export async function downloadPending(opts?: {
     }
   }
 
+  say(`fim: baixados ${downloaded}/${pending.length}`);
   return { downloaded, pending: pending.length };
 }
 

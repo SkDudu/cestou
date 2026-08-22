@@ -173,7 +173,7 @@ back/scraper/src/flyers/
 └── jobs/
     └── flow-session-worker.ts
 
-front/src/
+front-admin/src/
 ├── lib/browser-session.ts     # client WS/HTTP
 └── app/admin/scraper/[id]/
     ├── page.tsx               # integrar painel

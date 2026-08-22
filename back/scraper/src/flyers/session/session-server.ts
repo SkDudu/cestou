@@ -4,10 +4,12 @@ import { runSchedulerLoop } from "../jobs/flow-scheduler.js";
 import { executeFlowById } from "../runner/execute-flow.js";
 import {
   addSemantic,
+  analyzeSession,
   clearScopeHighlight,
   clickAt,
   confirmScope,
   createSession,
+  destroyAllSessions,
   destroySession,
   getSession,
   hoverScope,
@@ -15,6 +17,7 @@ import {
   pickScope,
   pressKey,
   probeScope,
+  removeAction,
   saveSession,
   scrollSession,
   setRecording,
@@ -121,6 +124,20 @@ export function startSessionServer() {
         return;
       }
 
+      if (req.method === "POST" && path === "/shutdown") {
+        flyerLog.info("SESSION", "shutdown requested");
+        activeAbort?.abort();
+        await destroyAllSessions();
+        sendJson(res, 200, { ok: true, shuttingDown: true });
+        setTimeout(() => {
+          server.close(() => {
+            process.exit(0);
+          });
+          setTimeout(() => process.exit(0), 2000);
+        }, 100);
+        return;
+      }
+
       if (req.method === "POST" && path === "/runs") {
         const body = (await readJson(req)) as {
           flowId?: string;
@@ -214,7 +231,10 @@ export function startSessionServer() {
           status: s.status,
           currentUrl: s.currentUrl,
           recording: s.recording,
-          actions: s.actions,
+          actions: s.actions.map((a) => {
+            const { snapshot: _s, ...rest } = a;
+            return rest;
+          }),
         });
         return;
       }
@@ -304,6 +324,7 @@ export function startSessionServer() {
           selectors?: string[];
           label?: string;
           purpose?: string;
+          flyerSource?: unknown;
           metadata?: {
             tagName?: string;
             id?: string;
@@ -318,13 +339,26 @@ export function startSessionServer() {
           sendJson(res, 400, { error: "selectors required" });
           return;
         }
+        const { parseFlyerSource } = await import("../runner/flyer-discover.js");
         const result = await confirmScope(sessionId, {
           selectors: body.selectors,
           label: body.label,
           purpose: body.purpose,
           metadata: body.metadata,
+          flyerSource: parseFlyerSource(body.flyerSource),
         });
         sendJson(res, 200, { saved: true, ...result });
+        return;
+      }
+
+      if (req.method === "POST" && action === "remove-action") {
+        const body = (await readJson(req)) as { index?: number };
+        if (body.index == null || !Number.isInteger(body.index)) {
+          sendJson(res, 400, { error: "index required" });
+          return;
+        }
+        const result = removeAction(sessionId, body.index);
+        sendJson(res, 200, { ok: true, ...result });
         return;
       }
 
@@ -370,6 +404,13 @@ export function startSessionServer() {
         }
         await addSemantic(sessionId, body.step);
         sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === "POST" && action === "analyze") {
+        await readJson(req);
+        const result = await analyzeSession(sessionId);
+        sendJson(res, 200, result);
         return;
       }
 

@@ -9,6 +9,12 @@
  */
 
 import type * as clearData from "../clearData.js";
+import type * as clientAuth from "../clientAuth.js";
+import type * as clientLib from "../clientLib.js";
+import type * as clientLists from "../clientLists.js";
+import type * as clientLocation from "../clientLocation.js";
+import type * as clientOffers from "../clientOffers.js";
+import type * as clientStores from "../clientStores.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as flyerErrors from "../flyerErrors.js";
@@ -31,6 +37,12 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   clearData: typeof clearData;
+  clientAuth: typeof clientAuth;
+  clientLib: typeof clientLib;
+  clientLists: typeof clientLists;
+  clientLocation: typeof clientLocation;
+  clientOffers: typeof clientOffers;
+  clientStores: typeof clientStores;
   crons: typeof crons;
   dashboard: typeof dashboard;
   flyerErrors: typeof flyerErrors;

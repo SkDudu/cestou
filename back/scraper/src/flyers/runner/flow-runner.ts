@@ -1,8 +1,9 @@
 import { flyerLog } from "../core/flyer-logger.js";
 import { BrowserManager } from "../browser/manager.js";
+import { detectContentType, validateBuffer } from "../core/flyer-downloader.js";
 import type { FlowContext, FlowState, FlowStep } from "../types/flows.js";
 import { attachNetworkHarvester } from "./flow-pipeline.js";
-import { runStep, type StepResult } from "./step-runner.js";
+import { dismissBlockingDialogs, runStep, type StepResult } from "./step-runner.js";
 
 export type FlowDefinition = {
   id: string;
@@ -56,6 +57,7 @@ export async function runFlow(
     discoveredFlyerIds: [],
     offersFound: 0,
     networkFlyers: [],
+    onLog: say,
   };
 
   const onAbort = () => {
@@ -87,6 +89,23 @@ export async function runFlow(
     const harvest = attachNetworkHarvester(page);
     harvestDispose = harvest.dispose;
     state.networkFlyers = harvest.flyers;
+    state.capturedPages = new Map();
+    state.browserFetch = async (url: string) => {
+      const res = await page.context().request.get(url, { timeout: 30_000 });
+      if (!res.ok()) {
+        throw new Error(`HTTP ${res.status()} for ${url}`);
+      }
+      const buffer = Buffer.from(await res.body());
+      if (!buffer.length) throw new Error("Empty file");
+      const hint =
+        res.headers()["content-type"]?.split(";")[0]?.trim() ||
+        "application/octet-stream";
+      const contentType = validateBuffer(buffer, hint);
+      return {
+        buffer,
+        contentType: contentType ?? detectContentType(buffer) ?? hint,
+      };
+    };
 
     const first = flow.steps[0];
     if (!first || first.type !== "navigate") {
@@ -99,13 +118,19 @@ export async function runFlow(
         waitUntil: "domcontentloaded",
         timeout: opts.timeoutMs,
       });
+      await dismissBlockingDialogs(page, say, 12_000);
     }
 
     for (const step of flow.steps) {
       if (aborted()) throw new Error("cancelled");
-      if (step.type === "select-scope") say("[SCOPE] Resolving element");
-      if (step.type === "discover-flyer") say("[FLYER] Searching scoped DOM");
-      say(`→ step ${step.order} ${step.type}`);
+      const label =
+        step.config.description ||
+        step.config.label ||
+        step.config.semantic ||
+        "";
+      say(
+        `→ step ${step.order}/${flow.steps.length} ${step.type}${label ? ` — ${label}` : ""}`,
+      );
       const result = await runStep(page, step, state, {
         timeoutMs: opts.timeoutMs,
         maxRetries: opts.maxRetries,
@@ -117,7 +142,7 @@ export async function runFlow(
       offersFound += result.offersFound ?? 0;
       newFlyers += result.newFlyers ?? 0;
       if (!result.ok) {
-        say(`✕ ${step.type}: ${result.message}`);
+        say(`✕ step ${step.order} ${step.type}: ${result.message}`);
         return {
           ok: false,
           stepsExecuted: stepLogs.length,
@@ -129,9 +154,12 @@ export async function runFlow(
           stepLogs,
         };
       }
-      say(`✓ ${step.type}: ${result.message}`);
+      say(`✓ step ${step.order} ${step.type}: ${result.message}`);
     }
 
+    say(
+      `pipeline browser ok — flyers novos=${newFlyers} achados=${flyersFound} ofertas=${offersFound || state.offersFound}`,
+    );
     await page.close().catch(() => undefined);
     return {
       ok: true,

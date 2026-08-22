@@ -14,11 +14,7 @@ function sleep(ms: number) {
 }
 
 function parseCtx(): Record<string, string> {
-  return {
-    uf: flyerConfig.discoveryState,
-    city: flyerConfig.discoveryCity,
-    storeId: "355",
-  };
+  return {};
 }
 
 export async function runSchedulerTick() {

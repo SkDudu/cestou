@@ -239,4 +239,54 @@ export default defineSchema({
   })
     .index("by_flow", ["flowId"])
     .index("by_startedAt", ["startedAt"]),
+
+  // --- App cliente (docs/cliente-mvp.md) ---
+  // ponytail: sessionToken = auth anônimo; email/senha depois
+  users: defineTable({
+    sessionToken: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_sessionToken", ["sessionToken"]),
+
+  locations: defineTable({
+    userId: v.id("users"),
+    label: v.string(),
+    city: v.string(),
+    state: v.string(),
+    neighborhood: v.optional(v.string()),
+    addressText: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    isDefault: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_default", ["userId", "isDefault"]),
+
+  favoriteStores: defineTable({
+    userId: v.id("users"),
+    supermarketId: v.id("supermarkets"),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_store", ["userId", "supermarketId"]),
+
+  shoppingLists: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    locationId: v.optional(v.id("locations")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  shoppingListItems: defineTable({
+    listId: v.id("shoppingLists"),
+    queryText: v.string(),
+    offerId: v.optional(v.id("offers")),
+    quantity: v.number(),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_list", ["listId"]),
 });

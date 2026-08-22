@@ -170,14 +170,14 @@ back/convex/
 ├── scraperSteps.ts
 └── scraperRuns.ts
 
-front/src/app/admin/
+front-admin/src/app/admin/
 └── scraper/
     ├── page.tsx
     ├── new/
     └── [id]/
 ```
 
-> Nota: rascunho usava `src/scraper` + `app/dashboard/scraper`. No Cestou: scraper em `back/scraper`, UI em `front/src/app/admin/scraper`.
+> Nota: rascunho usava `src/scraper` + `app/dashboard/scraper`. No Cestou: scraper em `back/scraper`, UI em `front-admin/src/app/admin/scraper`.
 
 ---
 

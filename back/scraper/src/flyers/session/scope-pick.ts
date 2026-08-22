@@ -268,6 +268,8 @@ export async function dumpFlyerCandidates(
   return page.evaluate(() => {
     const flyerRe =
       /\/Flyer\/\?id=|\/flyer\/|flipbook|\/flip|api-middleware-flyer-services|\/encartes\/|\.pdf(\?|$)/i;
+    const uiHintRe =
+      /tab|carousel|swiper|slider|encarte|flyer|oferta|jornal|folheto|catalog|flipbook|gallery|galeria/i;
     const UTIL =
       /^(w-|h-|p-|m-|flex|grid|text-|bg-|rounded|shadow|overflow|relative|absolute|mx-|my-|md:|sm:|lg:|xl:|col-|row-|gap-|items-|justify-|hidden|block|font-|mb-|mt-|ml-|mr-|px-|py-|pt-|pb-|pl-|pr-|border|cursor|transition|hover:|focus:|group|max-|min-|z-|top-|left-|right-|bottom-|inset-|object-|aspect-|opacity-|pointer-|select-|whitespace-|leading-|tracking-|uppercase|truncate|ring-|from-|to-|via-|animate-|decoration-)/;
 
@@ -301,6 +303,8 @@ export async function dumpFlyerCandidates(
       }
       const aria = el.getAttribute("aria-label");
       if (aria && aria.length < 80) out.push(`[aria-label="${cssEsc(aria)}"]`);
+      const role = el.getAttribute("role");
+      if (role) out.push(`[role="${cssEsc(role)}"]`);
       const stable = [...el.classList].filter(
         (c) => c.length > 2 && c.length < 40 && !UTIL.test(c),
       );
@@ -340,9 +344,26 @@ export async function dumpFlyerCandidates(
       return hrefs;
     }
 
+    function looksLikeFlyerUi(el: Element): boolean {
+      const blob = [
+        el.id,
+        el.className?.toString?.() ?? "",
+        el.getAttribute("aria-label") ?? "",
+        el.getAttribute("data-testid") ?? "",
+        el.getAttribute("role") ?? "",
+      ].join(" ");
+      if (uiHintRe.test(blob)) return true;
+      if (el.getAttribute("role") === "tablist") return true;
+      if (el.querySelector("[role=tab], [data-oferta-index], .swiper-slide")) {
+        return true;
+      }
+      const imgs = el.querySelectorAll("img[src]").length;
+      return imgs >= 3 && el.getBoundingClientRect().height > 120;
+    }
+
     const set = new Set<Element>();
     for (const el of document.querySelectorAll(
-      "section, article, ul, ol, main, [role=list]",
+      "section, article, ul, ol, main, [role=list], [role=tablist], [role=tabpanel]",
     )) {
       set.add(el);
     }
@@ -350,6 +371,15 @@ export async function dumpFlyerCandidates(
       if (!flyerRe.test(a.getAttribute("href") ?? "")) continue;
       let p: Element | null = a;
       for (let i = 0; i < 6 && p && p !== document.body; i++) {
+        set.add(p);
+        p = p.parentElement;
+      }
+    }
+    for (const el of document.querySelectorAll(
+      "[data-oferta-index], [class*='swiper'], [class*='carousel'], [class*='encarte'], [class*='flyer'], [class*='oferta']",
+    )) {
+      let p: Element | null = el;
+      for (let i = 0; i < 5 && p && p !== document.body; i++) {
         set.add(p);
         p = p.parentElement;
       }
@@ -369,18 +399,35 @@ export async function dumpFlyerCandidates(
             .trim()
             .slice(0, 70),
           linkCount: el.querySelectorAll("a[href]").length,
-          imageCount: el.querySelectorAll("img").length,
+          imageCount: el.querySelectorAll("img[src]").length,
           area: Math.max(0, Math.round(r.width * r.height)),
+          uiHint: looksLikeFlyerUi(el),
         };
       })
-      .filter((c) => c.selectors.length && (c.flyerHrefs.length || c.area > 20000));
+      .filter(
+        (c) =>
+          c.selectors.length &&
+          (c.flyerHrefs.length || c.uiHint || (c.imageCount >= 3 && c.area > 20000)),
+      );
 
     raw.sort(
       (a, b) =>
-        b.flyerHrefs.length - a.flyerHrefs.length || a.area - b.area,
+        b.flyerHrefs.length - a.flyerHrefs.length ||
+        Number(b.uiHint) - Number(a.uiHint) ||
+        b.imageCount - a.imageCount ||
+        a.area - b.area,
     );
 
-    return raw.slice(0, 30).map((c, i) => ({ ...c, index: i + 1 }));
+    return raw.slice(0, 30).map((c, i) => ({
+      index: i + 1,
+      tagName: c.tagName,
+      selectors: c.selectors,
+      flyerHrefs: c.flyerHrefs,
+      text: c.text,
+      linkCount: c.linkCount,
+      imageCount: c.imageCount,
+      area: c.area,
+    }));
   });
 }
 
@@ -388,7 +435,7 @@ export function formatFlyerCandidates(cands: FlyerDomCandidate[]): string {
   return cands
     .map(
       (c) =>
-        `#${c.index} ${c.tagName} selectors=${JSON.stringify(c.selectors)} flyerLinks=${c.flyerHrefs.length} text=${JSON.stringify(c.text)}`,
+        `#${c.index} ${c.tagName} selectors=${JSON.stringify(c.selectors)} flyerLinks=${c.flyerHrefs.length} images=${c.imageCount} text=${JSON.stringify(c.text)}`,
     )
     .join("\n");
 }

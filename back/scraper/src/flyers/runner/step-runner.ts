@@ -3,13 +3,17 @@ import type { FlowState, FlowStep, StepConfig } from "../types/flows.js";
 import { interpolate } from "../recorder/action-normalizer.js";
 import { downloadPending } from "../jobs/flyer-download.js";
 import { extractPending } from "../jobs/flyer-extraction.js";
+import { denyNativePermissionPrompts } from "../browser/context.js";
 import {
   attachNetworkHarvester,
-  buildCandidates,
   persistDiscovered,
   resolveScopeElement,
-  scanDomFlyerCandidates,
 } from "./flow-pipeline.js";
+import {
+  allowsImageUrls,
+  discoverWithFlyerSource,
+  resolveFlyerSource,
+} from "./flyer-discover.js";
 
 export type StepResult = {
   ok: boolean;
@@ -20,6 +24,46 @@ export type StepResult = {
   newFlyers?: number;
   candidates?: unknown[];
 };
+
+/** AppNotice não some sozinho — espera aparecer e clica Continuar. */
+export async function dismissBlockingDialogs(
+  page: Page,
+  say?: (line: string) => void,
+  timeoutMs = 12_000,
+): Promise<boolean> {
+  const loc = page
+    .locator(
+      '[role="dialog"] button:has-text("Continuar"), button:has-text("Continuar")',
+    )
+    .first();
+  try {
+    await loc.waitFor({ state: "visible", timeout: timeoutMs });
+  } catch {
+    say?.("[DIALOG] Continuar não apareceu — segue");
+    return false;
+  }
+  await loc.click({ timeout: 4000 });
+  say?.("[DIALOG] clicou Continuar — esperando dialog sumir");
+  await page
+    .locator('[role="dialog"]')
+    .first()
+    .waitFor({ state: "hidden", timeout: 8000 })
+    .catch(() => undefined);
+  await page.waitForTimeout(300);
+  return true;
+}
+
+async function waitForFlyerGallery(page: Page, say?: (line: string) => void) {
+  try {
+    await page
+      .locator('h3:has-text("Encartes"), img[src*="flipbook"], img[alt*="Encarte"]')
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
+    say?.("[NAV] galeria de encartes visível");
+  } catch {
+    say?.("[NAV] galeria ainda não visível — segue mesmo assim");
+  }
+}
 
 async function resolveLocator(page: Page, config: StepConfig) {
   const list = [
@@ -34,6 +78,15 @@ async function resolveLocator(page: Page, config: StepConfig) {
     const esc = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     list.push(`text="${esc}"`);
   }
+  for (const sel of list) {
+    const all = page.locator(sel);
+    const n = await all.count();
+    for (let i = 0; i < n; i++) {
+      const loc = all.nth(i);
+      if (await loc.isVisible().catch(() => false)) return loc;
+    }
+  }
+  // fallback: first match even if hidden (old behavior)
   for (const sel of list) {
     const loc = page.locator(sel).first();
     if ((await loc.count()) > 0) return loc;
@@ -66,6 +119,7 @@ async function resolveSelect(
       const n = await all.count();
       for (let i = 0; i < n; i++) {
         const loc = all.nth(i);
+        if (!(await loc.isVisible().catch(() => false))) continue;
         const opts = await loc.locator("option").evaluateAll((els) =>
           els.map((o) => ({
             value: (o as HTMLOptionElement).value,
@@ -132,22 +186,36 @@ async function runStepOnce(
   const cfg = step.config;
   const ctx = state.ctx;
   const t = cfg.timeoutMs ?? timeoutMs;
+  const say = (line: string) => state.onLog?.(line);
 
   switch (step.type) {
     case "navigate": {
       const url = interpolate(cfg.url ?? "", ctx);
       if (!url) throw new Error("navigate missing url");
+      say(`[NAV] indo para ${url}`);
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: t });
+      say(`[NAV] carregou ${page.url()}`);
+      await denyNativePermissionPrompts(
+        page.context(),
+        page,
+        new URL(page.url()).origin,
+      ).catch(() => undefined);
+      await dismissBlockingDialogs(page, say, Math.min(t, 12_000));
+      await waitForFlyerGallery(page, say);
       return { ok: true, message: `navigated ${url}` };
     }
     case "click": {
+      const hint = cfg.description ?? cfg.selector ?? cfg.selectors?.[0] ?? "…";
+      say(`[CLICK] procurando "${hint}"`);
       const loc = await resolveLocator(page, cfg);
       await loc.click({ timeout: t });
+      say(`[CLICK] ok — ${hint}`);
       return { ok: true, message: cfg.description ?? "click" };
     }
     case "select": {
       const value = interpolate(cfg.value ?? "", ctx);
       if (!value) throw new Error("select missing value");
+      say(`[SELECT] opção "${value}"`);
       const { loc, hit } = await resolveSelect(page, cfg, value, t);
       await selectOption(loc, hit, t);
       return { ok: true, message: `select ${hit.label || hit.value}` };
@@ -155,10 +223,12 @@ async function runStepOnce(
     case "input": {
       const loc = await resolveLocator(page, cfg);
       const value = interpolate(cfg.value ?? "", ctx);
+      say(`[INPUT] "${value}"`);
       await loc.fill(value, { timeout: t });
       return { ok: true, message: `input ${value}` };
     }
     case "wait": {
+      say(`[WAIT] strategy=${cfg.strategy ?? "selector"}`);
       if (cfg.strategy === "timeout") {
         await page.waitForTimeout(cfg.timeoutMs ?? 1000);
       } else if (cfg.strategy === "networkidle") {
@@ -166,7 +236,8 @@ async function runStepOnce(
       } else {
         const sel = cfg.selector ?? cfg.selectors?.[0];
         if (!sel) throw new Error("wait selector missing");
-        await page.waitForSelector(sel, { timeout: t });
+        // ponytail: attached-but-hidden selects break Assaí modal — wait visible
+        await page.waitForSelector(sel, { state: "visible", timeout: t });
       }
       return { ok: true, message: "wait ok" };
     }
@@ -178,24 +249,33 @@ async function runStepOnce(
     }
     case "capture-network": {
       const duration = cfg.duration ?? 5000;
+      say(`[NET] capturando ${duration}ms…`);
       await page.waitForTimeout(duration);
+      say(`[NET] flyers na rede: ${state.networkFlyers.length}`);
       return { ok: true, message: `capture-network ${duration}ms` };
     }
     case "select-scope": {
+      say("[SCOPE] resolvendo elemento…");
+      await dismissBlockingDialogs(page, say, 5000);
       const selectors = [
         ...(cfg.selectors ?? []),
         ...(cfg.selector ? [cfg.selector] : []),
       ].filter(Boolean);
       if (!selectors.length) {
-        throw new Error(
-          "SCOPE_NOT_FOUND: não foi possível localizar a área configurada",
-        );
+        say("[SCOPE] sem selectors — discover usa página");
+        state.scopeSelectors = undefined;
+        return { ok: true, message: "SCOPE skipped (no selectors)" };
       }
-      const hit = await resolveScopeElement(page, selectors);
+      const hit = await resolveScopeElement(page, selectors, t);
       if (!hit) {
-        throw new Error(
-          "SCOPE_NOT_FOUND: não foi possível localizar a área configurada",
+        say(
+          "[SCOPE] seletor gravado não bateu — discover usa página inteira",
         );
+        state.scopeSelectors = undefined;
+        return {
+          ok: true,
+          message: "SCOPE skipped — using page discovery",
+        };
       }
       const loc = page.locator(hit.selector).first();
       const box = await loc.boundingBox();
@@ -218,6 +298,7 @@ async function runStepOnce(
       };
     }
     case "discover-store": {
+      say("[STORE] varrendo links de loja…");
       const stores = await page.evaluate(() => {
         const links = Array.from(
           document.querySelectorAll("a[href], [data-store-id], [data-id]"),
@@ -239,6 +320,7 @@ async function runStepOnce(
           )
           .slice(0, 50);
       });
+      say(`[STORE] achou ≈${stores.length}`);
       return {
         ok: true,
         message: `stores≈${stores.length}`,
@@ -247,30 +329,51 @@ async function runStepOnce(
       };
     }
     case "discover-flyer": {
-      const useElement =
-        cfg.scope === "element" || Boolean(state.scopeSelectors?.length);
-      if (useElement && !state.scopeSelectors?.length) {
-        throw new Error(
-          "SCOPE_REQUIRED: selecione uma área (select-scope) antes do discover-flyer",
-        );
+      const useElement = Boolean(state.scopeSelectors?.length);
+      if (cfg.scope === "element" && !useElement) {
+        say("[FLYER] scope element vazio — varrendo página + rede");
       }
+      const source = resolveFlyerSource(cfg);
+      say(
+        `[FLYER] buscando ${useElement ? "no scope" : "na página"}…`,
+      );
       const harvest = attachNetworkHarvester(page);
       try {
         await page.waitForTimeout(cfg.duration ?? 4000);
         await page.evaluate(() => window.scrollBy(0, 600)).catch(() => undefined);
         await page.waitForTimeout(1500);
         const scopeSel = useElement ? state.scopeSelectors![0] : undefined;
-        const dom = await scanDomFlyerCandidates(page, scopeSel);
-        const net = [...harvest.flyers, ...state.networkFlyers];
-        const candidates = buildCandidates(dom, net);
+        const network = [...harvest.flyers, ...state.networkFlyers];
+        const candidates = await discoverWithFlyerSource({
+          page,
+          scopeSelector: scopeSel,
+          network,
+          source,
+          onLog: say,
+        });
+        say(
+          `[FLYER] candidatos válidos: ${candidates.length} (kind=${source.kind})`,
+        );
+        const allowImages =
+          allowsImageUrls(source) ||
+          candidates.some((c) =>
+            c.pageUrls.some((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u)),
+          );
         let persisted = 0;
         if (state.supermarketId || state.ctx.supermarketId) {
-          const res = await persistDiscovered(state, candidates);
+          const res = await persistDiscovered(state, candidates, {
+            allowImages,
+          });
           persisted = res.created;
+          say(
+            `[FLYER] salvos novos=${persisted} totalIds=${res.ids.length}`,
+          );
+        } else {
+          say("[FLYER] sem supermarketId — não persistiu");
         }
         return {
           ok: true,
-          message: `[FLYER] ${useElement ? "scoped DOM" : "page"} | Candidates: ${dom.length} | Valid: ${candidates.length} saved=${persisted}`,
+          message: `[FLYER] ${source.kind}/${source.downloadStrategy} | Valid: ${candidates.length} saved=${persisted}`,
           flyersFound: persisted || candidates.length,
           newFlyers: persisted,
           candidates,
@@ -280,11 +383,15 @@ async function runStepOnce(
       }
     }
     case "download-flyers": {
+      say("[DOWNLOAD] iniciando…");
       const dl = await downloadPending({
         supermarketId: state.supermarketId ?? state.ctx.supermarketId,
         flyerIds: state.discoveredFlyerIds.length
           ? state.discoveredFlyerIds
           : undefined,
+        onLog: state.onLog,
+        fetchPage: state.browserFetch,
+        capturedPages: state.capturedPages,
       });
       return {
         ok: true,
@@ -293,13 +400,18 @@ async function runStepOnce(
       };
     }
     case "extract-offers": {
+      say("[EXTRACT] iniciando análise de ofertas…");
       const ex = await extractPending({
         supermarketId: state.supermarketId ?? state.ctx.supermarketId,
         flyerIds: state.discoveredFlyerIds.length
           ? state.discoveredFlyerIds
           : undefined,
+        onLog: state.onLog,
       });
       state.offersFound += ex.offersFound;
+      say(
+        `[EXTRACT] concluído processed=${ex.processed}/${ex.pending} offers=${ex.offersFound}`,
+      );
       return {
         ok: true,
         message: `extracted ${ex.processed}/${ex.pending} offers=${ex.offersFound}`,

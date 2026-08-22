@@ -53,15 +53,21 @@ export const create = mutation({
   args: {
     supermarketId: v.id("supermarkets"),
     name: v.string(),
-    startUrl: v.string(),
+    startUrl: v.optional(v.string()),
     config: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const sm = await ctx.db.get(args.supermarketId);
+    if (!sm) throw new Error("Supermarket not found");
+    const startUrl = (args.startUrl?.trim() || sm.websiteUrl?.trim()) ?? "";
+    if (!startUrl) {
+      throw new Error("Supermarket has no website URL — set it on the market first");
+    }
     const now = Date.now();
     return ctx.db.insert("scraperFlows", {
       supermarketId: args.supermarketId,
       name: args.name,
-      startUrl: args.startUrl,
+      startUrl,
       status: "draft",
       version: 1,
       config: args.config,

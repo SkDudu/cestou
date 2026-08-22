@@ -13,8 +13,12 @@ cp .env.example .env
 npm install
 npx playwright install chromium
 
-# Frontend
-cd ../front
+# Frontend admin
+cd ../front-admin
+npm install
+
+# Frontend cliente
+cd ../front-client
 npm install
 ```
 
@@ -41,6 +45,7 @@ npm run convex:dev
 
 | Comando | Descrição |
 |---------|-----------|
+| `npm run flows:codegen -- <url>` | Playwright codegen (Chromium + Inspector) |
 | `npm run flows:session-worker` | Worker Playwright p/ dashboard (:8791). Poller de discovery entra no mesmo processo. |
 | `npm run flows:scheduler` | Poller sozinho (prod sem dashboard). Dev: não precisa se o worker já está up. |
 | `npm run flows:run -- --flow=<id>` | Rodar fluxo via CLI (`--discovery` = sem download/MiMo) |
@@ -53,7 +58,14 @@ npm run convex:dev
 | `npx convex run clearData:wipeAll` | Apagar tudo do banco |
 
 ```bash
-# front: /admin/scraper → Iniciar worker | Abrir navegador | Rodar fluxo
+# front: /admin/scraper → Iniciar worker | Abrir codegen | Rodar fluxo
+cd back
+npm run flows:codegen -- https://mercadinhossaoluiz.com.br/loja/355/encartes
+```
+
+São Luiz: no codegen, **clica Continuar** (modal não some sozinho). Copia o click. Steps do flow: navigate `/encartes` → o run já espera/clica Continuar → wait galeria → `discover-flyer`. Sem `select-scope` obrigatório.
+
+```bash
 npm run flows:session-worker
 npm run flows:run -- --flow=<id> --ctx.storeId=355
 ```
@@ -68,7 +80,7 @@ Na data final, o mesmo worker faz discovery-only. Flyer igual (URL/hash) → ski
 
 ---
 
-## Frontend (`cd front`)
+## Frontend admin (`cd front-admin`)
 
 | Comando | Descrição |
 |---------|-----------|
@@ -76,3 +88,14 @@ Na data final, o mesmo worker faz discovery-only. Flyer igual (URL/hash) → ski
 | `npm run build` | Build produção |
 
 Rotas admin: `/admin`, `/admin/supermarkets`, `/admin/scraper`, `/admin/flyers`, `/admin/offers`, `/admin/validation`, `/admin/errors`.
+
+---
+
+## Frontend cliente (`cd front-client`)
+
+| Comando | Descrição |
+|---------|-----------|
+| `npm run dev` | Next.js cliente em :3001 |
+| `npm run build` | Build produção |
+
+Spec: `docs/cliente-mvp.md`.

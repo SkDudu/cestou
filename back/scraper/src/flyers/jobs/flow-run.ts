@@ -1,4 +1,3 @@
-import { flyerConfig } from "../core/flyer-config.js";
 import { executeFlowById } from "../runner/execute-flow.js";
 
 function argVal(name: string): string | undefined {
@@ -12,9 +11,6 @@ function parseCtx(): Record<string, string> {
     const m = a.match(/^--ctx\.(\w+)=(.+)$/);
     if (m) ctx[m[1]!] = m[2]!;
   }
-  if (!ctx.uf) ctx.uf = flyerConfig.discoveryState;
-  if (!ctx.city) ctx.city = flyerConfig.discoveryCity;
-  if (!ctx.storeId) ctx.storeId = "355";
   return ctx;
 }
 

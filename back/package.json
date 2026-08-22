@@ -10,6 +10,7 @@
     "flyers:test-extraction": "npm run flyers:test-extraction --workspace=scraper --",
     "flows:run": "npm run flows:run --workspace=scraper --",
     "flows:record": "npm run flows:record --workspace=scraper --",
+    "flows:codegen": "npm run flows:codegen --workspace=scraper --",
     "flows:session-worker": "npm run flows:session-worker --workspace=scraper",
     "flows:scheduler": "npm run flows:scheduler --workspace=scraper",
     "convex:dev": "npx convex dev",

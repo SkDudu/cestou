@@ -1,10 +1,36 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { MutationCtx } from "./_generated/server";
+
+function slugify(name: string) {
+  const base = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return base || "market";
+}
+
+async function uniqueSlug(ctx: MutationCtx, base: string) {
+  let slug = base;
+  let n = 0;
+  for (;;) {
+    const hit = await ctx.db
+      .query("supermarkets")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .unique();
+    if (!hit) return slug;
+    n += 1;
+    slug = `${base}-${n}`;
+  }
+}
 
 export const ensure = mutation({
   args: {
     name: v.string(),
-    slug: v.string(),
+    slug: v.optional(v.string()),
     city: v.string(),
     state: v.string(),
     country: v.string(),
@@ -14,9 +40,12 @@ export const ensure = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const slug = args.slug?.trim()
+      ? args.slug.trim()
+      : await uniqueSlug(ctx, slugify(args.name));
     const existing = await ctx.db
       .query("supermarkets")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
       .unique();
 
     if (existing) {
@@ -35,7 +64,7 @@ export const ensure = mutation({
 
     return await ctx.db.insert("supermarkets", {
       name: args.name,
-      slug: args.slug,
+      slug,
       city: args.city,
       state: args.state,
       country: args.country,
@@ -51,7 +80,6 @@ export const ensure = mutation({
 export const create = mutation({
   args: {
     name: v.string(),
-    slug: v.string(),
     city: v.string(),
     state: v.string(),
     country: v.string(),
@@ -60,16 +88,11 @@ export const create = mutation({
     timezone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("supermarkets")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .unique();
-    if (existing) throw new Error(`Slug already exists: ${args.slug}`);
-
+    const slug = await uniqueSlug(ctx, slugify(args.name));
     const now = Date.now();
     return await ctx.db.insert("supermarkets", {
       name: args.name,
-      slug: args.slug,
+      slug,
       city: args.city,
       state: args.state,
       country: args.country,

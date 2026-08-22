@@ -103,11 +103,28 @@ export function parseValidity(
   return zonedLocalToUtc(y, mo, d, h, mi, se, timeZone);
 }
 
+export function extractSkipReason(
+  flyer: { validFrom?: number; validUntil?: number },
+  now = Date.now(),
+  windowMs = 24 * 60 * 60 * 1000,
+): string | null {
+  if (flyer.validUntil !== undefined && flyer.validUntil < now) {
+    return "validUntil expirado";
+  }
+  if (
+    flyer.validFrom !== undefined &&
+    flyer.validFrom > now &&
+    flyer.validFrom - now > windowMs
+  ) {
+    return "validFrom futuro";
+  }
+  return null;
+}
+
 export function shouldExtractNow(
-  flyer: { validFrom?: number },
+  flyer: { validFrom?: number; validUntil?: number },
   now = Date.now(),
   windowMs = 24 * 60 * 60 * 1000,
 ): boolean {
-  if (flyer.validFrom === undefined || flyer.validFrom <= now) return true;
-  return flyer.validFrom - now <= windowMs;
+  return extractSkipReason(flyer, now, windowMs) === null;
 }

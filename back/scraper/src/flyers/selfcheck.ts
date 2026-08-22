@@ -10,6 +10,7 @@ import { parseOffersFromText } from "./extraction/offer-parser.js";
 import { parseJsonObject } from "./extraction/json-parse.js";
 import { parseMimoOffers } from "./extraction/mimo/index.js";
 import { parseLocateFlyers } from "./extraction/mimo/locate.js";
+import { parseAnalyzedFlow, collapseFlyerTabClicks } from "./extraction/mimo/analyze-flow.js";
 import { guardOffers } from "./extraction/offer-guards.js";
 import {
   collectFlyerDocsFromJson,
@@ -17,6 +18,15 @@ import {
   isFlyerHref,
   buildCandidates,
 } from "./runner/flow-pipeline.js";
+import {
+  hasProvenFileDownload,
+  isAppDownloadCta,
+  isFlyerDownloadButton,
+  mergeDownloadHints,
+  parseFlyerSource,
+  sanitizeItemSelectors,
+} from "./runner/flyer-discover.js";
+import { packTeachPayload } from "./session/click-snapshot.js";
 import {
   parseValidity,
   shouldExtractNow,
@@ -217,6 +227,17 @@ assert(
   shouldExtractNow({ validFrom: Date.now() + 2 * 60 * 60 * 1000 }),
   "window extract",
 );
+assert(
+  !shouldExtractNow({ validUntil: Date.now() - 1000 }),
+  "expired until skip",
+);
+assert(
+  shouldExtractNow({
+    validFrom: Date.now() - 1000,
+    validUntil: Date.now() + 86_400_000,
+  }),
+  "vigente extract",
+);
 
 const withDates = buildCandidates(
   [],
@@ -231,5 +252,225 @@ const withDates = buildCandidates(
 );
 assert(withDates[0]?.validUntil === "20/08/2026", "candidate until");
 assert(withDates[0]?.externalId === "NEW1", "candidate externalId");
+
+const analyzed = parseAnalyzedFlow(
+  JSON.stringify({
+    version: 1,
+    startUrl: "https://loja.example/encartes",
+    notes: "ok",
+    steps: [
+      { type: "navigate", config: { url: "https://loja.example/encartes" } },
+      { type: "click", config: { selectors: ["button:has-text(\"Continuar\")"] } },
+      { type: "download-flyers", config: {} },
+      { type: "extract-offers", config: {} },
+    ],
+  }),
+  "https://fallback.example",
+);
+assert(analyzed.steps.every((s) => s.type !== "download-flyers"), "no download in teach");
+assert(analyzed.steps.some((s) => s.type === "discover-flyer"), "discover appended");
+assert(analyzed.steps[0]?.type === "navigate", "navigate first");
+const disc = analyzed.steps.find((s) => s.type === "discover-flyer");
+assert(disc?.config.flyerSource?.kind === "pdf-links", "default flyerSource");
+
+const fs = parseFlyerSource({
+  kind: "tabs",
+  downloadStrategy: "open-each-item",
+  itemSelectors: ["[role=tab]"],
+  urlFrom: "img.src",
+  evidence: "assai tabs",
+});
+assert(fs?.kind === "tabs", "parse kind");
+assert(fs?.downloadStrategy === "open-each-item", "parse strategy");
+assert(parseFlyerSource({ kind: "nope" }) === undefined, "reject bad source");
+assert(
+  parseFlyerSource({
+    kind: "tabs",
+    downloadStrategy: "click-download",
+    downloadSelectors: ['button:has-text("Baixar")'],
+  })?.downloadStrategy === "click-download",
+  "click-download parse",
+);
+
+const collapsed = collapseFlyerTabClicks([
+  {
+    order: 0,
+    type: "click",
+    config: {
+      selector: 'button:has-text("Jornal de Ofertas 1")',
+      value: "Jornal de Ofertas 1",
+      description: "Select first flyer tab",
+    },
+  },
+  {
+    order: 1,
+    type: "discover-flyer",
+    config: { scope: "page", duration: 3000 },
+  },
+]);
+assert(!collapsed.some((s) => s.type === "click"), "tab click removed");
+assert(
+  collapsed.find((s) => s.type === "discover-flyer")?.config.flyerSource
+    ?.downloadStrategy === "open-each-item",
+  "tabs → open-each-item",
+);
+assert(
+  collapsed
+    .find((s) => s.type === "discover-flyer")
+    ?.config.flyerSource?.itemSelectors?.some((x) =>
+      x.includes("Jornal de Ofertas"),
+    ),
+  "generic jornal selector",
+);
+
+const dirty = sanitizeItemSelectors(
+  [
+    '[role="tab"]',
+    "[data-oferta-index]",
+    'button:has-text("Jornal de Ofertas")',
+    'text="Jornal de Ofertas 1"',
+    "button.selecionado",
+    '[data-oferta-index="\\33 1"]',
+    'button:has-text("Jornal de Ofertas 1")',
+    'button:has-text("Jornal de Ofertas 2")',
+    'button:has-text("Jornal de Ofertas 3")',
+  ],
+  { kind: "tabs" },
+);
+assert(dirty?.length && dirty.length <= 6, "sanitize cap");
+assert(!dirty?.some((s) => /Ofertas 1|Ofertas 2|selecionado|text=/.test(s)), "no instance tabs");
+assert(
+  dirty?.some((s) => s.includes('has-text("Jornal de Ofertas")')),
+  "kept generic jornal",
+);
+assert(
+  dirty?.includes('[role="tab"]') && dirty?.includes("[data-oferta-index]"),
+  "tabs kind forces defaults",
+);
+const pdfSels = sanitizeItemSelectors(
+  [
+    '[role="tab"]',
+    "[data-oferta-index]",
+    'a:has-text("Folhetos")',
+    'button:has-text("Mostrar mais folhetos")',
+  ],
+  { kind: "pdf-links" },
+);
+assert(!pdfSels?.includes('[role="tab"]'), "pdf-links drops role=tab");
+assert(!pdfSels?.includes("[data-oferta-index]"), "pdf-links drops oferta-index");
+assert(pdfSels?.some((s) => s.includes("Folhetos")), "keeps folhetos link");
+assert(isAppDownloadCta("Baixe nosso novo app e ganhe descontos"), "app cta");
+assert(!isFlyerDownloadButton("Baixe o app"), "app not flyer dl");
+assert(isFlyerDownloadButton("Baixar página"), "baixar página ok");
+assert(isFlyerDownloadButton("Download", "https://x/a.pdf"), "pdf href ok");
+assert(
+  !hasProvenFileDownload([{ text: "Baixar", selectors: ['button:has-text("Baixar")'] }]),
+  "text-only Baixar not proven file",
+);
+assert(
+  hasProvenFileDownload([
+    { text: "Baixar", href: "https://x/a.pdf", selectors: ["a[href*='.pdf']"] },
+  ]),
+  "pdf href proven",
+);
+assert(
+  hasProvenFileDownload([
+    { text: "Download", selectors: ["a[download]"] },
+  ]),
+  "a[download] proven",
+);
+{
+  const hinted = mergeDownloadHints(
+    {
+      kind: "tabs",
+      downloadStrategy: "open-each-item",
+      urlFrom: "img.src",
+      itemSelectors: ['[role="tab"]'],
+    },
+    [{ text: "Baixar", selectors: ['button:has-text("Baixar")'] }],
+  );
+  assert(hinted?.downloadStrategy === "open-each-item", "no force click-download");
+  assert(hinted?.downloadSelectors?.length, "keeps baixar as hint");
+  const upgraded = mergeDownloadHints(
+    {
+      kind: "tabs",
+      downloadStrategy: "open-each-item",
+      urlFrom: "img.src",
+    },
+    [
+      {
+        text: "Baixar",
+        href: "https://cdn.example/jornal.pdf",
+        selectors: ["a[href*='.pdf']"],
+      },
+    ],
+  );
+  assert(upgraded?.downloadStrategy === "click-download", "proven PDF upgrades");
+}
+assert(
+  parseFlyerSource({
+    kind: "tabs",
+    downloadStrategy: "click-download",
+    itemSelectors: [
+      'button:has-text("Jornal de Ofertas 1")',
+      '[data-oferta-index="31"]',
+    ],
+    downloadSelectors: ["a[download]", 'a:has-text("Baixar página")'],
+  })?.itemSelectors?.every((s) => !/\d+"\]/.test(s) && !/Ofertas \d/.test(s)),
+  "parse sanitizes items",
+);
+assert(
+  !parseFlyerSource({
+    kind: "pdf-links",
+    downloadStrategy: "direct-url",
+    itemSelectors: ['[role="tab"]', 'a:has-text("Folhetos")'],
+    downloadSelectors: ['a:has-text("Baixe nosso novo app")'],
+  })?.downloadSelectors?.length,
+  "app download selectors dropped",
+);
+assert(
+  parseFlyerSource({
+    kind: "pdf-links",
+    downloadStrategy: "direct-url",
+    itemSelectors: ['[role="tab"]', 'a:has-text("Folhetos")'],
+  })?.itemSelectors?.every((s) => !/role.?=.?tab|data-oferta-index/.test(s)),
+  "pdf-links strips tab defaults",
+);
+
+const packed = packTeachPayload({
+  startUrl: "https://loja.example",
+  currentUrl: "https://loja.example/encartes",
+  networkFlyers: [],
+  actions: [
+    {
+      kind: "click",
+      description: "cookie",
+      selectors: ["#lgpd"],
+      snapshot: { html: "x".repeat(20_000) },
+    },
+    {
+      kind: "click",
+      description: "Abrir encartes",
+      semantic: "OPEN_FLYERS",
+      selectors: ["#encartes"],
+      snapshot: { html: "<div>encartes</div>" },
+    },
+  ],
+  gallery: {
+    downloadButtons: [
+      { text: "Baixar", selectors: ['button:has-text("Baixar")'] },
+    ],
+    tabButtons: [{ text: "Jornal 1", selectors: ['[role="tab"]'] }],
+    links: ["https://loja.example/flyer.pdf"],
+    iframes: [],
+    headings: ["Encartes"],
+    imageCount: 2,
+  },
+});
+assert(packed.gallery?.downloadButtons[0]?.text === "Baixar", "pack keeps downloads");
+assert(packed.gallery?.tabButtons.length === 1, "pack keeps tabs");
+assert(packed.gallery?.links.length === 1, "pack keeps pdf links");
+assert(!packed.actions[0]?.html, "cookie html dropped");
+assert(packed.actions[1]?.html === "<div>encartes</div>", "flyer html kept");
 
 console.log("flyers selfcheck ok", offers.length, "rule offers");

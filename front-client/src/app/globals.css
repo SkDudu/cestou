@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0e100f;
+  --bg-elev: #161a18;
+  --bg-soft: #1c221e;
+  --fg: #e8ebe6;
+  --muted: #8b948c;
+  --line: #2a302c;
+  --amber: #e7a93b;
+  --amber-dim: #b8862e;
+  --moss: #68a87a;
+  --alert: #d66a5e;
+  --on-accent: #171917;
+  --rail: 240px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(ellipse 70% 45% at 12% -10%, #1f2a1c 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 100% 0%, #241c12 0%, transparent 45%),
+    var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  min-height: 100dvh;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--amber) 40%, transparent);
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.stagger-in > * {
+  animation: fade-up 0.45s var(--ease) both;
+}
+
+.stagger-in > *:nth-child(1) {
+  animation-delay: 0.02s;
+}
+.stagger-in > *:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.stagger-in > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.stagger-in > *:nth-child(4) {
+  animation-delay: 0.17s;
+}
+.stagger-in > *:nth-child(5) {
+  animation-delay: 0.22s;
+}
+.stagger-in > *:nth-child(6) {
+  animation-delay: 0.27s;
+}
+.stagger-in > *:nth-child(7) {
+  animation-delay: 0.32s;
+}
+.stagger-in > *:nth-child(8) {
+  animation-delay: 0.37s;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-elev) 25%,
+    var(--bg-soft) 50%,
+    var(--bg-elev) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger-in > *,
+  .skeleton {
+    animation: none !important;
+  }
+}

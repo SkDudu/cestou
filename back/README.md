@@ -7,7 +7,7 @@
 - Tesseract.js (OCR fallback)
 - MiMo-V2.5 (extração primária de ofertas)
 - Convex (dados + file storage)
-- Next.js admin (`front/`)
+- Next.js admin (`front-admin/`)
 
 ## Setup
 
@@ -44,12 +44,14 @@ npm run selfcheck --workspace=scraper
 ## Admin
 
 ```bash
-cd ../front
+cd ../front-admin
 npm install
 npm run dev
 ```
 
 Abra `/admin` — overview, supermercados, Flow Builder, encartes, ofertas, validação, erros.
+
+App cliente: `cd ../front-client && npm run dev` (porta 3001).
 
 ## Wipe local
 
