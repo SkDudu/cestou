@@ -1,0 +1,133 @@
+/**
+ * Cestou Ops — design tokens (Paper: Cestou Ops — Foundations).
+ * Light = canônico (tokens globais). Dark = mesma escala, hex locais.
+ *
+ * NÃO importar em globals.css / layout até a migração de UI.
+ * Ativar depois: import "@/styles/design-system/index.css";
+ */
+
+:root,
+[data-theme="light"] {
+  /* Primitive — cena maritime (porto / neblina) */
+  --ds-color-harbor: #2f5f7a;
+  --ds-color-ink: #1a2b3c;
+  --ds-color-fog: #f3f5f7;
+  --ds-color-mist: #d5dce3;
+  --ds-color-buoy: #b8952c;
+  --ds-color-sea-glass: #3d6b5a;
+  --ds-color-rust: #a14a3c;
+  --ds-color-paper: #ffffff;
+  --ds-color-haze: #e8eef2;
+  --ds-color-disabled: #8a9aab;
+
+  /* Semantic */
+  --ds-color-background: var(--ds-color-paper);
+  --ds-color-foreground: var(--ds-color-ink);
+  --ds-color-muted: var(--ds-color-fog);
+  --ds-color-muted-foreground: #4a5c6b;
+  --ds-color-border: var(--ds-color-mist);
+  --ds-color-card: var(--ds-color-paper);
+  --ds-color-primary: var(--ds-color-harbor);
+  --ds-color-primary-foreground: #ffffff;
+  --ds-color-secondary: var(--ds-color-haze);
+  --ds-color-accent: var(--ds-color-buoy);
+  --ds-color-success: var(--ds-color-sea-glass);
+  --ds-color-danger: var(--ds-color-rust);
+  --ds-color-focus: var(--ds-color-harbor);
+  --ds-color-scrim: rgb(26 43 60 / 0.4);
+
+  --ds-color-pill-success-bg: #e6f0ea;
+  --ds-color-pill-queue-bg: #e8eef2;
+  --ds-color-pill-review-bg: #f4eedc;
+  --ds-color-pill-danger-bg: #f4e6e3;
+
+  --ds-font-sans: var(--font-outfit), "Outfit", system-ui, sans-serif;
+  --ds-font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+
+  --ds-text-xs: 12px;
+  --ds-text-sm: 13px;
+  --ds-text-base: 15px;
+  --ds-text-lg: 18px;
+  --ds-text-xl: 22px;
+  --ds-text-2xl: 28px;
+  --ds-text-3xl: 36px;
+  --ds-text-4xl: 44px;
+  --ds-text-table-label: 11px;
+
+  --ds-font-weight-normal: 400;
+  --ds-font-weight-medium: 500;
+  --ds-font-weight-semibold: 600;
+  --ds-font-weight-bold: 700;
+
+  --ds-tracking-tight: -0.04em;
+  --ds-tracking-display: -0.04em;
+  --ds-tracking-section: -0.03em;
+  --ds-tracking-data: -0.02em;
+  --ds-tracking-normal: 0em;
+  --ds-tracking-wide: 0.08em;
+
+  --ds-leading-tight: 20px;
+  --ds-leading-snug: 22px;
+  --ds-leading-normal: 24px;
+  --ds-leading-relaxed: 28px;
+  --ds-leading-display: 48px;
+
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+  --ds-space-10: 40px;
+  --ds-space-12: 48px;
+  --ds-space-16: 64px;
+
+  --ds-radius-sm: 6px;
+  --ds-radius-md: 10px;
+  --ds-radius-lg: 14px;
+  --ds-radius-xl: 20px;
+  --ds-radius-full: 999px;
+  --ds-radius-nav: 10px;
+
+  --ds-breakpoint-sm: 640px;
+  --ds-breakpoint-md: 768px;
+  --ds-breakpoint-lg: 1024px;
+  --ds-breakpoint-xl: 1280px;
+
+  --ds-container-sm: 640px;
+  --ds-container-md: 768px;
+  --ds-container-lg: 1024px;
+  --ds-container-xl: 1280px;
+  --ds-container-7xl: 1400px;
+
+  --ds-sidebar-width: 248px;
+  --ds-button-height: 36px;
+  --ds-button-height-lg: 40px;
+  --ds-input-height: 40px;
+  --ds-pill-height: 22px;
+  --ds-modal-width: 480px;
+  --ds-toast-width: 360px;
+  --ds-icon-sm: 14px;
+  --ds-border-width: 1px;
+  --ds-accent-width: 2px;
+}
+
+[data-theme="dark"] {
+  --ds-color-background: #15232e;
+  --ds-color-card: #1c2f3d;
+  --ds-color-muted: #243848;
+  --ds-color-border: #334d5e;
+  --ds-color-foreground: #e8eef2;
+  --ds-color-muted-foreground: #8fa3b3;
+  --ds-color-primary: #2f5f7a;
+  --ds-color-primary-foreground: #ffffff;
+  --ds-color-focus: #7ba8c4;
+  --ds-color-secondary: #243848;
+  --ds-color-scrim: rgb(15 26 34 / 0.6);
+
+  --ds-color-pill-success-bg: #2a4038;
+  --ds-color-pill-queue-bg: #243848;
+  --ds-color-pill-review-bg: #3a3420;
+  --ds-color-pill-danger-bg: #3a2a28;
+}

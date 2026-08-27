@@ -9,6 +9,41 @@ export function formatNumber(value: number) {
   return new Intl.NumberFormat("pt-BR").format(value);
 }
 
+export function formatCompact(value: number) {
+  if (value < 1000) return formatNumber(value);
+  const k = value / 1000;
+  const n = k >= 10 ? k.toFixed(0) : k.toFixed(1);
+  return `${n.replace(/\.0$/, "")}k`;
+}
+
+export function formatPercent(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+export function formatOpsStamp(ts: number) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(ts);
+}
+
+export function formatRange(from?: number | null, until?: number | null) {
+  if (!from && !until) return "—";
+  const fmt = (ts: number) =>
+    new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(
+      ts,
+    );
+  if (from && until) return `${fmt(from)}–${fmt(until)}`;
+  return fmt((from ?? until)!);
+}
+
+export function formatDelta(current: number, previous?: number | null) {
+  if (previous == null || previous === 0) return null;
+  return (current - previous) / previous;
+}
+
 export function formatDateTime(ts: number | null | undefined) {
   if (!ts) return "—";
   return new Intl.DateTimeFormat("pt-BR", {

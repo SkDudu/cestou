@@ -15,7 +15,7 @@ import { FlowRunPanel } from "@/components/admin/FlowRunPanel";
 import { formatDateTime } from "@/lib/format";
 
 const inputClass =
-  "rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 w-full";
+  "rounded-md border ds-input";
 
 const STEP_TYPES = [
   "navigate",
@@ -90,11 +90,16 @@ export default function ScraperFlowDetailPage() {
   }
 
   if (data === undefined) {
-    return <p className="text-sm text-zinc-500">Carregando…</p>;
+    return <p className="ds-meta">Carregando…</p>;
   }
   if (data === null) {
-    return <p className="text-sm text-rose-400">Fluxo não encontrado.</p>;
+    return <p className="text-sm text-[var(--ds-color-danger)]">Fluxo não encontrado.</p>;
   }
+
+  const lastRun = data.recentRuns?.[0];
+  const scopeLost =
+    data.status === "error" ||
+    (lastRun?.error ?? "").includes("SCOPE_NOT_FOUND");
 
   return (
     <div>
@@ -104,7 +109,7 @@ export default function ScraperFlowDetailPage() {
       >
         <Link
           href="/admin/scraper"
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-900"
+            className="ds-btn ds-btn--outline"
         >
           Voltar
         </Link>
@@ -118,10 +123,10 @@ export default function ScraperFlowDetailPage() {
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <StatusBadge status={data.status} />
-        <span className="text-xs text-zinc-500">v{data.version}</span>
+        <span className="text-xs text-[var(--ds-color-muted-foreground)]">v{data.version}</span>
         <select
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-300"
-          value={data.status}
+          className="rounded-md border border-[var(--ds-color-border)] bg-zinc-950 px-2 py-1 text-xs "
+          value={data.status === "error" ? "error" : data.status}
           disabled={busy}
           onChange={async (e) => {
             const status = e.target.value as
@@ -137,6 +142,11 @@ export default function ScraperFlowDetailPage() {
             }
           }}
         >
+          {data.status === "error" ? (
+            <option value="error" disabled>
+              error
+            </option>
+          ) : null}
           {(["draft", "testing", "active", "disabled"] as const).map((s) => (
             <option key={s} value={s}>
               {s}
@@ -156,8 +166,15 @@ export default function ScraperFlowDetailPage() {
         </button>
       </div>
 
-      <details className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-        <summary className="cursor-pointer text-sm text-zinc-300">
+      {scopeLost ? (
+        <p className="mb-6 rounded-md border border-rose-900 bg-rose-950/40 px-3 py-2 text-sm text-rose-200">
+          Região de flyers não encontrada. Site mudou — reconfigure Discovery
+          (Selecionar Área) e teste de novo. Depois status → testing/active.
+        </p>
+      ) : null}
+
+      <details className="mb-8 ds-form">
+        <summary className="cursor-pointer text-sm ">
           Nome e URL
         </summary>
         <form
@@ -165,7 +182,7 @@ export default function ScraperFlowDetailPage() {
           onSubmit={onSaveMeta}
           className="mt-3 grid gap-3"
         >
-          <label className="text-xs text-zinc-500">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)]">
             Nome
             <input
               name="name"
@@ -174,7 +191,7 @@ export default function ScraperFlowDetailPage() {
               className={`${inputClass} mt-1`}
             />
           </label>
-          <label className="text-xs text-zinc-500">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)]">
             Start URL
             <input
               name="startUrl"
@@ -206,7 +223,7 @@ export default function ScraperFlowDetailPage() {
       />
 
       <details className="mb-8">
-        <summary className="mb-3 cursor-pointer text-sm text-zinc-500">
+        <summary className="mb-3 cursor-pointer ds-meta">
           Sessão JPEG (avançado)
         </summary>
         <BrowserSessionPanel
@@ -224,7 +241,7 @@ export default function ScraperFlowDetailPage() {
       />
 
       <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-zinc-200">
+        <h2 className="mb-3 text-sm font-medium ">
           Steps ({data.steps.length})
         </h2>
         <div className="space-y-2">
@@ -239,14 +256,14 @@ export default function ScraperFlowDetailPage() {
             return (
             <div
               key={s._id}
-              className="rounded-md border border-zinc-800 bg-zinc-900/40 p-3"
+              className="rounded-md border border-[var(--ds-color-border)] bg-[var(--ds-color-card)] p-3"
             >
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs text-zinc-500">
+                <span className="font-mono text-xs text-[var(--ds-color-muted-foreground)]">
                   #{s.order}
                 </span>
                 <select
-                  className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
+                  className="rounded border border-[var(--ds-color-border)] bg-zinc-950 px-2 py-1 text-xs "
                   value={s.type}
                   onChange={async (e) => {
                     const type = e.target.value as (typeof STEP_TYPES)[number];
@@ -264,7 +281,7 @@ export default function ScraperFlowDetailPage() {
                   ))}
                 </select>
                 {label ? (
-                  <span className="text-xs text-zinc-500">{label}</span>
+                  <span className="text-xs text-[var(--ds-color-muted-foreground)]">{label}</span>
                 ) : null}
                 <button
                   type="button"
@@ -293,12 +310,12 @@ export default function ScraperFlowDetailPage() {
         </div>
 
         <details className="mt-4">
-          <summary className="cursor-pointer text-xs text-zinc-500">
+          <summary className="cursor-pointer text-xs text-[var(--ds-color-muted-foreground)]">
             Adicionar etapa manual
           </summary>
         <form
           onSubmit={onAddStep}
-          className="mt-2 grid gap-2 rounded-lg border border-dashed border-zinc-700 p-3 sm:grid-cols-2"
+          className="mt-2 grid gap-2 rounded-lg border border-dashed border-[var(--ds-color-border)] p-3 sm:grid-cols-2"
         >
           <select name="type" className={inputClass} defaultValue="click">
             {STEP_TYPES.map((t) => (
@@ -323,16 +340,16 @@ export default function ScraperFlowDetailPage() {
           />
         </form>
         </details>
-        {error ? <p className="mt-2 text-sm text-rose-400">{error}</p> : null}
+        {error ? <p className="mt-2 text-sm text-[var(--ds-color-danger)]">{error}</p> : null}
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-medium text-zinc-200">
+        <h2 className="mb-3 text-sm font-medium ">
           Últimas execuções
         </h2>
-        <div className="overflow-hidden rounded-lg border border-zinc-800">
+        <div className="ds-table-card">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-zinc-800 bg-zinc-900/80 text-xs uppercase text-zinc-500">
+            <thead className="ds-label-caps">
               <tr>
                 <th className="px-3 py-2">Quando</th>
                 <th className="px-3 py-2">Status</th>
@@ -346,7 +363,7 @@ export default function ScraperFlowDetailPage() {
               {(data.recentRuns ?? []).map((r) => (
                 <tr
                   key={r._id}
-                  className="border-b border-zinc-900/80 text-zinc-300"
+                  className="border-b border-[var(--ds-color-border)]/80 "
                 >
                   <td className="px-3 py-2 text-xs">
                     {formatDateTime(r.startedAt)}
@@ -366,7 +383,7 @@ export default function ScraperFlowDetailPage() {
                 <tr>
                   <td
                     colSpan={6}
-                    className="px-3 py-6 text-center text-sm text-zinc-500"
+                    className="px-3 py-6 text-center ds-meta"
                   >
                     Nenhuma execução ainda.
                   </td>

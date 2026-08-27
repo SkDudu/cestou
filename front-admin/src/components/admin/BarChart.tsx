@@ -8,7 +8,7 @@ export function BarChart({
     <div className="space-y-3">
       {items.map((item) => (
         <div key={item.label}>
-          <div className="mb-1 flex justify-between text-xs text-zinc-400">
+          <div className="mb-1 flex justify-between text-xs text-[var(--ds-color-muted-foreground)]">
             <span>{item.label}</span>
             <span>{item.value}</span>
           </div>

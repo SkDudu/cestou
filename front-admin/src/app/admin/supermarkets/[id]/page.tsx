@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/admin/StatusBadge";
 import { formatDateTime } from "@/lib/format";
 
 const inputClass =
-  "rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200";
+  "ds-input";
 
 export default function SupermarketDetailPage() {
   const params = useParams();
@@ -67,10 +67,10 @@ export default function SupermarketDetailPage() {
   }
 
   if (data === undefined) {
-    return <p className="text-sm text-zinc-500">Carregando…</p>;
+    return <p className="ds-meta">Carregando…</p>;
   }
   if (!data) {
-    return <p className="text-sm text-rose-400">Não encontrado</p>;
+    return <p className="text-sm text-[var(--ds-color-danger)]">Não encontrado</p>;
   }
 
   return (
@@ -79,7 +79,7 @@ export default function SupermarketDetailPage() {
         <div className="flex flex-wrap gap-2">
           <Link
             href="/admin/supermarkets"
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-900"
+            className="ds-btn ds-btn--outline"
           >
             Voltar
           </Link>
@@ -92,7 +92,7 @@ export default function SupermarketDetailPage() {
           <button
             type="button"
             onClick={() => updateSm({ id, active: !data.active })}
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200"
+            className="rounded-md border border-[var(--ds-color-border)] px-3 py-1.5 text-sm "
           >
             {data.active ? "Desativar" : "Ativar"}
           </button>
@@ -102,15 +102,15 @@ export default function SupermarketDetailPage() {
       <SetupFlowNav currentStep={2} supermarketId={id} />
 
       <section className="mb-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
           Cadastro
         </h2>
         <form
           key={`${data.name}-${data.updatedAt}`}
           onSubmit={onSave}
-          className="grid gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 sm:grid-cols-2"
+          className="grid gap-3 ds-form sm:grid-cols-2"
         >
-          <label className="text-xs text-zinc-500 sm:col-span-2">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)] sm:col-span-2">
             Nome
             <input
               name="name"
@@ -119,7 +119,7 @@ export default function SupermarketDetailPage() {
               className={`${inputClass} mt-1 w-full`}
             />
           </label>
-          <label className="text-xs text-zinc-500">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)]">
             Timezone
             <input
               name="timezone"
@@ -128,7 +128,7 @@ export default function SupermarketDetailPage() {
               className={`${inputClass} mt-1 w-full`}
             />
           </label>
-          <label className="text-xs text-zinc-500">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)]">
             Cidade
             <input
               name="city"
@@ -137,7 +137,7 @@ export default function SupermarketDetailPage() {
               className={`${inputClass} mt-1 w-full`}
             />
           </label>
-          <label className="text-xs text-zinc-500">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)]">
             Estado
             <input
               name="state"
@@ -146,7 +146,7 @@ export default function SupermarketDetailPage() {
               className={`${inputClass} mt-1 w-full`}
             />
           </label>
-          <label className="text-xs text-zinc-500">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)]">
             País
             <input
               name="country"
@@ -155,7 +155,7 @@ export default function SupermarketDetailPage() {
               className={`${inputClass} mt-1 w-full`}
             />
           </label>
-          <label className="text-xs text-zinc-500 sm:col-span-2">
+          <label className="text-xs text-[var(--ds-color-muted-foreground)] sm:col-span-2">
             Website URL
             <input
               name="websiteUrl"
@@ -175,29 +175,29 @@ export default function SupermarketDetailPage() {
             {saved ? (
               <span className="text-sm text-emerald-400">Salvo</span>
             ) : null}
-            {error ? <span className="text-sm text-rose-400">{error}</span> : null}
+            {error ? <span className="text-sm text-[var(--ds-color-danger)]">{error}</span> : null}
           </div>
         </form>
       </section>
 
       <section className="mb-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
           Fontes de encarte
         </h2>
         <ul className="mb-4 space-y-2">
           {data.sources.map((s) => (
             <li
               key={s._id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-800 px-3 py-2 text-sm"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--ds-color-border)] px-3 py-2 text-sm"
             >
               <div>
-                <span className="text-zinc-300">{s.type}</span>
+                <span className="">{s.type}</span>
                 <span className="mx-2 text-zinc-600">·</span>
                 <a
                   href={s.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="break-all text-zinc-400 hover:underline"
+                  className="break-all text-[var(--ds-color-muted-foreground)] hover:underline"
                 >
                   {s.url}
                 </a>
@@ -205,7 +205,7 @@ export default function SupermarketDetailPage() {
               <button
                 type="button"
                 onClick={() => updateSource({ id: s._id, active: !s.active })}
-                className="text-xs text-zinc-400 hover:text-zinc-200"
+                className="text-xs text-[var(--ds-color-muted-foreground)] hover:"
               >
                 {s.active ? <StatusBadge status="active" /> : "inativo"}
               </button>
@@ -227,16 +227,16 @@ export default function SupermarketDetailPage() {
             Add fonte
           </button>
         </form>
-        {error ? <p className="mt-2 text-sm text-rose-400">{error}</p> : null}
+        {error ? <p className="mt-2 text-sm text-[var(--ds-color-danger)]">{error}</p> : null}
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
           Encartes recentes
         </h2>
-        <div className="overflow-hidden rounded-lg border border-zinc-800">
+        <div className="ds-table-card">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-zinc-800 bg-zinc-900/80 text-xs uppercase text-zinc-500">
+            <thead className="ds-label-caps">
               <tr>
                 <th className="px-3 py-2">Título</th>
                 <th className="px-3 py-2">Status</th>
@@ -245,7 +245,7 @@ export default function SupermarketDetailPage() {
             </thead>
             <tbody>
               {data.recentFlyers.map((f) => (
-                <tr key={f._id} className="border-b border-zinc-900">
+                <tr key={f._id} className="border-b border-[var(--ds-color-border)]">
                   <td className="px-3 py-2">
                     <Link href={`/admin/flyers/${f._id}`} className="hover:underline">
                       {f.title ?? f._id}
@@ -254,14 +254,14 @@ export default function SupermarketDetailPage() {
                   <td className="px-3 py-2">
                     <StatusBadge status={f.status} />
                   </td>
-                  <td className="px-3 py-2 text-zinc-500">
+                  <td className="px-3 py-2 text-[var(--ds-color-muted-foreground)]">
                     {formatDateTime(f.validFrom)} → {formatDateTime(f.validUntil)}
                   </td>
                 </tr>
               ))}
               {!data.recentFlyers.length ? (
                 <tr>
-                  <td colSpan={3} className="px-3 py-4 text-center text-zinc-500">
+                  <td colSpan={3} className="px-3 py-4 text-center text-[var(--ds-color-muted-foreground)]">
                     Sem encartes
                   </td>
                 </tr>

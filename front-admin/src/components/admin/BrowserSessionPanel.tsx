@@ -336,9 +336,9 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
     : null;
 
   return (
-    <section className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
+    <section className="mb-8 rounded-lg border border-[var(--ds-color-border)] bg-[var(--ds-color-card)]/30 p-4">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-medium text-zinc-200">Sessão do browser</h2>
+        <h2 className="text-sm font-medium ">Sessão do browser</h2>
         <span
           className={`text-xs ${online ? "text-emerald-400" : "text-rose-400"}`}
         >
@@ -349,7 +349,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
               : "● Worker offline"}
         </span>
         {sessionId ? (
-          <span className="text-xs text-zinc-500">{sessionId}</span>
+          <span className="text-xs text-[var(--ds-color-muted-foreground)]">{sessionId}</span>
         ) : null}
         {recording ? (
           <span className="rounded border border-rose-800 bg-rose-950 px-2 py-0.5 text-xs text-rose-300">
@@ -363,7 +363,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
         ) : null}
       </div>
 
-      <p className="mb-3 truncate text-xs text-zinc-500">
+      <p className="mb-3 truncate text-xs text-[var(--ds-color-muted-foreground)]">
         URL: {currentUrl}
       </p>
 
@@ -380,7 +380,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
           type="button"
           disabled={!sessionId || busy}
           onClick={() => void toggleRecord()}
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-900 disabled:opacity-40"
+          className="rounded-md border border-[var(--ds-color-border)] px-3 py-1.5 text-sm   disabled:opacity-40"
         >
           {recording ? "Parar gravação" : "Iniciar gravação"}
         </button>
@@ -423,7 +423,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
           type="button"
           disabled={!sessionId || busy}
           onClick={() => void closeBrowser()}
-          className="rounded-md border border-rose-900 px-3 py-1.5 text-sm text-rose-400 hover:bg-rose-950 disabled:opacity-40"
+          className="rounded-md border border-rose-900 px-3 py-1.5 text-sm text-[var(--ds-color-danger)] hover:bg-rose-950 disabled:opacity-40"
         >
           Fechar sessão
         </button>
@@ -436,25 +436,25 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
       ) : null}
 
       {picked ? (
-        <div className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-xs text-zinc-300">
-          <div className="mb-2 font-medium text-zinc-100">
+        <div className="mb-3 rounded-md border border-[var(--ds-color-border)] bg-zinc-950/60 p-3 text-xs ">
+          <div className="mb-2 font-medium ">
             Área selecionada · {picked.tagName}
           </div>
-          <div className="mb-2 grid grid-cols-2 gap-1 text-zinc-400 sm:grid-cols-4">
+          <div className="mb-2 grid grid-cols-2 gap-1 text-[var(--ds-color-muted-foreground)] sm:grid-cols-4">
             <span>Links: {picked.linkCount}</span>
             <span>Imagens: {picked.imageCount}</span>
             <span>Textos: {picked.textCount}</span>
             <span>Filhos: {picked.childCount}</span>
           </div>
           {picked.className ? (
-            <p className="mb-2 truncate text-zinc-500">{picked.className}</p>
+            <p className="mb-2 truncate text-[var(--ds-color-muted-foreground)]">{picked.className}</p>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={!picked.ancestors?.length}
               onClick={() => void climbContainer()}
-              className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-200 disabled:opacity-40"
+              className="rounded-md border border-[var(--ds-color-border)] px-2 py-1  disabled:opacity-40"
             >
               ↑ Selecionar container
             </button>
@@ -471,7 +471,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
       ) : null}
 
       {probe ? (
-        <div className="mb-3 rounded-md border border-zinc-800 p-3">
+        <div className="mb-3 rounded-md border border-[var(--ds-color-border)] p-3">
           {probe.found && probe.flyers.length > 0 ? (
             <>
               <p className="mb-2 text-xs text-emerald-400">
@@ -487,12 +487,12 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
                 {probe.flyers.map((f) => (
                   <div
                     key={f.url}
-                    className="rounded border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs"
+                    className="rounded border border-[var(--ds-color-border)] bg-zinc-950 px-3 py-2 text-xs"
                   >
-                    <div className="font-medium text-zinc-100">
+                    <div className="font-medium ">
                       {f.title || "Flyer"}
                     </div>
-                    <div className="text-zinc-500">
+                    <div className="text-[var(--ds-color-muted-foreground)]">
                       {f.validFrom && f.validUntil
                         ? `${f.validFrom} → ${f.validUntil}`
                         : f.kind.toUpperCase()}
@@ -514,7 +514,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
               <p className="mb-2 font-medium">
                 {probe.error ?? "Nenhum flyer encontrado."}
               </p>
-              <ul className="mb-2 list-disc pl-4 text-zinc-400">
+              <ul className="mb-2 list-disc pl-4 text-[var(--ds-color-muted-foreground)]">
                 <li>A área selecionada não contém flyers</li>
                 <li>Conteúdo lazy / precisa scroll</li>
                 <li>Flyer só na API — tente ↑ container</li>
@@ -527,14 +527,14 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
                     setProbe(null);
                     setHoverBox(null);
                   }}
-                  className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-200"
+                  className="rounded-md border border-[var(--ds-color-border)] px-2 py-1 "
                 >
                   Selecionar outra área
                 </button>
                 <button
                   type="button"
                   onClick={() => void runProbe()}
-                  className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-200"
+                  className="rounded-md border border-[var(--ds-color-border)] px-2 py-1 "
                 >
                   Reanalisar
                 </button>
@@ -552,7 +552,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
             sessionId &&
             void scrollSession(sessionId, 500).catch((e) => setError(String(e)))
           }
-          className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-400 disabled:opacity-40"
+          className="rounded-md border border-[var(--ds-color-border)] px-2 py-1 text-xs text-[var(--ds-color-muted-foreground)] disabled:opacity-40"
         >
           Scroll ↓
         </button>
@@ -560,7 +560,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
           value={typeBuf}
           onChange={(e) => setTypeBuf(e.target.value)}
           placeholder="Digitar no foco…"
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
+          className="rounded-md border border-[var(--ds-color-border)] bg-zinc-950 px-2 py-1 text-xs "
         />
         <button
           type="button"
@@ -571,16 +571,16 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
               .then(() => setTypeBuf(""))
               .catch((e) => setError(String(e)));
           }}
-          className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-400 disabled:opacity-40"
+          className="rounded-md border border-[var(--ds-color-border)] px-2 py-1 text-xs text-[var(--ds-color-muted-foreground)] disabled:opacity-40"
         >
           Enviar texto
         </button>
       </div>
 
-      {error ? <p className="mb-3 text-sm text-rose-400">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-[var(--ds-color-danger)]">{error}</p> : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="overflow-hidden rounded-md border border-zinc-800 bg-black">
+        <div className="overflow-hidden rounded-md border border-[var(--ds-color-border)] bg-black">
           {frame ? (
             <div className="relative">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -599,29 +599,29 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
               Preview (abra o navegador)
             </div>
           )}
-          <p className="border-t border-zinc-800 px-2 py-1 text-[10px] text-zinc-600">
+          <p className="border-t border-[var(--ds-color-border)] px-2 py-1 text-[10px] text-zinc-600">
             Clique no preview = click no Playwright. Em Selecionar Área, o
             clique só marca o container.
           </p>
         </div>
 
-        <div className="max-h-[420px] overflow-y-auto rounded-md border border-zinc-800">
-          <div className="border-b border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs uppercase text-zinc-500">
+        <div className="max-h-[420px] overflow-y-auto rounded-md border border-[var(--ds-color-border)]">
+          <div className="border-b border-[var(--ds-color-border)] bg-[var(--ds-color-muted)] px-3 py-2 text-xs uppercase text-[var(--ds-color-muted-foreground)]">
             Steps ao vivo ({actions.length})
           </div>
-          <ol className="space-y-1 p-2 text-sm text-zinc-300">
+          <ol className="space-y-1 p-2 text-sm ">
             {actions.map((a, i) => (
               <li
                 key={`${i}-${a.kind}-${a.description}`}
                 className="flex items-start gap-2 rounded bg-zinc-950/60 px-2 py-1.5 text-xs"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="text-zinc-500">{i + 1}. </span>
-                  <span className="font-medium text-zinc-100">{a.kind}</span>
+                  <span className="text-[var(--ds-color-muted-foreground)]">{i + 1}. </span>
+                  <span className="font-medium ">{a.kind}</span>
                   {a.semantic ? (
                     <span className="text-sky-400"> · {a.semantic}</span>
                   ) : null}
-                  <div className="truncate text-zinc-500">
+                  <div className="truncate text-[var(--ds-color-muted-foreground)]">
                     {a.description || a.value || a.url || "—"}
                   </div>
                 </div>
@@ -629,7 +629,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
                   type="button"
                   disabled={busy}
                   onClick={() => void removeClick(i)}
-                  className="shrink-0 rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:border-rose-800 hover:text-rose-300 disabled:opacity-40"
+                  className="shrink-0 rounded border border-[var(--ds-color-border)] px-1.5 py-0.5 text-[10px] text-[var(--ds-color-muted-foreground)] hover:border-rose-800 hover:text-rose-300 disabled:opacity-40"
                   title="Remover clique"
                 >
                   ✕

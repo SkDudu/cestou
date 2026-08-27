@@ -9,11 +9,7 @@ const STEPS: { n: Step; label: string }[] = [
   { n: 4, label: "Executar" },
 ];
 
-function stepHref(
-  n: Step,
-  supermarketId?: string,
-  flowId?: string,
-): string | undefined {
+function stepHref(n: Step, supermarketId?: string, flowId?: string) {
   switch (n) {
     case 1:
       return "/admin/supermarkets";
@@ -38,41 +34,21 @@ export function SetupFlowNav({
   flowId?: string;
 }) {
   return (
-    <nav
-      aria-label="Fluxo de cadastro"
-      className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-xs"
-    >
-      <span className="mr-1 font-semibold uppercase tracking-wide text-zinc-500">
-        Cadastro
-      </span>
-      {STEPS.map(({ n, label }, i) => {
+    <nav aria-label="Fluxo de cadastro" className="ds-tabs">
+      {STEPS.map(({ n, label }) => {
         const href = stepHref(n, supermarketId, flowId);
-        const active = n === currentStep;
-        const done = n < currentStep;
-
+        const on = n === currentStep;
+        const inner = `${n}. ${label}`;
+        if (href && !on) {
+          return (
+            <Link key={n} href={href} className="ds-tab">
+              {inner}
+            </Link>
+          );
+        }
         return (
-          <span key={n} className="flex items-center gap-2">
-            {i > 0 ? <span className="text-zinc-700">→</span> : null}
-            {href && !active ? (
-              <Link
-                href={href}
-                className={`rounded-md px-2 py-1 hover:bg-zinc-800 ${
-                  done ? "text-emerald-400" : "text-zinc-400"
-                }`}
-              >
-                {n}. {label}
-              </Link>
-            ) : (
-              <span
-                className={`rounded-md px-2 py-1 ${
-                  active
-                    ? "bg-zinc-100 font-medium text-zinc-900"
-                    : "text-zinc-600"
-                }`}
-              >
-                {n}. {label}
-              </span>
-            )}
+          <span key={n} className={`ds-tab ${on ? "ds-tab--on" : ""}`}>
+            {inner}
           </span>
         );
       })}

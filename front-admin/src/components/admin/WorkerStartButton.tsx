@@ -52,7 +52,7 @@ export function WorkerStartButton({ online, onStarted, onStopped }: Props) {
           type="button"
           disabled={busy}
           onClick={() => void onStart()}
-          className="rounded-md bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-40"
+          className="ds-btn ds-btn--primary disabled:opacity-40"
         >
           {busy ? "Iniciando…" : "Iniciar worker"}
         </button>
@@ -62,12 +62,14 @@ export function WorkerStartButton({ online, onStarted, onStopped }: Props) {
           type="button"
           disabled={busy}
           onClick={() => void onStop()}
-          className="rounded-md border border-rose-800 bg-rose-950/60 px-3 py-1.5 text-sm font-medium text-rose-300 hover:bg-rose-900 disabled:opacity-40"
+          className="ds-btn ds-btn--danger disabled:opacity-40"
         >
           {busy ? "Parando…" : "Parar worker"}
         </button>
       ) : null}
-      {error ? <span className="text-xs text-rose-400">{error}</span> : null}
+      {error ? (
+        <span className="text-xs text-[var(--ds-color-danger)]">{error}</span>
+      ) : null}
     </span>
   );
 }

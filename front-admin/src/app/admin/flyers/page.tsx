@@ -1,117 +1,179 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "@convex/_generated/api";
-import type { Id } from "@convex/_generated/dataModel";
-import { PageHeader } from "@/components/admin/PageHeader";
+import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import { formatNumber, formatOpsStamp, formatRange } from "@/lib/format";
 
-const statuses = [
-  "",
-  "discovered",
-  "downloading",
-  "downloaded",
-  "processing",
-  "partially_processed",
-  "processed",
-  "expired",
-  "failed",
-] as const;
+const DAY = 24 * 60 * 60 * 1000;
 
 export default function FlyersPage() {
-  const names = useQuery(api.supermarkets.listNames);
-  const [supermarketId, setSupermarketId] = useState<string>("");
-  const [status, setStatus] = useState<string>("");
-  const flyers = useQuery(api.flyers.list, {
-    supermarketId: supermarketId
-      ? (supermarketId as Id<"supermarkets">)
-      : undefined,
-    status: status
-      ? (status as
-          | "discovered"
-          | "downloading"
-          | "downloaded"
-          | "processing"
-          | "partially_processed"
-          | "processed"
-          | "expired"
-          | "failed")
-      : undefined,
-  });
+  const flyers = useQuery(api.flyers.list, {});
+  const [tab, setTab] = useState("all");
+  const [q, setQ] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const now = Date.now();
+
+  const rowsAll = flyers ?? [];
+  const vigente = rowsAll.filter(
+    (f) =>
+      f.status !== "expired" &&
+      f.status !== "failed" &&
+      (f.validUntil === undefined || f.validUntil >= now),
+  );
+  const expiring = vigente.filter(
+    (f) => f.validUntil !== undefined && f.validUntil < now + 2 * DAY,
+  );
+  const noParse = rowsAll.filter(
+    (f) =>
+      f.status === "failed" ||
+      f.status === "discovered" ||
+      (f.status === "downloaded" && f.offerCount === 0),
+  );
+
+  const rows = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return rowsAll.filter((f) => {
+      if (tab === "vigente" && !vigente.includes(f)) return false;
+      if (tab === "expiring" && !expiring.includes(f)) return false;
+      if (tab === "noparse" && !noParse.includes(f)) return false;
+      if (!needle) return true;
+      return (
+        (f.title ?? "").toLowerCase().includes(needle) ||
+        f.supermarketName.toLowerCase().includes(needle)
+      );
+    });
+  }, [rowsAll, tab, q, vigente, expiring, noParse]);
+
+  if (flyers === undefined) return <p className="ds-meta">Carregando…</p>;
 
   return (
     <div>
-      <PageHeader title="Encartes" description="Histórico de flyers — nunca apagados" />
-      <div className="mb-4 flex flex-wrap gap-2">
-        <select
-          value={supermarketId}
-          onChange={(e) => setSupermarketId(e.target.value)}
-          className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm"
-        >
-          <option value="">Todos supermercados</option>
-          {(names ?? []).map((s) => (
-            <option key={s._id} value={s._id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm"
-        >
-          {statuses.map((s) => (
-            <option key={s || "all"} value={s}>
-              {s || "Todos status"}
-            </option>
-          ))}
-        </select>
-      </div>
+      <OpsHeader
+        crumb="Catálogo / Encartes"
+        title="Encartes"
+        stamp={`Atualizado ${formatOpsStamp(Date.now())}`}
+        filterTarget={() => searchRef.current?.focus()}
+      />
 
-      <div className="overflow-hidden rounded-lg border border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-zinc-800 bg-zinc-900/80 text-xs uppercase text-zinc-500">
-            <tr>
-              <th className="px-3 py-2">Título</th>
-              <th className="px-3 py-2">Mercado</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Págs</th>
-              <th className="px-3 py-2">Ofertas</th>
-              <th className="px-3 py-2">Validade</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(flyers ?? []).map((f) => (
-              <tr key={f._id} className="border-b border-zinc-900">
-                <td className="px-3 py-2">
-                  <Link href={`/admin/flyers/${f._id}`} className="hover:underline">
-                    {f.title ?? "Sem título"}
-                  </Link>
-                </td>
-                <td className="px-3 py-2 text-zinc-400">{f.supermarketName}</td>
-                <td className="px-3 py-2">
+      <section className="flex gap-4 pb-4">
+        <OpsKpi
+          label="Vigentes"
+          value={
+            <>
+              {vigente.length}{" "}
+              <span className="text-[18px] font-medium">ciclo</span>
+            </>
+          }
+          foot={`${formatNumber(vigente.length)} publicadas nesta semana`}
+        />
+        <OpsKpi
+          label="Expirando"
+          value={
+            <>
+              {expiring.length}{" "}
+              <span className="text-[18px] font-medium">48h</span>
+            </>
+          }
+          foot={expiring[0]?.supermarketName ?? "nenhum encarte nas próximas 48h"}
+        />
+        <OpsKpi
+          label="Sem parse"
+          value={
+            <>
+              {noParse.length}{" "}
+              <span className="text-[18px] font-medium">fila</span>
+            </>
+          }
+          foot={noParse[0]?.supermarketName ?? "fila de parse vazia"}
+        />
+      </section>
+
+      <OpsTabs
+        value={tab}
+        onChange={setTab}
+        items={[
+          { id: "all", label: "Todos", count: rowsAll.length },
+          { id: "vigente", label: "Vigentes", count: vigente.length },
+          { id: "expiring", label: "Expirando", count: expiring.length },
+          { id: "noparse", label: "Sem parse", count: noParse.length, warn: true },
+        ]}
+      />
+
+      <section className="ds-table-card">
+        <div className="ds-table-head">
+          <h2 className="text-[15px] font-semibold">Documentos</h2>
+          <input
+            ref={searchRef}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar loja ou PDF"
+            className="ds-search"
+          />
+        </div>
+        <div className="ds-table-cols">
+          <span className="ds-label-caps min-w-0 flex-[2]">Loja</span>
+          <span className="ds-label-caps w-[140px] shrink-0">Vigência</span>
+          <span className="ds-label-caps w-[56px] shrink-0">Págs</span>
+          <span className="ds-label-caps w-[64px] shrink-0">SKUs</span>
+          <span className="ds-label-caps w-[88px] shrink-0">Fonte</span>
+          <span className="ds-label-caps w-[120px] shrink-0">Status</span>
+        </div>
+        {rows.map((f) => {
+          const near =
+            f.validUntil !== undefined &&
+            f.validUntil > now &&
+            f.validUntil < now + 2 * DAY;
+          return (
+            <Link key={f._id} href={`/admin/flyers/${f._id}`} className="ds-table-row">
+              <span className="flex min-w-0 flex-[2] items-center gap-2">
+                <span
+                  className="ds-dot"
+                  style={{
+                    background:
+                      f.status === "failed"
+                        ? statusDot("fail")
+                        : near
+                          ? statusDot("review")
+                          : statusDot("ok"),
+                  }}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">
+                    {f.supermarketName}
+                  </span>
+                  <span className="block truncate font-mono text-xs text-[var(--ds-color-muted-foreground)]">
+                    {f.title ?? f._id}
+                  </span>
+                </span>
+              </span>
+              <span className="w-[140px] shrink-0">
+                {formatRange(f.validFrom, f.validUntil)}
+              </span>
+              <span className="w-[56px] shrink-0 font-mono">{f.pageCount}</span>
+              <span className="w-[64px] shrink-0 font-mono">{f.offerCount}</span>
+              <span className="w-[88px] shrink-0 text-[var(--ds-color-muted-foreground)]">
+                Worker
+              </span>
+              <span className="w-[120px] shrink-0">
+                {near && f.status === "processed" ? (
+                  <span className="ds-pill ds-pill--review">Expira em 2d</span>
+                ) : (
                   <StatusBadge status={f.status} />
-                </td>
-                <td className="px-3 py-2">{formatNumber(f.pageCount)}</td>
-                <td className="px-3 py-2">{formatNumber(f.offerCount)}</td>
-                <td className="px-3 py-2 text-zinc-500">
-                  {formatDateTime(f.validFrom)} → {formatDateTime(f.validUntil)}
-                </td>
-              </tr>
-            ))}
-            {flyers?.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
-                  Nenhum encarte
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+                )}
+              </span>
+            </Link>
+          );
+        })}
+        {!rows.length ? (
+          <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
+            Nenhum encarte.
+          </p>
+        ) : null}
+      </section>
     </div>
   );
 }

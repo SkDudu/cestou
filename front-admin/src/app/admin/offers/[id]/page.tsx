@@ -16,10 +16,10 @@ export default function OfferDetailPage() {
   const setStatus = useMutation(api.offers.setValidationStatus);
 
   if (offer === undefined) {
-    return <p className="text-sm text-zinc-500">Carregando…</p>;
+    return <p className="ds-meta">Carregando…</p>;
   }
   if (!offer) {
-    return <p className="text-sm text-rose-400">Não encontrado</p>;
+    return <p className="text-sm text-[var(--ds-color-danger)]">Não encontrado</p>;
   }
 
   return (
@@ -34,7 +34,7 @@ export default function OfferDetailPage() {
             key={s}
             type="button"
             onClick={() => setStatus({ id, validationStatus: s })}
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-900"
+            className="rounded-md border border-[var(--ds-color-border)] px-3 py-1.5 text-sm "
           >
             {s}
           </button>
@@ -43,11 +43,11 @@ export default function OfferDetailPage() {
 
       <dl className="mb-6 grid gap-3 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-zinc-500">Preço</dt>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Preço</dt>
           <dd className="text-lg font-medium">{formatCurrency(offer.price)}</dd>
         </div>
         <div>
-          <dt className="text-zinc-500">De</dt>
+          <dt className="text-[var(--ds-color-muted-foreground)]">De</dt>
           <dd>
             {offer.originalPrice != null
               ? formatCurrency(offer.originalPrice)
@@ -58,21 +58,21 @@ export default function OfferDetailPage() {
           </dd>
         </div>
         <div>
-          <dt className="text-zinc-500">Quantidade</dt>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Quantidade</dt>
           <dd>{offer.quantity ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-zinc-500">Página</dt>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Página</dt>
           <dd>{offer.pageNumber ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-zinc-500">Validade</dt>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Validade</dt>
           <dd>
             {formatDateTime(offer.validFrom)} → {formatDateTime(offer.validUntil)}
           </dd>
         </div>
         <div>
-          <dt className="text-zinc-500">Encarte</dt>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Encarte</dt>
           <dd>
             <Link href={`/admin/flyers/${offer.flyerId}`} className="hover:underline">
               {offer.flyer?.title ?? offer.flyerId}
@@ -80,7 +80,7 @@ export default function OfferDetailPage() {
           </dd>
         </div>
         <div>
-          <dt className="text-zinc-500">Extração</dt>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Extração</dt>
           <dd>
             {offer.extraction
               ? `${offer.extraction.provider}${offer.extraction.model ? ` · ${offer.extraction.model}` : ""} · ${offer.extraction.status}`
@@ -91,7 +91,7 @@ export default function OfferDetailPage() {
 
       {offer.pageUrl ? (
         <div className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
             Evidência
           </h2>
           <a href={offer.pageUrl} target="_blank" rel="noreferrer">
@@ -99,7 +99,7 @@ export default function OfferDetailPage() {
             <img
               src={offer.pageUrl}
               alt="Página do encarte"
-              className="max-h-[480px] rounded-lg border border-zinc-800 object-contain"
+              className="max-h-[480px] rounded-lg border border-[var(--ds-color-border)] object-contain"
             />
           </a>
         </div>
@@ -107,21 +107,21 @@ export default function OfferDetailPage() {
 
       {offer.rawText ? (
         <div className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
             Raw text
           </h2>
-          <pre className="overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
+          <pre className="overflow-auto rounded-lg border border-[var(--ds-color-border)] bg-zinc-950 p-3 text-xs text-[var(--ds-color-muted-foreground)]">
             {offer.rawText}
           </pre>
         </div>
       ) : null}
 
       {offer.extraction?.rawResponse ? (
-        <details className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <details className="rounded-lg border border-[var(--ds-color-border)] bg-zinc-950 p-3">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
             Raw response da página
           </summary>
-          <pre className="mt-3 max-h-96 overflow-auto text-xs text-zinc-400">
+          <pre className="mt-3 max-h-96 overflow-auto text-xs text-[var(--ds-color-muted-foreground)]">
             {offer.extraction.rawResponse}
           </pre>
         </details>

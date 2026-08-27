@@ -1,0 +1,61 @@
+/**
+ * Mapeamento Tailwind v4. Prefixo ds-* evita colidir com o tema atual do app.
+ * NÃO importar até a migração. Depois: @import "./tokens.css"; @import "./theme.css";
+ */
+
+@theme inline {
+  --color-ds-background: var(--ds-color-background);
+  --color-ds-foreground: var(--ds-color-foreground);
+  --color-ds-muted: var(--ds-color-muted);
+  --color-ds-muted-foreground: var(--ds-color-muted-foreground);
+  --color-ds-border: var(--ds-color-border);
+  --color-ds-card: var(--ds-color-card);
+  --color-ds-primary: var(--ds-color-primary);
+  --color-ds-primary-foreground: var(--ds-color-primary-foreground);
+  --color-ds-secondary: var(--ds-color-secondary);
+  --color-ds-accent: var(--ds-color-accent);
+  --color-ds-success: var(--ds-color-success);
+  --color-ds-danger: var(--ds-color-danger);
+  --color-ds-harbor: var(--ds-color-harbor);
+  --color-ds-ink: var(--ds-color-ink);
+  --color-ds-fog: var(--ds-color-fog);
+  --color-ds-mist: var(--ds-color-mist);
+  --color-ds-buoy: var(--ds-color-buoy);
+  --color-ds-focus: var(--ds-color-focus);
+
+  --font-ds-sans: var(--ds-font-sans);
+  --font-ds-mono: var(--ds-font-mono);
+
+  --text-ds-xs: var(--ds-text-xs);
+  --text-ds-sm: var(--ds-text-sm);
+  --text-ds-base: var(--ds-text-base);
+  --text-ds-lg: var(--ds-text-lg);
+  --text-ds-xl: var(--ds-text-xl);
+  --text-ds-2xl: var(--ds-text-2xl);
+  --text-ds-3xl: var(--ds-text-3xl);
+  --text-ds-4xl: var(--ds-text-4xl);
+
+  --radius-ds-sm: var(--ds-radius-sm);
+  --radius-ds-md: var(--ds-radius-md);
+  --radius-ds-lg: var(--ds-radius-lg);
+  --radius-ds-xl: var(--ds-radius-xl);
+  --radius-ds-full: var(--ds-radius-full);
+
+  --spacing-ds-1: var(--ds-space-1);
+  --spacing-ds-2: var(--ds-space-2);
+  --spacing-ds-3: var(--ds-space-3);
+  --spacing-ds-4: var(--ds-space-4);
+  --spacing-ds-5: var(--ds-space-5);
+  --spacing-ds-6: var(--ds-space-6);
+  --spacing-ds-8: var(--ds-space-8);
+  --spacing-ds-10: var(--ds-space-10);
+  --spacing-ds-12: var(--ds-space-12);
+  --spacing-ds-16: var(--ds-space-16);
+
+  --breakpoint-ds-sm: var(--ds-breakpoint-sm);
+  --breakpoint-ds-md: var(--ds-breakpoint-md);
+  --breakpoint-ds-lg: var(--ds-breakpoint-lg);
+  --breakpoint-ds-xl: var(--ds-breakpoint-xl);
+
+  --container-ds-7xl: var(--ds-container-7xl);
+}

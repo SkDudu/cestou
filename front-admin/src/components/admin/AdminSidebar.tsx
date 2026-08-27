@@ -1,68 +1,191 @@
-import Link from "next/link";
+"use client";
 
-const nav = [
-  { href: "/admin", label: "Overview", section: "main" },
-  { href: "/admin/supermarkets", label: "Supermercados", section: "data" },
-  { href: "/admin/flyers", label: "Encartes", section: "data" },
-  { href: "/admin/offers", label: "Ofertas", section: "data" },
-  { href: "/admin/validation", label: "Validação", section: "data" },
-  { href: "/admin/scraper", label: "Flow Builder", section: "ops" },
-  { href: "/admin/errors", label: "Erros", section: "ops" },
-];
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@convex/_generated/api";
+
+const operacao = [
+  { href: "/admin", label: "Visão geral", icon: "overview" },
+  { href: "/admin/scraper", label: "Workers", icon: "workers", badge: "workers" },
+  { href: "/admin/errors", label: "Extração", icon: "extract", alert: true },
+] as const;
+
+const catalogo = [
+  { href: "/admin/flyers", label: "Encartes", icon: "flyers" },
+  { href: "/admin/offers", label: "Ofertas", icon: "offers" },
+  { href: "/admin/supermarkets", label: "Lojas", icon: "stores" },
+] as const;
+
+function NavIcon({ name }: { name: string }) {
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.4,
+  };
+  if (name === "overview") {
+    return (
+      <svg {...common}>
+        <rect x="2" y="2" width="5" height="5" rx="1" />
+        <rect x="9" y="2" width="5" height="5" rx="1" />
+        <rect x="2" y="9" width="5" height="5" rx="1" />
+        <rect x="9" y="9" width="5" height="5" rx="1" />
+      </svg>
+    );
+  }
+  if (name === "workers") {
+    return (
+      <svg {...common}>
+        <circle cx="5" cy="6" r="2" />
+        <circle cx="11" cy="6" r="2" />
+        <path d="M2.5 13c.4-1.6 1.8-2.5 2.5-2.5S7.1 11.4 7.5 13" />
+        <path d="M8.5 13c.4-1.6 1.8-2.5 2.5-2.5s2.1.9 2.5 2.5" />
+      </svg>
+    );
+  }
+  if (name === "extract") {
+    return (
+      <svg {...common}>
+        <path d="M3 12.5V3.5h7l3 3v6H3z" />
+        <path d="M10 3.5V7h3" />
+      </svg>
+    );
+  }
+  if (name === "flyers") {
+    return (
+      <svg {...common}>
+        <rect x="3" y="2.5" width="10" height="11" rx="1" />
+        <path d="M5.5 6h5M5.5 8.5h5M5.5 11h3" />
+      </svg>
+    );
+  }
+  if (name === "offers") {
+    return (
+      <svg {...common}>
+        <path d="M3 8.5l5-5 5 5-5 5-5-5z" />
+        <circle cx="8" cy="8.5" r="1" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M2.5 13V7l5.5-4 5.5 4v6H9.5V9H6.5v4H2.5z" />
+    </svg>
+  );
+}
 
 export function AdminSidebar() {
+  const pathname = usePathname();
+  const [q, setQ] = useState("");
+  const overview = useQuery(api.dashboard.overview);
+  const query = q.trim().toLowerCase();
+
+  const match = (label: string, href: string) =>
+    !query ||
+    label.toLowerCase().includes(query) ||
+    href.toLowerCase().includes(query);
+
+  const workerCount = overview?.workersActive ?? 0;
+  const extractAlert = (overview?.extractionErrors ?? 0) > 0;
+
+  const items = useMemo(() => {
+    const active = (href: string) =>
+      href === "/admin" ? pathname === "/admin" : pathname.startsWith(href);
+    return { active };
+  }, [pathname]);
+
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 text-zinc-100">
-      <div className="border-b border-zinc-800 px-4 py-5">
-        <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
-          Flyer Dashboard
-        </p>
-        <p className="mt-1 text-sm font-medium text-zinc-200">Cestou</p>
+    <aside className="ds-sidebar h-dvh overflow-y-auto">
+      <div className="flex h-11 shrink-0 items-center gap-2.5">
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[13px] font-bold text-white"
+          style={{ background: "var(--ds-color-harbor)" }}
+        >
+          C
+        </span>
+        <span className="text-sm font-medium" style={{ color: "var(--ds-color-foreground)" }}>
+          Cestou Ops
+        </span>
       </div>
-      <nav className="flex-1 overflow-y-auto px-2 py-4 text-sm">
-        <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-          Overview
-        </p>
-        {nav
-          .filter((i) => i.section === "main")
-          .map((item) => (
+
+      <label className="mt-4 flex h-9 shrink-0 items-center gap-2 rounded-[6px] border border-[var(--ds-color-border)] bg-[var(--ds-color-card)] px-3">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+          <circle cx="6" cy="6" r="4.2" stroke="var(--ds-color-muted-foreground)" strokeWidth="1.3" />
+          <path d="M9.2 9.2L12 12" stroke="var(--ds-color-muted-foreground)" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar no ops"
+          className="w-full bg-transparent text-[13px] outline-none placeholder:text-[var(--ds-color-muted-foreground)]"
+        />
+      </label>
+
+      <nav className="mt-5 flex min-h-0 flex-1 flex-col">
+        <p className="ds-label-caps px-0.5 pb-1.5">Operação</p>
+        {operacao.filter((i) => match(i.label, i.href)).map((item) => {
+          const on = items.active(item.href);
+          return (
             <Link
               key={item.href}
               href={item.href}
-              className="mb-1 block rounded-md px-2 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white"
+              className={`ds-nav-item ${on ? "ds-nav-item--active" : ""}`}
             >
-              {item.label}
+              <span className={on ? "ds-nav-rail" : "ds-nav-rail ds-nav-rail--idle"} />
+              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[var(--ds-color-foreground)]">
+                <NavIcon name={item.icon} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+              {"badge" in item ? (
+                <span className="font-mono text-[11px] text-[var(--ds-color-muted-foreground)]">
+                  {workerCount}
+                </span>
+              ) : null}
+              {"alert" in item && extractAlert ? (
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: "var(--ds-color-buoy)" }}
+                />
+              ) : null}
             </Link>
-          ))}
-        <p className="mt-4 px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-          Dados
-        </p>
-        {nav
-          .filter((i) => i.section === "data")
-          .map((item) => (
+          );
+        })}
+
+        <p className="ds-label-caps mt-5 px-0.5 pb-1.5">Catálogo</p>
+        {catalogo.filter((i) => match(i.label, i.href)).map((item) => {
+          const on = items.active(item.href);
+          return (
             <Link
               key={item.href}
               href={item.href}
-              className="mb-1 block rounded-md px-2 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white"
+              className={`ds-nav-item ${on ? "ds-nav-item--active" : ""}`}
             >
-              {item.label}
+              <span className={on ? "ds-nav-rail" : "ds-nav-rail ds-nav-rail--idle"} />
+              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
+                <NavIcon name={item.icon} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
             </Link>
-          ))}
-        <p className="mt-4 px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-          Ops
-        </p>
-        {nav
-          .filter((i) => i.section === "ops")
-          .map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="mb-1 block rounded-md px-2 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white"
-            >
-              {item.label}
-            </Link>
-          ))}
+          );
+        })}
       </nav>
+
+      <div className="mt-auto flex items-center gap-2.5 border-t border-[var(--ds-color-border)] pt-3">
+        <span
+          className="h-8 w-8 shrink-0 rounded-full"
+          style={{ background: "var(--ds-color-secondary)" }}
+        />
+        <div className="min-w-0">
+          <p className="truncate text-xs font-medium">Cestou</p>
+          <p className="truncate text-xs text-[var(--ds-color-muted-foreground)]">
+            Operações
+          </p>
+        </div>
+      </div>
     </aside>
   );
 }

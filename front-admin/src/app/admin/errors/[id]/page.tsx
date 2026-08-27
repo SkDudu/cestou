@@ -16,10 +16,10 @@ export default function ErrorDetailPage() {
   const resolve = useMutation(api.flyerErrors.resolve);
 
   if (err === undefined) {
-    return <p className="text-sm text-zinc-500">Carregando…</p>;
+    return <p className="ds-meta">Carregando…</p>;
   }
   if (!err) {
-    return <p className="text-sm text-rose-400">Não encontrado</p>;
+    return <p className="text-sm text-[var(--ds-color-danger)]">Não encontrado</p>;
   }
 
   return (
@@ -31,13 +31,13 @@ export default function ErrorDetailPage() {
         <button
           type="button"
           onClick={() => resolve({ id })}
-          className="mb-4 rounded-md border border-zinc-700 px-3 py-1.5 text-sm"
+          className="mb-4 rounded-md border border-[var(--ds-color-border)] px-3 py-1.5 text-sm"
         >
           Resolver
         </button>
       ) : null}
-      <p className="mb-2 text-sm text-zinc-300">{err.message}</p>
-      <p className="mb-4 text-xs text-zinc-500">{formatDateTime(err.createdAt)}</p>
+      <p className="mb-2 text-sm ">{err.message}</p>
+      <p className="mb-4 text-xs text-[var(--ds-color-muted-foreground)]">{formatDateTime(err.createdAt)}</p>
       {err.flyerId ? (
         <p className="mb-4 text-sm">
           Encarte:{" "}
@@ -47,7 +47,7 @@ export default function ErrorDetailPage() {
         </p>
       ) : null}
       {err.stack ? (
-        <pre className="overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-500">
+        <pre className="overflow-auto rounded-lg border border-[var(--ds-color-border)] bg-zinc-950 p-3 text-xs text-[var(--ds-color-muted-foreground)]">
           {err.stack}
         </pre>
       ) : null}

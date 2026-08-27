@@ -90,9 +90,9 @@ export function FlowRunPanel({ flowId, onDone }: Props) {
   }
 
   return (
-    <section className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
+    <section className="mb-8 rounded-lg border border-[var(--ds-color-border)] bg-[var(--ds-color-card)]/30 p-4">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-medium text-zinc-200">Rodar fluxo</h2>
+        <h2 className="text-sm font-medium ">Rodar fluxo</h2>
         <span
           className={`text-xs ${online ? "text-emerald-400" : "text-rose-400"}`}
         >
@@ -125,7 +125,7 @@ export function FlowRunPanel({ flowId, onDone }: Props) {
         )}
       </div>
 
-      {error ? <p className="mb-2 text-sm text-rose-400">{error}</p> : null}
+      {error ? <p className="mb-2 text-sm text-[var(--ds-color-danger)]">{error}</p> : null}
       {result ? (
         <p
           className={`mb-2 text-sm ${
@@ -140,8 +140,8 @@ export function FlowRunPanel({ flowId, onDone }: Props) {
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-md border border-zinc-800 bg-black">
-        <div className="border-b border-zinc-800 px-3 py-1.5 text-[10px] uppercase tracking-wider text-zinc-600">
+      <div className="overflow-hidden rounded-md border border-[var(--ds-color-border)] bg-black">
+        <div className="border-b border-[var(--ds-color-border)] px-3 py-1.5 text-[10px] uppercase tracking-wider text-zinc-600">
           Console
         </div>
         <pre className="max-h-[28rem] overflow-y-auto p-3 font-mono text-xs leading-relaxed text-emerald-300">

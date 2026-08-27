@@ -1,38 +1,37 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { PageHeader } from "@/components/admin/PageHeader";
-import { SetupFlowNav } from "@/components/admin/SetupFlowNav";
-import { StatusBadge } from "@/components/admin/StatusBadge";
+import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
+import { OpsStatusPill } from "@/components/admin/OpsStatusPill";
 import { WorkerStartButton } from "@/components/admin/WorkerStartButton";
 import { checkWorkerHealth } from "@/lib/browser-session";
-
-const inputClass =
-  "rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200";
+import { formatOpsStamp, formatPercent } from "@/lib/format";
 
 export default function ScraperFlowsPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-zinc-500">Carregando…</p>}>
-      <ScraperFlowsPageContent />
+    <Suspense fallback={<p className="ds-meta">Carregando…</p>}>
+      <WorkersPage />
     </Suspense>
   );
 }
 
-function ScraperFlowsPageContent() {
+function WorkersPage() {
   const searchParams = useSearchParams();
   const presetSupermarketId = searchParams.get("supermarketId") ?? "";
-
-  const flows = useQuery(api.scraperFlows.list, {});
+  const overview = useQuery(api.dashboard.overview);
   const markets = useQuery(api.supermarkets.listNames);
   const create = useMutation(api.scraperFlows.create);
+  const [tab, setTab] = useState("all");
+  const [q, setQ] = useState("");
   const [open, setOpen] = useState(Boolean(presetSupermarketId));
   const [error, setError] = useState<string | null>(null);
   const [workerOnline, setWorkerOnline] = useState<boolean | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (presetSupermarketId) setOpen(true);
@@ -52,6 +51,27 @@ function ScraperFlowsPageContent() {
     };
   }, []);
 
+  const workers = overview?.workers ?? [];
+  const fail = workers.filter((w) => w.status === "fail");
+  const counts = {
+    all: workers.length,
+    running: workers.filter((w) => w.status === "running").length,
+    queue: workers.filter((w) => w.status === "queue").length,
+    fail: fail.length,
+  };
+
+  const rows = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return workers.filter((w) => {
+      if (tab !== "all" && w.status !== tab) return false;
+      if (!needle) return true;
+      return (
+        w.slug.includes(needle) ||
+        w.supermarketName.toLowerCase().includes(needle)
+      );
+    });
+  }, [workers, tab, q]);
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -61,136 +81,158 @@ function ScraperFlowsPageContent() {
         supermarketId: String(fd.get("supermarketId")) as Id<"supermarkets">,
         name: String(fd.get("name") ?? ""),
       });
-      setOpen(false);
       window.location.href = `/admin/scraper/${id}`;
     } catch (err) {
       setError(String(err));
     }
   }
 
+  if (overview === undefined) return <p className="ds-meta">Carregando…</p>;
+
+  const failHint = fail[0];
+
   return (
     <div>
-      <PageHeader
-        title="Flow Builder"
-        description="SPEC 015 — gravar e executar workflows de scraping"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={`text-xs ${workerOnline ? "text-emerald-400" : "text-rose-400"}`}
-          >
-            {workerOnline === null
-              ? "…"
-              : workerOnline
-                ? "● Worker online"
-                : "● Worker offline"}
-          </span>
-          <WorkerStartButton
-            online={workerOnline}
-            onStarted={() => setWorkerOnline(true)}
-            onStopped={() => setWorkerOnline(false)}
-          />
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-900"
-          >
-            {open ? "Fechar" : "Novo fluxo"}
-          </button>
-        </div>
-      </PageHeader>
-
-      <SetupFlowNav
-        currentStep={3}
-        supermarketId={presetSupermarketId || undefined}
+      <OpsHeader
+        title="Workers"
+        stamp={`Atualizado ${formatOpsStamp(Date.now())}`}
+        filterTarget={() => searchRef.current?.focus()}
+        primary={
+          <>
+            <span
+              className="text-[13px]"
+              style={{
+                color: workerOnline
+                  ? "var(--ds-color-success)"
+                  : "var(--ds-color-danger)",
+              }}
+            >
+              {workerOnline === null
+                ? "…"
+                : workerOnline
+                  ? "Worker online"
+                  : "Worker offline"}
+            </span>
+            <WorkerStartButton
+              online={workerOnline}
+              onStarted={() => setWorkerOnline(true)}
+              onStopped={() => setWorkerOnline(false)}
+            />
+            <button
+              type="button"
+              className="ds-btn ds-btn--primary"
+              onClick={() => setOpen((v) => !v)}
+            >
+              {open ? "Fechar" : "Novo worker"}
+            </button>
+          </>
+        }
       />
 
       {open ? (
-        <form
-          onSubmit={onSubmit}
-          className="mb-6 grid gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 sm:grid-cols-2"
-        >
+        <form onSubmit={onSubmit} className="ds-form ds-form-2">
           <select
             name="supermarketId"
             required
-            className={inputClass}
+            className="ds-input"
             defaultValue={presetSupermarketId}
           >
-            <option value="">Supermercado</option>
+            <option value="">Loja</option>
             {(markets ?? []).map((m) => (
               <option key={m._id} value={m._id}>
                 {m.name}
               </option>
             ))}
           </select>
-          <input
-            name="name"
-            required
-            placeholder="Nome do fluxo"
-            className={inputClass}
-          />
+          <input name="name" required placeholder="Nome do worker" className="ds-input" />
           {error ? (
-            <p className="text-sm text-rose-400 sm:col-span-2">{error}</p>
+            <p className="text-sm text-[var(--ds-color-danger)]">{error}</p>
           ) : null}
-          <button
-            type="submit"
-            className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 sm:col-span-2"
-          >
+          <button type="submit" className="ds-btn ds-btn--primary ds-btn--lg">
             Criar
           </button>
         </form>
       ) : null}
 
-      <div className="overflow-hidden rounded-lg border border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-zinc-800 bg-zinc-900/80 text-xs uppercase text-zinc-500">
-            <tr>
-              <th className="px-3 py-2">Nome</th>
-              <th className="px-3 py-2">Mercado</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Ver</th>
-              <th className="px-3 py-2">URL</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(flows ?? []).map((f) => {
-              const sm = (markets ?? []).find((m) => m._id === f.supermarketId);
-              return (
-                <tr
-                  key={f._id}
-                  className="border-b border-zinc-900/80 text-zinc-300"
-                >
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/admin/scraper/${f._id}`}
-                      className="font-medium text-zinc-100 hover:underline"
-                    >
-                      {f.name}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-xs">{sm?.name ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    <StatusBadge status={f.status} />
-                  </td>
-                  <td className="px-3 py-2 text-xs">v{f.version}</td>
-                  <td className="px-3 py-2 text-xs text-zinc-500 truncate max-w-[240px]">
-                    {f.startUrl}
-                  </td>
-                </tr>
-              );
-            })}
-            {flows?.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={5}
-                  className="px-3 py-8 text-center text-sm text-zinc-500"
-                >
-                  Nenhum fluxo. Crie um pelo botão acima.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+      <section className="flex gap-4 pb-4">
+        <OpsKpi
+          label="Workers ativos"
+          value={overview.workersActive}
+          hint={
+            overview.workersDelta > 0 ? (
+              <p className="pb-1 text-[13px] font-medium text-[var(--ds-color-success)]">
+                rodaram hoje
+              </p>
+            ) : undefined
+          }
+          foot={`${overview.extractingNow} em extração agora`}
+        />
+        <OpsKpi
+          label="Falhas"
+          value={fail.length}
+          danger={fail.length > 0}
+          hint={
+            failHint ? (
+              <p className="pb-1 font-mono text-[13px] text-[var(--ds-color-muted-foreground)]">
+                {failHint.slug}
+              </p>
+            ) : undefined
+          }
+          foot={failHint ? failHint.supermarketName : "Nenhuma falha na frota"}
+        />
+      </section>
+
+      <OpsTabs
+        value={tab}
+        onChange={setTab}
+        items={[
+          { id: "all", label: "Todos", count: counts.all },
+          { id: "running", label: "Rodando", count: counts.running },
+          { id: "queue", label: "Fila", count: counts.queue },
+          { id: "fail", label: "Falha", count: counts.fail, warn: true },
+        ]}
+      />
+
+      <section className="ds-table-card">
+        <div className="ds-table-head">
+          <h2 className="text-[15px] font-semibold">Frota</h2>
+          <input
+            ref={searchRef}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar worker"
+            className="ds-search"
+          />
+        </div>
+        <div className="ds-table-cols">
+          <span className="ds-label-caps min-w-0 flex-[3.1]">Id</span>
+          <span className="ds-label-caps w-[200px] shrink-0">Loja</span>
+          <span className="ds-label-caps w-[88px] shrink-0">Jobs 24h</span>
+          <span className="ds-label-caps w-[72px] shrink-0">Parse</span>
+          <span className="ds-label-caps w-[96px] shrink-0">Status</span>
+        </div>
+        {rows.map((w) => (
+          <Link key={w._id} href={`/admin/scraper/${w._id}`} className="ds-table-row">
+            <span className="flex min-w-0 flex-[3.1] items-center gap-2 font-mono text-sm">
+              <span className="ds-dot" style={{ background: statusDot(w.status) }} />
+              {w.slug}
+            </span>
+            <span className="w-[200px] shrink-0 truncate">{w.supermarketName}</span>
+            <span className="w-[88px] shrink-0 font-mono">{w.jobs24h}</span>
+            <span className="w-[72px] shrink-0 font-mono">
+              {w.taxa === null ? "—" : formatPercent(w.taxa)}
+            </span>
+            <span className="w-[96px] shrink-0">
+              <OpsStatusPill status={w.status} />
+            </span>
+          </Link>
+        ))}
+        {!rows.length ? (
+          <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
+            Nenhum worker neste filtro.
+          </p>
+        ) : null}
+      </section>
     </div>
   );
 }
