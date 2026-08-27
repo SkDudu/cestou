@@ -43,11 +43,18 @@ export const findByIdentity = query({
 });
 
 export const findByHash = query({
-  args: { fileHash: v.string() },
+  args: {
+    supermarketId: v.id("supermarkets"),
+    fileHash: v.string(),
+  },
   handler: async (ctx, args) =>
     ctx.db
       .query("flyers")
-      .withIndex("by_fileHash", (q) => q.eq("fileHash", args.fileHash))
+      .withIndex("by_supermarket_fileHash", (q) =>
+        q
+          .eq("supermarketId", args.supermarketId)
+          .eq("fileHash", args.fileHash),
+      )
       .first(),
 });
 
@@ -60,7 +67,7 @@ function discoveredPatch(
     externalId?: string;
     originalUrl?: string;
   },
-  existingStatus: string,
+  existing: { status: string; storageId?: string },
 ) {
   const patch: Record<string, unknown> = { updatedAt: Date.now() };
   if (args.pageUrls?.length) patch.pageUrls = args.pageUrls;
@@ -69,7 +76,13 @@ function discoveredPatch(
   if (args.validFrom !== undefined) patch.validFrom = args.validFrom;
   if (args.validUntil !== undefined) patch.validUntil = args.validUntil;
   if (args.originalUrl) patch.originalUrl = args.originalUrl;
-  if (existingStatus === "failed" && args.pageUrls?.length) {
+  // ponytail: no file in storage → requeue download; skip in-flight / expired
+  if (
+    args.pageUrls?.length &&
+    !existing.storageId &&
+    existing.status !== "processing" &&
+    existing.status !== "expired"
+  ) {
     patch.status = "discovered";
   }
   return patch;
@@ -96,7 +109,7 @@ export const createDiscovered = mutation({
       .filter((q) => q.eq(q.field("originalUrl"), args.originalUrl))
       .first();
     if (byUrl) {
-      const patch = discoveredPatch(args, byUrl.status);
+      const patch = discoveredPatch(args, byUrl);
       if (Object.keys(patch).length > 1) await ctx.db.patch(byUrl._id, patch);
       return { id: byUrl._id, created: false };
     }
@@ -111,7 +124,7 @@ export const createDiscovered = mutation({
         )
         .first();
       if (byExt) {
-        await ctx.db.patch(byExt._id, discoveredPatch(args, byExt.status));
+        await ctx.db.patch(byExt._id, discoveredPatch(args, byExt));
         return { id: byExt._id, created: false };
       }
     }
@@ -184,7 +197,11 @@ export const attachFile = mutation({
     if (args.fileHash) {
       const byHash = await ctx.db
         .query("flyers")
-        .withIndex("by_fileHash", (q) => q.eq("fileHash", args.fileHash))
+        .withIndex("by_supermarket_fileHash", (q) =>
+          q
+            .eq("supermarketId", flyer.supermarketId)
+            .eq("fileHash", args.fileHash),
+        )
         .first();
       if (byHash && byHash._id !== args.id) {
         // Keep existing; mark this as failed duplicate attempt path stays discovered

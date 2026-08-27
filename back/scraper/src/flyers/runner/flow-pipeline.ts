@@ -18,8 +18,23 @@ export type DiscoveredCandidate = {
   pageBuffers?: Array<{ buffer: Buffer; contentType: string; url?: string }>;
 };
 
+/** Listing index / skip-to-content — not a flyer document. */
+export function isJunkNavHref(u: string): boolean {
+  try {
+    const url = new URL(u, "https://local.invalid");
+    if (/content|main|primary|skip/i.test(url.hash.replace(/^#/, ""))) {
+      return true;
+    }
+    const path = url.pathname.replace(/\/+$/, "") || "/";
+    return /\/encartes$/i.test(path);
+  } catch {
+    return /ir-para-o-conteudo|#content/i.test(u);
+  }
+}
+
 export function isFlyerHref(u: string): boolean {
   if (!/^https?:\/\//i.test(u) && !u.startsWith("/")) return false;
+  if (isJunkNavHref(u)) return false;
   if (/productcluster|productsquery|productgallery|vtexcommercestable|sku/i.test(u)) {
     return false;
   }
@@ -157,6 +172,9 @@ export function attachNetworkHarvester(page: Page): {
     dispose: () => page.off("response", onResponse),
   };
 }
+
+export const SCOPE_NOT_FOUND =
+  "SCOPE_NOT_FOUND: não foi possível localizar a área configurada";
 
 export async function resolveScopeElement(
   page: Page,

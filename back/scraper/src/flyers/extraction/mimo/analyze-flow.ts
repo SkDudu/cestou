@@ -3,8 +3,12 @@ import { parseJsonObject } from "../json-parse.js";
 import { mimoChat } from "./client.js";
 import { MimoError } from "./errors.js";
 import type { FlowStep, StepConfig, StepType } from "../../types/flows.js";
-import type { TeachActionDump, TeachPayload } from "../../session/click-snapshot.js";
-import { parseFlyerSource, sanitizeFlyerSource, sanitizeItemSelectors } from "../../runner/flyer-discover.js";
+import type {
+  GalleryScopeDump,
+  TeachActionDump,
+  TeachPayload,
+} from "../../session/click-snapshot.js";
+import { parseFlyerSource, sanitizeFlyerSource, sanitizeItemSelectors, preferImagesUnlessPdf, urlsLookLikePdfFile, hasProvenFileDownload, cardItemSelectors } from "../../runner/flyer-discover.js";
 
 export const ANALYZE_FLOW_SYSTEM = `You turn a recorded supermarket-site session into a replayable scraper flow.
 Return JSON only. Do not invent CSS selectors — copy from the dump.
@@ -28,9 +32,13 @@ FLYER SOURCE (only on discover-flyer):
 Gallery dump is PAGE-WIDE index — copy GENERIC selectors only.
 itemSelectors: shared pattern for ALL tabs — e.g. [role=tab], [data-oferta-index], button:has-text("Jornal de Ofertas").
 NEVER list Jornal 1, Jornal 2, data-oferta-index="31" separately.
-If gallery.downloadButtons has a[download] or href*.pdf → downloadStrategy "click-download" + downloadSelectors.
-If only "Baixar" text (may open image viewer/lightbox) → prefer open-each-item or harvest-after-activate; still copy downloadSelectors as hints — runtime harvests popup/lightbox after click.
-Else tabs → open-each-item; pdf links → direct-url; images → collect-images.
+If gallery.downloadButtons has href*.pdf → downloadStrategy "click-download" + downloadSelectors.
+DEFAULT: flyers are IMAGES (jpeg/png/webp, lightbox, img.src). kind image-grid. Do NOT emit pdf-links or direct-url unless dump has href ending .pdf.
+A button labeled PDF that opens an image viewer is still IMAGES — open-each-item + img.src.
+If gallery.tabButtons / recorded clicks show a repeated card CTA (any label) → open-each-item + COPY those selectors. Never invent "Ver Encarte"/"Ver Folheto".
+If only "Baixar" text (viewer/lightbox) → open-each-item; harvest images after click.
+Else tabs → open-each-item.
+Wait steps: prefer strategy timeout. Never invent Elementor gallery class names.
 Always end with discover-flyer including flyerSource.
 Do NOT include download-flyers or extract-offers.
 Ignore product SKUs, banners, and category tiles.
@@ -77,10 +85,13 @@ Config keys you may use: url, selector, selectors, value, description, strategy,
 Preserve every recorded select/input value verbatim in the matching step — each field = its own step.
 Keep steps discrete: navigate → selects/inputs → click open gallery → wait → discover-flyer.
 On discover-flyer only: set flyerSource from gallery dump.
-If gallery has real flyer downloadButtons with .pdf / a[download] → click-download + downloadSelectors; itemSelectors = GENERIC tab pattern only when kind is tabs.
-If Baixar only opens viewer/image (no PDF href) → open-each-item or harvest-after-activate; still copy downloadSelectors as hints.
+If gallery has real flyer downloadButtons with .pdf href → click-download + downloadSelectors; itemSelectors = GENERIC tab pattern only when kind is tabs.
+DEFAULT image-grid / img.src / open-each-item or collect-images. Never pdf-links unless dump shows .pdf href.
+If gallery.tabButtons or recorded clicks are a repeated card CTA → open-each-item; copy those selectors exactly. Never invent CTA text.
+If Baixar only opens viewer/image (no PDF href) → open-each-item; harvest images.
 If tabs without download → open-each-item + generic itemSelectors.
-Never one click per tab label. Never put Baixar/app CTA as a click step.`;
+Never one click per tab label. Never put Baixar/app CTA as a click step.
+HTML href to another page ≠ PDF. Wait = timeout unless selector copied from dump.`;
 }
 
 const PLACEHOLDER_RE = /^\{\{\s*[\w.]+\s*\}\}$/;
@@ -182,9 +193,15 @@ function stepBlob(s: FlowStep): string {
     .join(" ");
 }
 
+function isFlyerCardCtaClick(s: FlowStep): boolean {
+  if (s.type !== "click") return false;
+  return /ver\s+\S{3,}/i.test(stepBlob(s));
+}
+
 function isFlyerTabClick(s: FlowStep): boolean {
   if (s.type !== "click") return false;
   const blob = stepBlob(s);
+  if (isFlyerCardCtaClick(s)) return true;
   if (!FLYER_TAB_TEXT_RE.test(blob)) return false;
   // "Jornal de Ofertas 1" / tab numbered sample — or explicit select-tab wording
   if (FLYER_TAB_NUM_RE.test(blob) || /select\s+(first\s+)?flyer\s+tab|aba/i.test(blob)) {
@@ -209,12 +226,11 @@ function generalizeTabSelector(sel: string): string | undefined {
 export function collapseFlyerTabClicks(steps: FlowStep[]): FlowStep[] {
   const tabClicks = steps.filter(isFlyerTabClick);
   if (!tabClicks.length) return steps;
+  const cardCta = tabClicks.some(isFlyerCardCtaClick);
 
-  const itemSelectors: string[] = [
-    '[role="tab"]',
-    "[data-oferta-index]",
-    'button:has-text("Jornal de Ofertas")',
-  ];
+  const itemSelectors: string[] = cardCta
+    ? []
+    : ['[role="tab"]', "[data-oferta-index]"];
   for (const c of tabClicks) {
     for (const sel of [c.config.selector, ...(c.config.selectors ?? [])]) {
       if (!sel) continue;
@@ -226,8 +242,9 @@ export function collapseFlyerTabClicks(steps: FlowStep[]): FlowStep[] {
     }
   }
   const uniqItems =
-    sanitizeItemSelectors(itemSelectors, { kind: "tabs" }) ??
-    itemSelectors.slice(0, 6);
+    sanitizeItemSelectors(itemSelectors, {
+      kind: cardCta ? "image-grid" : "tabs",
+    }) ?? itemSelectors.slice(0, 6);
 
   const kept = steps.filter((s) => !isFlyerTabClick(s));
   let touched = false;
@@ -238,14 +255,17 @@ export function collapseFlyerTabClicks(steps: FlowStep[]): FlowStep[] {
     const keepDl =
       prev?.downloadStrategy === "click-download" ||
       Boolean(prev?.downloadSelectors?.length);
+    const kind = cardCta ? "image-grid" : "tabs";
     return {
       ...s,
       config: {
         ...s.config,
         flyerSource: sanitizeFlyerSource({
-          kind: "tabs",
+          kind,
           downloadStrategy: keepDl ? "click-download" : "open-each-item",
-          urlFrom: prev?.urlFrom ?? (keepDl ? "click-then-network" : "img.src"),
+          urlFrom:
+            prev?.urlFrom ??
+            (cardCta || keepDl ? "click-then-network" : "img.src"),
           itemSelectors: [
             ...new Set([...(prev?.itemSelectors ?? []), ...uniqItems]),
           ],
@@ -253,7 +273,10 @@ export function collapseFlyerTabClicks(steps: FlowStep[]): FlowStep[] {
           networkHints: prev?.networkHints,
           evidence: keepDl
             ? (prev?.evidence ?? "tabs + download")
-            : (prev?.evidence ?? "collapsed per-tab clicks → open-each-item"),
+            : (prev?.evidence ??
+              (cardCta
+                ? "collapsed card CTA clicks → open-each-item + goBack"
+                : "collapsed per-tab clicks → open-each-item")),
         }),
       },
     };
@@ -266,11 +289,13 @@ export function collapseFlyerTabClicks(steps: FlowStep[]): FlowStep[] {
         scope: "page",
         duration: 4000,
         flyerSource: sanitizeFlyerSource({
-          kind: "tabs",
+          kind: cardCta ? "image-grid" : "tabs",
           downloadStrategy: "open-each-item",
-          urlFrom: "img.src",
+          urlFrom: cardCta ? "click-then-network" : "img.src",
           itemSelectors: uniqItems,
-          evidence: "collapsed per-tab clicks → open-each-item",
+          evidence: cardCta
+            ? "collapsed card CTA clicks → open-each-item + goBack"
+            : "collapsed per-tab clicks → open-each-item",
         }),
       },
     });
@@ -278,17 +303,79 @@ export function collapseFlyerTabClicks(steps: FlowStep[]): FlowStep[] {
   return out;
 }
 
+const CARD_CTA_RE = /ver\s+\S{3,}/i;
+
+function blobHasCardCta(blob: string): boolean {
+  return CARD_CTA_RE.test(blob);
+}
+
+/** MiMo often emits pdf-links because Elementor buttons have href. Force loop. */
+export function forceCardCtaOpenEachItem(
+  steps: FlowStep[],
+  hints?: {
+    notes?: string;
+    actions?: TeachActionDump[];
+    gallery?: GalleryScopeDump;
+  },
+): FlowStep[] {
+  const parts: string[] = [hints?.notes ?? ""];
+  for (const a of hints?.actions ?? []) {
+    parts.push(a.description ?? "", a.value ?? "", ...(a.selectors ?? []));
+  }
+  for (const t of hints?.gallery?.tabButtons ?? []) {
+    parts.push(t.text, ...(t.selectors ?? []));
+  }
+  for (const s of steps) {
+    if (s.type !== "discover-flyer") continue;
+    parts.push(...(s.config.flyerSource?.itemSelectors ?? []));
+    parts.push(s.config.description ?? "");
+  }
+  if (!blobHasCardCta(parts.join(" "))) return steps;
+
+  const itemSelectors = cardItemSelectors([
+    ...steps.flatMap((s) => s.config.flyerSource?.itemSelectors ?? []),
+    ...(hints?.gallery?.tabButtons ?? []).flatMap((t) => t.selectors),
+  ]);
+
+  return steps.map((s) => {
+    if (s.type !== "discover-flyer") return s;
+    const prev = s.config.flyerSource;
+    return {
+      ...s,
+      config: {
+        ...s.config,
+        flyerSource: sanitizeFlyerSource({
+          kind: "image-grid",
+          downloadStrategy: "open-each-item",
+          urlFrom: "click-then-network",
+          itemSelectors,
+          downloadSelectors: prev?.downloadSelectors,
+          networkHints: prev?.networkHints,
+            evidence:
+            (prev?.evidence ?? "") +
+            " | forced: card CTA → open-each-item capa→botão",
+        }),
+      },
+    };
+  });
+}
+
 export type AnalyzedFlow = {
   version: number;
   startUrl: string;
   notes?: string;
   steps: FlowStep[];
+  /** Pass 1: user must open one flyer then analyze again. */
+  awaitDetail?: boolean;
+  listingCount?: number;
+  teachPass?: 1 | 2;
 };
 
 export function parseAnalyzedFlow(
   raw: string,
   fallbackStartUrl: string,
   actions?: TeachActionDump[],
+  gallery?: GalleryScopeDump,
 ): AnalyzedFlow {
   const p = parseJsonObject(raw) as {
     version?: unknown;
@@ -331,15 +418,25 @@ export function parseAnalyzedFlow(
   steps = steps.map((s) => {
     if (s.type !== "discover-flyer") return s;
     if (!s.config.flyerSource) {
+      const noPdf =
+        gallery &&
+        !urlsLookLikePdfFile(gallery.links ?? []) &&
+        !hasProvenFileDownload(gallery.downloadButtons ?? []);
       return {
         ...s,
         config: {
           ...s.config,
-          flyerSource: {
-            kind: "pdf-links",
-            downloadStrategy: "direct-url",
-            urlFrom: "href",
-          },
+          flyerSource: noPdf
+            ? {
+                kind: "image-grid",
+                downloadStrategy: "collect-images",
+                urlFrom: "img.src",
+              }
+            : {
+                kind: "pdf-links",
+                downloadStrategy: "direct-url",
+                urlFrom: "href",
+              },
         },
       };
     }
@@ -355,6 +452,21 @@ export function parseAnalyzedFlow(
     steps = reconcileRecordedValues(steps, actions);
   }
   steps = collapseFlyerTabClicks(steps);
+  steps = forceCardCtaOpenEachItem(steps, {
+    notes: typeof p.notes === "string" ? p.notes : undefined,
+    actions,
+    gallery,
+  });
+  steps = steps.map((s) => {
+    if (s.type !== "discover-flyer" || !s.config.flyerSource) return s;
+    return {
+      ...s,
+      config: {
+        ...s.config,
+        flyerSource: preferImagesUnlessPdf(s.config.flyerSource, gallery),
+      },
+    };
+  });
   steps = hardenWaitSteps(steps);
   steps = steps.map((s) => {
     if (s.type !== "discover-flyer" || !s.config.flyerSource) return s;
@@ -390,5 +502,10 @@ export async function mimoAnalyzeFlow(args: {
     signal: args.signal,
   });
   const raw = json.choices?.[0]?.message?.content ?? "";
-  return parseAnalyzedFlow(raw, args.payload.startUrl, args.payload.actions);
+  return parseAnalyzedFlow(
+    raw,
+    args.payload.startUrl,
+    args.payload.actions,
+    args.payload.gallery,
+  );
 }

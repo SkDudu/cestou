@@ -8,11 +8,12 @@ import {
   attachNetworkHarvester,
   persistDiscovered,
   resolveScopeElement,
+  SCOPE_NOT_FOUND,
 } from "./flow-pipeline.js";
 import {
   allowsImageUrls,
+  coerceOpenEachIfCardCta,
   discoverWithFlyerSource,
-  resolveFlyerSource,
 } from "./flyer-discover.js";
 
 export type StepResult = {
@@ -262,20 +263,15 @@ async function runStepOnce(
         ...(cfg.selector ? [cfg.selector] : []),
       ].filter(Boolean);
       if (!selectors.length) {
-        say("[SCOPE] sem selectors — discover usa página");
         state.scopeSelectors = undefined;
-        return { ok: true, message: "SCOPE skipped (no selectors)" };
+        say(`[SCOPE] ${SCOPE_NOT_FOUND}`);
+        return { ok: false, message: SCOPE_NOT_FOUND };
       }
       const hit = await resolveScopeElement(page, selectors, t);
       if (!hit) {
-        say(
-          "[SCOPE] seletor gravado não bateu — discover usa página inteira",
-        );
         state.scopeSelectors = undefined;
-        return {
-          ok: true,
-          message: "SCOPE skipped — using page discovery",
-        };
+        say(`[SCOPE] ${SCOPE_NOT_FOUND}`);
+        return { ok: false, message: SCOPE_NOT_FOUND };
       }
       const loc = page.locator(hit.selector).first();
       const box = await loc.boundingBox();
@@ -331,9 +327,10 @@ async function runStepOnce(
     case "discover-flyer": {
       const useElement = Boolean(state.scopeSelectors?.length);
       if (cfg.scope === "element" && !useElement) {
-        say("[FLYER] scope element vazio — varrendo página + rede");
+        say(`[FLYER] ${SCOPE_NOT_FOUND}`);
+        return { ok: false, message: SCOPE_NOT_FOUND };
       }
-      const source = resolveFlyerSource(cfg);
+      const source = coerceOpenEachIfCardCta(cfg);
       say(
         `[FLYER] buscando ${useElement ? "no scope" : "na página"}…`,
       );
@@ -394,7 +391,7 @@ async function runStepOnce(
         capturedPages: state.capturedPages,
       });
       return {
-        ok: true,
+        ok: dl.downloaded > 0 || dl.pending === 0,
         message: `downloaded ${dl.downloaded}/${dl.pending}`,
         flyersFound: dl.downloaded,
       };

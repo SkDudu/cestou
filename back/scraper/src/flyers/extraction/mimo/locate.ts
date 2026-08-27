@@ -14,13 +14,13 @@ Ignore product SKUs, banners, and category tiles.
 Also classify HOW flyers are stored on this page (flyerSource):
 - kind: tabs | carousel | react-viewer | pdf-links | api-json | iframe | image-grid
 - downloadStrategy:
-  - direct-url — classic <a href> to PDF /Flyer/?id= / flipbook
-  - collect-images — page images in the gallery (img src / CDN)
-  - open-each-item — must click each tab/card then collect images or URLs (USE THIS for Assaí-style "Jornal de Ofertas 1/2/3" tabs)
-  - click-download — click Baixar/Download; may open PDF file OR image viewer/lightbox/popup — runtime harvests all outcomes
+  - collect-images — DEFAULT for encarte photos / lightbox / img src
+  - open-each-item — click each tab/card then collect IMAGES (runtime goBack)
+  - click-download — ONLY if href ends .pdf
+  - direct-url — ONLY href ending .pdf or /Flyer/?id= / flipbook file. NOT HTML. NOT a "PDF" label on a jpeg viewer.
   - harvest-after-activate — viewer loads via network after open
-- itemSelectors: GENERIC for ALL tabs only — [role=tab], [data-oferta-index], button:has-text("Jornal de Ofertas"). NEVER "… 1" / data-oferta-index="31"
-- downloadSelectors: when Baixar/Download exists — copy from gallery.downloadButtons. Prefer click-download ONLY if href ends .pdf or a[download]; else use open-each-item/harvest and keep selectors as hints.
+- itemSelectors: copy from gallery.tabButtons / dump. GENERIC for ALL items. NEVER invent CTA copy. NEVER "… 1" / data-oferta-index="31"
+- downloadSelectors: when Baixar/Download exists — copy from gallery.downloadButtons. Prefer click-download ONLY if href ends .pdf; else use open-each-item/harvest and keep selectors as hints.
 - urlFrom: href | img.src | data-attr | network | click-then-network
 - networkHints.urlIncludes: substrings seen in real network URLs (optional)
 - evidence: short note of what you saw
@@ -62,8 +62,10 @@ Schema:
 
 index = 1-based candidate number.
 selectors = copy from that candidate, best first.
-If gallery has downloadButtons with .pdf href or a[download] → prefer click-download + downloadSelectors.
-If Baixar only (viewer/lightbox likely) → open-each-item or harvest-after-activate; still copy downloadSelectors.
+If gallery has downloadButtons with .pdf href → prefer click-download + downloadSelectors.
+Else DEFAULT image-grid + collect-images or open-each-item; urlFrom img.src. Never pdf-links without a real .pdf in the dump.
+If Baixar only (viewer/lightbox likely) → open-each-item; harvest images.
+If gallery tabs/cards have a repeated CTA → kind image-grid, open-each-item, copy those selectors from the dump. Never invent CTA text.
 flyerSource values must match the page — do not invent URLs.`;
 }
 
@@ -91,11 +93,12 @@ export function parseLocateFlyers(raw: string): LocateParse {
       if (typeof s === "string" && s.trim()) selectors.push(s.trim());
     }
   }
+  const parsedSrc = parseFlyerSource(p.flyerSource);
   return {
     selectors: [...new Set(selectors)],
     label: typeof p.label === "string" ? p.label.slice(0, 80) : "",
     index: typeof p.index === "number" ? p.index : undefined,
-    flyerSource: parseFlyerSource(p.flyerSource),
+    flyerSource: parsedSrc,
   };
 }
 

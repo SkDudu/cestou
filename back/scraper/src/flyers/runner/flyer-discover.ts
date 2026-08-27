@@ -1,4 +1,4 @@
-import type { Download, Page } from "playwright";
+import type { Download, Locator, Page } from "playwright";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,7 @@ import { detectContentType } from "../core/flyer-downloader.js";
 import {
   buildCandidates,
   isFlyerHref,
+  isJunkNavHref,
   scanDomFlyerCandidates,
   type DiscoveredCandidate,
 } from "./flow-pipeline.js";
@@ -192,12 +193,104 @@ export function parseFlyerSource(raw: unknown): FlyerSource | undefined {
   });
 }
 
+export function urlsLookLikePdfFile(urls: string[]): boolean {
+  return urls.some(
+    (u) =>
+      /\.pdf(\?|$)/i.test(u) ||
+      /\/Flyer\//i.test(u) ||
+      /flipbook/i.test(u),
+  );
+}
+
+/** MiMo labels jpeg viewers as PDF. No real .pdf in dump → images. */
+export function preferImagesUnlessPdf(
+  source: FlyerSource,
+  hints?: {
+    links?: string[];
+    downloadButtons?: Array<{ text: string; href?: string; selectors?: string[] }>;
+  },
+): FlyerSource {
+  if (!hints) return source;
+  const hrefs = [
+    ...(hints?.links ?? []),
+    ...(hints?.downloadButtons ?? []).map((b) => b.href ?? ""),
+  ];
+  if (
+    hasProvenFileDownload(hints?.downloadButtons ?? []) ||
+    urlsLookLikePdfFile(hrefs)
+  ) {
+    return source;
+  }
+  const pdfGuess =
+    source.kind === "pdf-links" ||
+    source.downloadStrategy === "direct-url" ||
+    source.urlFrom === "href";
+  if (!pdfGuess) return source;
+  const loop = Boolean(source.itemSelectors?.length);
+  return sanitizeFlyerSource({
+    ...source,
+    kind: "image-grid",
+    downloadStrategy: loop ? "open-each-item" : "collect-images",
+    urlFrom: loop ? "click-then-network" : "img.src",
+    evidence: `${source.evidence ?? ""} | no .pdf in dump → images`.slice(0, 160),
+  });
+}
+
 export function defaultFlyerSource(): FlyerSource {
   return { kind: "pdf-links", downloadStrategy: "direct-url", urlFrom: "href" };
 }
 
 export function resolveFlyerSource(cfg: StepConfig): FlyerSource {
   return cfg.flyerSource ?? defaultFlyerSource();
+}
+
+export function cardItemSelectors(extra: string[] = []): string[] {
+  return (
+    sanitizeItemSelectors(extra, { kind: "image-grid" }) ??
+    extra.map((s) => s.trim()).filter(Boolean)
+  );
+}
+
+export function hasTextNeedles(sels: string[]): string[] {
+  const out: string[] = [];
+  for (const s of sels) {
+    for (const m of s.matchAll(/:has-text\("([^"]+)"\)/g)) {
+      if (m[1]) out.push(m[1]);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/** Saved card-loop flows: keep recorded itemSelectors, force open-each-item. */
+export function coerceOpenEachIfCardCta(cfg: StepConfig): FlyerSource {
+  const prev = resolveFlyerSource(cfg);
+  const blob = [
+    cfg.description,
+    ...(prev.itemSelectors ?? []),
+    prev.evidence,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const looksCard =
+    /ver\s+\S{3,}|has-text\("/i.test(blob) ||
+    Boolean(prev.itemSelectors?.some((s) => /:has-text\(/.test(s)));
+  if (!looksCard) return prev;
+  const itemSelectors = cardItemSelectors(prev.itemSelectors ?? []);
+  if (prev.downloadStrategy === "open-each-item") {
+    return sanitizeFlyerSource({
+      ...prev,
+      itemSelectors: itemSelectors.length ? itemSelectors : prev.itemSelectors,
+    });
+  }
+  return sanitizeFlyerSource({
+    kind: "image-grid",
+    downloadStrategy: "open-each-item",
+    urlFrom: "click-then-network",
+    itemSelectors: itemSelectors.length ? itemSelectors : prev.itemSelectors,
+    downloadSelectors: prev.downloadSelectors,
+    networkHints: prev.networkHints,
+    evidence: (prev.evidence ?? "") + " | run: card CTA → open-each-item",
+  });
 }
 
 export function allowsImageUrls(source: FlyerSource): boolean {
@@ -214,6 +307,7 @@ export function allowsImageUrls(source: FlyerSource): boolean {
 
 /** Image/CDN URLs usable as flyer pages when strategy allows. */
 export function isPersistableMedia(u: string, allowImages: boolean): boolean {
+  if (isJunkNavHref(u)) return false;
   if (isFlyerHref(u)) return true;
   if (!allowImages) return false;
   if (/productcluster|productsquery|productgallery|sku|icon|logo|sprite|favicon|avatar|pixel|tracking/i.test(u)) {
@@ -358,6 +452,41 @@ async function discoverCollectImages(
   return buildLooseCandidates(imgs, net, true);
 }
 
+export function listingKey(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    return u.href;
+  } catch {
+    return url.split("#")[0] ?? url;
+  }
+}
+
+const GENERIC_ITEM_CTA =
+  /^(ver\s+(o\s+)?(encarte|folheto|jornal)(\s+completo)?|baixar|download)$/i;
+
+async function returnToListing(
+  page: Page,
+  listingUrl: string,
+  itemSel: string,
+) {
+  if (listingKey(page.url()) === listingKey(listingUrl)) return;
+  await page
+    .goBack({ waitUntil: "domcontentloaded", timeout: 8000 })
+    .catch(() => undefined);
+  if (listingKey(page.url()) !== listingKey(listingUrl)) {
+    await page
+      .goto(listingUrl, { waitUntil: "domcontentloaded", timeout: 12_000 })
+      .catch(() => undefined);
+  }
+  await page
+    .locator(itemSel)
+    .first()
+    .waitFor({ state: "visible", timeout: 8000 })
+    .catch(() => undefined);
+  await page.waitForTimeout(400);
+}
+
 async function discoverOpenEachItem(
   page: Page,
   scopeSel: string | undefined,
@@ -367,88 +496,186 @@ async function discoverOpenEachItem(
 ): Promise<DiscoveredCandidate[]> {
   const itemSels = source.itemSelectors?.length
     ? source.itemSelectors
-    : [
-        '[role="tab"]',
-        "[data-oferta-index]",
-        'button:has-text("Jornal de Ofertas")',
-        'button:has-text("Jornal")',
-        ".swiper-slide",
-        "[class*='tab'] button",
-        "[class*='Tab']",
-      ];
-  const root = scopeSel ? page.locator(scopeSel).first() : page.locator("body");
+    : ['[role="tab"]', "[data-oferta-index]", ".swiper-slide"];
+  const listingUrl = page.url();
   const out: DiscoveredCandidate[] = [];
   const seenTitles = new Set<string>();
+  const seenUrls = new Set<string>();
+
+  const root = () =>
+    scopeSel ? page.locator(scopeSel).first() : page.locator("body");
+
+  const harvestOnce = async (
+    title: string,
+    i: number,
+    imgsBefore: Set<string>,
+    netBefore: number,
+    leftListing: boolean,
+  ): Promise<DiscoveredCandidate | null> => {
+    const harvestScope = leftListing ? undefined : scopeSel;
+    const provenDl = (source.downloadSelectors ?? []).some((s) =>
+      /\.pdf/i.test(s),
+    );
+    if (provenDl && source.downloadSelectors?.length) {
+      const viaDl = await clickDownloadOnce(
+        page,
+        harvestScope,
+        source,
+        network,
+        title,
+        say,
+        {
+          externalId: `tab-${i}-${title.slice(0, 40)}`,
+          originalUrl: `${page.url().split("#")[0]}#tab-${i}`,
+        },
+      );
+      if (viaDl && (viaDl.pageBuffers?.length || viaDl.pageUrls.length)) {
+        return viaDl;
+      }
+    }
+    const light = await harvestLightboxUrls(page);
+    const canvases = await harvestCanvasPages(page);
+    const netDelta = filterNet(network.slice(netBefore), source, true).filter(
+      (n) => /\.(jpe?g|png|webp)(\?|$)/i.test(n.url) || isFlyerHref(n.url),
+    );
+    if (canvases.length) {
+      return {
+        originalUrl: `${page.url().split("#")[0]}#canvas-${i}`,
+        title,
+        pageUrls: canvases.map((b, k) => b.url ?? `capture://canvas-${k}`),
+        externalId: `item-${i}-${title.slice(0, 40)}`,
+        pageBuffers: canvases,
+      };
+    }
+    if (light.length) {
+      const pageUrls = [
+        ...new Set(
+          [...light, ...netDelta.map((n) => n.url)].filter(
+            (u) => !isJunkNavHref(u) && isPersistableMedia(u, true),
+          ),
+        ),
+      ].slice(0, 12);
+      if (!pageUrls.length) return null;
+      if (pageUrls.every((u) => seenUrls.has(u))) return null;
+      return {
+        originalUrl: pageUrls[0]!,
+        title,
+        pageUrls,
+        externalId: `item-${i}-${title.slice(0, 40)}`,
+      };
+    }
+    const imgs = await scanDomImageCandidates(page, harvestScope);
+    const newImgs = imgs.filter((x) => !imgsBefore.has(x.url));
+    const here = page.url();
+    const useImgs = leftListing ? imgs.filter((x) => !imgsBefore.has(x.url)) : newImgs;
+    if (!useImgs.length && !netDelta.length && !(leftListing && isPersistableMedia(here, true))) {
+      return null;
+    }
+    const pageUrls = [
+      ...new Set([
+        ...useImgs.map((x) => x.url),
+        ...netDelta.map((n) => n.url),
+        ...(leftListing && isPersistableMedia(here, true) ? [here] : []),
+      ]),
+    ]
+      .filter((u) => !isJunkNavHref(u) && isPersistableMedia(u, true))
+      .slice(0, 12);
+    if (!pageUrls.length) return null;
+    if (pageUrls.every((u) => seenUrls.has(u))) return null;
+    return {
+      originalUrl: pageUrls[0]!,
+      title,
+      pageUrls,
+      externalId: `item-${i}-${title.slice(0, 40)}`,
+    };
+  };
+
+  const clickTargets = async (item: Locator): Promise<Locator[]> => {
+    const targets: Locator[] = [];
+    const wrap = item.locator(
+      "xpath=ancestor::*[self::article or contains(@class,'elementor')][1]",
+    );
+    for (const needle of hasTextNeedles(itemSels)) {
+      const esc = needle.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const q = `a:has-text("${esc}"), button:has-text("${esc}")`;
+      const inner = item.locator(q).first();
+      if ((await inner.count()) > 0) targets.push(inner);
+      const wrapCta = wrap.locator(q).first();
+      if ((await wrapCta.count()) > 0) targets.push(wrapCta);
+    }
+    const btn = item.locator("a, button, [role=button]").first();
+    if ((await btn.count()) > 0) targets.push(btn);
+    targets.push(item);
+    const inner = item.locator("img").first();
+    if ((await inner.count()) > 0) targets.push(inner);
+    const near = wrap.locator("img").first();
+    if ((await near.count()) > 0) targets.push(near);
+    return targets;
+  };
 
   for (const sel of itemSels) {
-    let locs;
     try {
-      locs = root.locator(sel);
-      const n = await locs.count();
+      const n = await root().locator(sel).count();
       if (!n) continue;
       say?.(`[FLYER] items "${sel}" count=${Math.min(n, 12)}`);
       const limit = Math.min(n, 12);
+      const moreNav = limit > 1;
       for (let i = 0; i < limit; i++) {
-        const item = locs.nth(i);
+        if (moreNav) await closeFlyerOverlay(page);
+        await returnToListing(page, listingUrl, sel);
+        const item0 = root().locator(sel).nth(i);
         const title = (
-          (await item.innerText().catch(() => "")) ||
-          (await item.getAttribute("aria-label").catch(() => "")) ||
+          (await item0.innerText().catch(() => "")) ||
+          (await item0.getAttribute("alt").catch(() => "")) ||
+          (await item0.getAttribute("aria-label").catch(() => "")) ||
           `item-${i + 1}`
         )
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 80);
-        if (title && seenTitles.has(title)) continue;
-        if (title) seenTitles.add(title);
-        try {
-          await item.click({ timeout: 4000 });
-        } catch {
-          say?.(`[FLYER] click item ${i} falhou — skip`);
+        if (/^(ir para o conteúdo|pular para|skip to content|encartes?)$/i.test(title)) {
           continue;
         }
-        await page.waitForTimeout(1200);
-        const before = network.length;
-        await page.waitForTimeout(800);
+        const genericCta = GENERIC_ITEM_CTA.test(title);
+        if (title && seenTitles.has(title) && !genericCta) continue;
+        if (title && !genericCta) seenTitles.add(title);
 
-        // Tab may need Baixar to open viewer/lightbox — try before DOM-only harvest
-        if (source.downloadSelectors?.length) {
-          const viaDl = await clickDownloadOnce(
-            page,
-            scopeSel,
-            source,
-            network,
-            title,
-            say,
-            {
-              externalId: `tab-${i}-${title.slice(0, 40)}`,
-              originalUrl: `${page.url().split("#")[0]}#tab-${i}`,
-            },
+        const targets = await clickTargets(item0);
+        let got: DiscoveredCandidate | null = null;
+        for (let t = 0; t < targets.length && !got; t++) {
+          await returnToListing(page, listingUrl, sel);
+          const item = root().locator(sel).nth(i);
+          const loc = (await clickTargets(item))[t];
+          if (!loc) continue;
+          const imgsBefore = new Set(
+            (await scanDomImageCandidates(page, scopeSel)).map((x) => x.url),
           );
-          await closeFlyerOverlay(page);
-          if (viaDl) {
-            out.push(viaDl);
+          const netBefore = network.length;
+          if (!(await clickMaybeForce(loc))) {
+            say?.(`[FLYER] click item ${i} try ${t} falhou`);
             continue;
           }
+          say?.(`[FLYER] item ${i} try ${t} click`);
+          await Promise.race([
+            page.waitForLoadState("domcontentloaded"),
+            page.waitForTimeout(2500),
+          ]).catch(() => undefined);
+          await page.waitForTimeout(800);
+          const leftListing =
+            listingKey(page.url()) !== listingKey(listingUrl);
+          got = await harvestOnce(
+            title,
+            i,
+            imgsBefore,
+            netBefore,
+            leftListing,
+          );
+          if (leftListing) await returnToListing(page, listingUrl, sel);
+          else if (moreNav) await closeFlyerOverlay(page);
         }
-
-        const imgs = await scanDomImageCandidates(page, scopeSel);
-        const classic = await scanDomFlyerCandidates(page, scopeSel);
-        const netSlice = filterNet(network.slice(before), source, true);
-        const allNet = filterNet(network, source, true);
-        const merged = buildLooseCandidates(
-          [...classic, ...imgs],
-          [...netSlice, ...allNet].slice(0, 40),
-          true,
-        );
-        if (!merged.length) continue;
-        const primary = merged[0]!;
-        out.push({
-          ...primary,
-          title: title || primary.title,
-          pageUrls: [
-            ...new Set(merged.flatMap((m) => m.pageUrls)),
-          ].slice(0, 40),
-        });
+        if (!got) continue;
+        for (const u of got.pageUrls) seenUrls.add(u);
+        out.push(got);
       }
       if (out.length) break;
     } catch {
@@ -463,16 +690,15 @@ async function discoverOpenEachItem(
   return out;
 }
 
-/** True when gallery button looks like real file download (PDF / a[download]), not viewer CTA. */
+/** True when gallery button looks like real file download (PDF href), not viewer CTA. */
 export function hasProvenFileDownload(
   buttons: Array<{ text: string; href?: string; selectors?: string[] }>,
 ): boolean {
   return buttons.some((b) => {
     if (b.href && /\.pdf(\?|$)/i.test(b.href)) return true;
     if (b.href && /[?&]download=|content-disposition/i.test(b.href)) return true;
-    return (b.selectors ?? []).some(
-      (s) => /\[download\]/i.test(s) || /href\*=["'][^"']*\.pdf/i.test(s),
-    );
+    // ponytail: a[download] alone is a liar (Assaí opens viewer). Need .pdf href.
+    return (b.selectors ?? []).some((s) => /href\*=["'][^"']*\.pdf/i.test(s));
   });
 }
 
@@ -513,7 +739,7 @@ export function mergeDownloadHints(
     itemSelectors: sanitizeItemSelectors(
       [
         ...(prev.itemSelectors ?? []),
-        ...(mergeTabs ? (opts?.tabSelectors ?? []) : []),
+        ...(opts?.tabSelectors ?? []),
       ],
       { kind },
     ),
@@ -544,15 +770,14 @@ async function harvestLightboxUrls(page: Page): Promise<string[]> {
       '[aria-modal="true"]',
       ".modal.show",
       ".modal.in",
-      ".lightbox",
-      "[class*='lightbox']",
-      "[class*='Lightbox']",
-      "[class*='viewer']",
-      "[class*='Viewer']",
-      "[class*='flipbook']",
-      "[class*='Flipbook']",
-      "[class*='encarte']",
+      ".elementor-lightbox",
+      ".fancybox-container",
+      ".pswp--open",
       "dialog[open]",
+      '[class*="lightbox"]',
+      '[class*="Lightbox"]',
+      '[class*="flyer-viewer"]',
+      '[class*="flipbook"]',
     ]) {
       for (const el of Array.from(document.querySelectorAll(sel))) {
         const st = window.getComputedStyle(el);
@@ -560,7 +785,7 @@ async function harvestLightboxUrls(page: Page): Promise<string[]> {
         roots.push(el);
       }
     }
-    if (!roots.length) roots.push(document.body);
+    if (!roots.length) return [];
 
     const out: string[] = [];
     const seen = new Set<string>();
@@ -582,7 +807,12 @@ async function harvestLightboxUrls(page: Page): Promise<string[]> {
         const el = img as HTMLImageElement;
         const w = el.naturalWidth || el.width || 0;
         const h = el.naturalHeight || el.height || 0;
-        if (w > 0 && h > 0 && (w < 200 || h < 200)) continue;
+        if (w > 0 && h > 0 && (w < 280 || h < 280)) continue;
+        const st = window.getComputedStyle(el);
+        if (st.display === "none" || st.visibility === "hidden" || st.opacity === "0") {
+          continue;
+        }
+        if (el.closest('[aria-hidden="true"]')) continue;
         push(el.currentSrc || el.src || el.getAttribute("src"));
         push(el.getAttribute("data-src"));
         push(el.getAttribute("data-full"));
@@ -604,36 +834,193 @@ async function harvestLightboxUrls(page: Page): Promise<string[]> {
       }
       if (out.length >= 40) break;
     }
+    // Viewer without dialog role: large on-screen imgs
+    if (!out.length) {
+      for (const img of Array.from(document.querySelectorAll("img[src]"))) {
+        const el = img as HTMLImageElement;
+        const r = el.getBoundingClientRect();
+        if (r.width < 360 || r.height < 360) continue;
+        if (r.bottom < 0 || r.top > window.innerHeight) continue;
+        push(el.currentSrc || el.src);
+        if (out.length >= 40) break;
+      }
+    }
     return out;
   });
 }
 
-async function closeFlyerOverlay(page: Page): Promise<void> {
-  await page.keyboard.press("Escape").catch(() => undefined);
-  const sels = [
-    'button[aria-label="Close"]',
-    'button[aria-label="Fechar"]',
-    'button:has-text("Fechar")',
-    '[role="dialog"] button.close',
-    ".modal .close",
-    ".lightbox .close",
-    '[class*="close-button"]',
-    '[class*="CloseButton"]',
-  ];
-  for (const sel of sels) {
+async function overlayVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    for (const sel of [
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+      "dialog[open]",
+      ".fancybox-container",
+      ".pswp--open",
+      ".elementor-lightbox",
+      '[class*="lightbox"]',
+      '[class*="flyer-viewer"]',
+    ]) {
+      for (const el of Array.from(document.querySelectorAll(sel))) {
+        const st = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        if (st.display === "none" || st.visibility === "hidden") continue;
+        if (r.width < 80 || r.height < 80) continue;
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/** Same-URL flyer viewer (canvas/modal) — not cookie chrome. */
+export async function flyerViewerOpen(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const big = (el: Element) => {
+      const st = window.getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return (
+        st.display !== "none" &&
+        st.visibility !== "hidden" &&
+        r.width >= 200 &&
+        r.height >= 200
+      );
+    };
+    if ([...document.querySelectorAll("canvas")].some(big)) return true;
+    for (const sel of ['[role="dialog"]', '[aria-modal="true"]', "dialog[open]"]) {
+      for (const el of Array.from(document.querySelectorAll(sel))) {
+        if (!big(el)) continue;
+        if (el.querySelector("canvas")) return true;
+        if (
+          [...el.querySelectorAll("img")].some((img) => {
+            const r = img.getBoundingClientRect();
+            return r.width >= 280 && r.height >= 280;
+          })
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  });
+}
+
+export async function harvestCanvasPages(
+  page: Page,
+): Promise<NonNullable<DiscoveredCandidate["pageBuffers"]>> {
+  const dataUrls = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const c of Array.from(document.querySelectorAll("canvas"))) {
+      const r = c.getBoundingClientRect();
+      if (r.width < 200 || r.height < 200) continue;
+      try {
+        out.push(c.toDataURL("image/jpeg", 0.82));
+      } catch {
+        /* tainted */
+      }
+    }
+    return out.slice(0, 12);
+  });
+  const pages: NonNullable<DiscoveredCandidate["pageBuffers"]> = [];
+  for (let i = 0; i < dataUrls.length; i++) {
+    const b64 = dataUrls[i]?.split(",")[1];
+    if (!b64) continue;
+    const buffer = Buffer.from(b64, "base64");
+    if (!buffer.length) continue;
+    pages.push({
+      buffer,
+      contentType: "image/jpeg",
+      url: `capture://canvas-${i}.jpg`,
+    });
+  }
+  if (pages.length) return pages;
+  const loc = page.locator("canvas").first();
+  if ((await loc.count()) === 0) return [];
+  if (!(await loc.isVisible().catch(() => false))) return [];
+  try {
+    const buffer = await loc.screenshot({ type: "jpeg", quality: 82 });
+    if (!buffer.length) return [];
+    return [
+      { buffer, contentType: "image/jpeg", url: "capture://canvas-0.jpg" },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+async function clickMaybeForce(loc: Locator): Promise<boolean> {
+  try {
+    await loc.click({ timeout: 4000 });
+    return true;
+  } catch {
     try {
-      const loc = page.locator(sel).first();
-      if ((await loc.count()) === 0) continue;
-      if (!(await loc.isVisible().catch(() => false))) continue;
-      await loc.click({ timeout: 1500 });
-      await page.waitForTimeout(300);
-      break;
+      await loc.click({ timeout: 4000, force: true });
+      return true;
     } catch {
-      /* try next */
+      return false;
     }
   }
-  await page.keyboard.press("Escape").catch(() => undefined);
-  await page.waitForTimeout(400);
+}
+
+async function closeFlyerOverlay(page: Page): Promise<void> {
+  for (let round = 0; round < 3; round++) {
+    if (round > 0 && !(await overlayVisible(page))) return;
+    await page.keyboard.press("Escape").catch(() => undefined);
+    await page
+      .evaluate(() => {
+        const nodes = Array.from(
+          document.querySelectorAll(
+            'button, a[role="button"], [role="button"], .close, .btn-close',
+          ),
+        );
+        for (const el of nodes) {
+          const st = window.getComputedStyle(el);
+          if (st.display === "none" || st.visibility === "hidden") continue;
+          const label = `${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`.trim();
+          const text = ((el as HTMLElement).innerText ?? "").trim();
+          if (
+            /fechar|close/i.test(label) ||
+            /^(fechar|close|×|✕)$/i.test(text)
+          ) {
+            (el as HTMLElement).click();
+            return;
+          }
+        }
+        const svg = document.querySelector("svg.lucide-x");
+        const btn =
+          svg?.closest("button, a, [role=button]") ?? svg;
+        (btn as HTMLElement | null)?.click();
+      })
+      .catch(() => undefined);
+    const sels = [
+      'button[aria-label="Close"]',
+      'button[aria-label="Fechar"]',
+      'button[aria-label*="Fechar" i]',
+      'button[aria-label*="Close" i]',
+      'button:has-text("Fechar")',
+      "button:has(svg.lucide-x)",
+      "svg.lucide-x",
+      '[role="dialog"] button.close',
+      ".modal .close",
+      ".lightbox .close",
+      ".btn-close",
+      '[data-dismiss="modal"]',
+      '[class*="close-button"]',
+      '[class*="CloseButton"]',
+    ];
+    for (const sel of sels) {
+      try {
+        const loc = page.locator(sel).first();
+        if ((await loc.count()) === 0) continue;
+        if (!(await loc.isVisible().catch(() => false))) continue;
+        await loc.click({ timeout: 1200, force: true });
+        break;
+      } catch {
+        /* try next */
+      }
+    }
+    await page.waitForTimeout(280);
+  }
 }
 
 async function readPlaywrightDownload(
@@ -733,7 +1120,7 @@ async function clickDownloadOnce(
         .waitForEvent("page", { timeout: 7000 })
         .catch(() => null);
 
-      await btn.click({ timeout: 4000 });
+      await btn.click({ timeout: 4000, force: true });
       const [download, popup] = await Promise.all([
         downloadPromise,
         popupPromise,
@@ -770,6 +1157,11 @@ async function clickDownloadOnce(
       const light = await harvestLightboxUrls(page);
       urls.push(...light);
       if (light.length) say?.(`[FLYER] lightbox/viewer ×${light.length}`);
+      if (!pageBuffers.length) {
+        const canvases = await harvestCanvasPages(page);
+        pageBuffers.push(...canvases);
+        if (canvases.length) say?.(`[FLYER] canvas ×${canvases.length}`);
+      }
 
       // 4) new DOM images vs pre-click
       const imgsAfter = await scanDomImageCandidates(page, scopeSel);
@@ -804,11 +1196,20 @@ async function clickDownloadOnce(
       const unique = [...new Set(urls)].filter((u) =>
         isPersistableMedia(u, true),
       );
-      // Prefer real image/pdf URLs; drop HTML-ish junk when we have buffers
       const preferExt = unique.filter((u) =>
         /\.(jpe?g|png|webp|pdf)(\?|$)/i.test(u),
       );
-      const pageUrls = (preferExt.length ? preferExt : unique).slice(0, 40);
+      const fromViewer = unique.filter((u) => light.includes(u));
+      // Viewer/lightbox first. Never persist listing HTML just because /oferta/ matches.
+      const pageUrls = (
+        pageBuffers.length
+          ? preferExt
+          : fromViewer.length
+            ? [...new Set([...fromViewer, ...preferExt])]
+            : preferExt.length
+              ? preferExt
+              : unique.filter((u) => /\.(jpe?g|png|webp|pdf)(\?|$)/i.test(u))
+      ).slice(0, 40);
 
       if (!pageBuffers.length && !pageUrls.length) {
         say?.(`[FLYER] click-download "${sel}" → no media (viewer empty?)`);
@@ -849,11 +1250,7 @@ async function discoverClickDownload(
 ): Promise<DiscoveredCandidate[]> {
   const itemSels = source.itemSelectors?.length
     ? source.itemSelectors
-    : [
-        '[role="tab"]',
-        "[data-oferta-index]",
-        'button:has-text("Jornal de Ofertas")',
-      ];
+    : ['[role="tab"]', "[data-oferta-index]"];
 
   const out: DiscoveredCandidate[] = [];
   const root = scopeSel ? page.locator(scopeSel).first() : page.locator("body");
@@ -867,9 +1264,10 @@ async function discoverClickDownload(
       if (!n) continue;
       usedTabs = true;
       const limit = Math.min(n, 12);
+      const moreNav = limit > 1;
       say?.(`[FLYER] click-download tabs "${sel}" ×${limit}`);
       for (let i = 0; i < limit; i++) {
-        await closeFlyerOverlay(page);
+        if (moreNav) await closeFlyerOverlay(page);
         const item = locs.nth(i);
         const ofertaIdx = await item
           .getAttribute("data-oferta-index")
@@ -888,10 +1286,9 @@ async function discoverClickDownload(
         if (seenIds.has(externalId)) continue;
         // Unique per tab — avoid originalUrl dedupe collapsing 3 jornais → 1
         const originalUrl = `${page.url().split("#")[0]}#${externalId}`;
-        try {
-          await item.click({ timeout: 4000 });
-        } catch {
+        if (!(await clickMaybeForce(item))) {
           say?.(`[FLYER] tab click fail i=${i}`);
+          if (moreNav) await closeFlyerOverlay(page);
           continue;
         }
         await page.waitForTimeout(1000);
@@ -904,7 +1301,7 @@ async function discoverClickDownload(
           say,
           { externalId, originalUrl },
         );
-        await closeFlyerOverlay(page);
+        if (moreNav) await closeFlyerOverlay(page);
         if (hit) {
           seenIds.add(externalId);
           out.push(hit);
@@ -972,17 +1369,28 @@ export async function discoverWithFlyerSource(args: {
         source,
         onLog,
       );
-      if (open.length || !source.downloadSelectors?.length) return open;
-      onLog?.(
-        "[FLYER] open-each-item vazio + downloadSelectors — try click-download",
+      const hasDoc = open.some(
+        (c) =>
+          Boolean(c.pageBuffers?.length) ||
+          c.pageUrls.some(
+            (u) =>
+              /\.pdf(\?|$)/i.test(u) ||
+              /\/Flyer\//i.test(u) ||
+              /flipbook/i.test(u),
+          ),
       );
-      return discoverClickDownload(
+      if (hasDoc || !source.downloadSelectors?.length) return open;
+      onLog?.(
+        "[FLYER] open-each-item sem PDF/arquivo — try click-download",
+      );
+      const dl = await discoverClickDownload(
         page,
         scopeSelector,
         network,
         source,
         onLog,
       );
+      return dl.length ? dl : open;
     }
     case "click-download":
       return discoverClickDownload(

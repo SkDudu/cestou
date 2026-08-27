@@ -4,6 +4,7 @@ import {
   finishScraperRun,
   getScraperFlow,
   markExpired,
+  recordDiscoveryResult,
   scheduleNextCheck,
   startScraperRun,
 } from "../core/flyer-storage.js";
@@ -129,6 +130,15 @@ export async function executeFlowById(
     error: result.error,
     log: cancelled ? `cancelled\n${summary}` : summary,
   });
+
+  if (!cancelled && result.error?.includes("SCOPE_NOT_FOUND")) {
+    await recordDiscoveryResult({
+      flowId,
+      ok: false,
+      newFlyers: 0,
+      error: result.error,
+    });
+  }
 
   log(result.ok ? "✓ SUCCESS" : cancelled ? "■ STOPPED" : "✕ FAILED");
   log(

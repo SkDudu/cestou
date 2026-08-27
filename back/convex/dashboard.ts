@@ -138,3 +138,138 @@ export const automation = query({
     };
   },
 });
+
+const DAY = 24 * 60 * 60 * 1000;
+
+function workerSlug(name: string) {
+  const slug = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 28);
+  return slug.startsWith("wrk_") ? slug : `wrk_${slug || "flow"}`;
+}
+
+function opsStatus(
+  flowStatus: string,
+  lastStatus: string | undefined,
+  jobs24h: number,
+): "running" | "queue" | "review" | "fail" {
+  if (flowStatus === "error" || lastStatus === "failed") return "fail";
+  if (lastStatus === "running") return "running";
+  if (lastStatus === "partial" || flowStatus === "testing") return "review";
+  if (flowStatus === "active" && jobs24h > 0) return "running";
+  if (flowStatus === "active") return "queue";
+  if (flowStatus === "disabled" || flowStatus === "draft") return "queue";
+  return "queue";
+}
+
+export const overview = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const dayStart = (ts: number) => {
+      const d = new Date(ts);
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    };
+
+    const [flows, flyers, offers, runs, errors] = await Promise.all([
+      ctx.db.query("scraperFlows").collect(),
+      ctx.db.query("flyers").collect(),
+      ctx.db.query("offers").collect(),
+      ctx.db.query("scraperRuns").collect(),
+      ctx.db
+        .query("flyerErrors")
+        .withIndex("by_status", (q) => q.eq("status", "open"))
+        .collect(),
+    ]);
+    const supermarkets = await ctx.db.query("supermarkets").collect();
+    const names = new Map(supermarkets.map((s) => [s._id, s.name]));
+
+    const weekAgo = now - 7 * DAY;
+    const twoWeeksAgo = now - 14 * DAY;
+    const yesterday = now - DAY;
+
+    const offersWeek = offers.filter((o) => o.createdAt >= weekAgo).length;
+    const offersPrev = offers.filter(
+      (o) => o.createdAt >= twoWeeksAgo && o.createdAt < weekAgo,
+    ).length;
+    const offersToday = offers.filter((o) => o.createdAt >= yesterday).length;
+
+    const flyersWeek = flyers.filter((f) => f.createdAt >= weekAgo);
+    const parsed = flyersWeek.filter((f) => f.status === "processed").length;
+    const review = flyersWeek.filter(
+      (f) =>
+        f.status === "partially_processed" ||
+        f.status === "downloaded" ||
+        f.status === "processing",
+    ).length;
+    const failed = flyersWeek.filter((f) => f.status === "failed").length;
+    const parseDenom = parsed + review + failed;
+    const parseRate = parseDenom ? parsed / parseDenom : 0;
+
+    const extractingNow = runs.filter((r) => r.status === "running").length;
+    const flowsActive = flows.filter((f) => f.status === "active").length;
+    const startToday = dayStart(now);
+    const workersDelta = flows.filter(
+      (f) => (f.lastRunAt ?? 0) >= startToday,
+    ).length;
+
+    const chart: { day: number; label: string; jobs: number; flyers: number }[] =
+      [];
+    for (let i = 6; i >= 0; i--) {
+      const start = dayStart(now - i * DAY);
+      const end = start + DAY;
+      const jobs = runs.filter(
+        (r) => r.startedAt >= start && r.startedAt < end,
+      ).length;
+      const flyerCount = flyers.filter(
+        (f) => f.createdAt >= start && f.createdAt < end,
+      ).length;
+      chart.push({
+        day: start,
+        label: String(new Date(start).getDate()),
+        jobs,
+        flyers: flyerCount,
+      });
+    }
+
+    const workerRows = flows.map((flow) => {
+      const flowRuns = runs.filter((r) => r.flowId === flow._id);
+      flowRuns.sort((a, b) => b.startedAt - a.startedAt);
+      const last = flowRuns[0];
+      const last24 = flowRuns.filter((r) => r.startedAt >= now - DAY);
+      const ok = last24.filter((r) => r.status === "success").length;
+      const taxa = last24.length ? ok / last24.length : null;
+      return {
+        _id: flow._id,
+        slug: workerSlug(flow.name),
+        supermarketId: flow.supermarketId,
+        supermarketName: names.get(flow.supermarketId) ?? "—",
+        jobs24h: last24.length,
+        taxa,
+        status: opsStatus(flow.status, last?.status, last24.length),
+        flowStatus: flow.status,
+      };
+    });
+    workerRows.sort((a, b) => b.jobs24h - a.jobs24h);
+
+    return {
+      workersActive: flowsActive,
+      workersDelta,
+      extractingNow,
+      skusExtracted: offers.length,
+      skusWeek: offersWeek,
+      skusPrevWeek: offersPrev,
+      skusToday: offersToday,
+      parseRate,
+      parseCounts: { parsed, review, failed },
+      extractionErrors: errors.length,
+      chart,
+      workers: workerRows,
+    };
+  },
+});

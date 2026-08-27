@@ -73,8 +73,14 @@ export async function createDiscoveredFlyer(args: {
   return res;
 }
 
-export async function findFlyerByHash(fileHash: string) {
-  return await getClient().query(api.flyers.findByHash, { fileHash });
+export async function findFlyerByHash(
+  supermarketId: string,
+  fileHash: string,
+) {
+  return await getClient().query(api.flyers.findByHash, {
+    supermarketId,
+    fileHash,
+  });
 }
 
 export async function setFlyerStatus(

@@ -89,7 +89,7 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_validUntil", ["validUntil"])
     .index("by_source", ["sourceId"])
-    .index("by_fileHash", ["fileHash"])
+    .index("by_supermarket_fileHash", ["supermarketId", "fileHash"])
     .index("by_identity", [
       "supermarketId",
       "sourceId",

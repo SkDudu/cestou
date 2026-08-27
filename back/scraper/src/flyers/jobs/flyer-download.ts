@@ -107,7 +107,10 @@ export async function downloadPending(opts?: {
         },
       );
 
-      const existing = await findFlyerByHash(downloadedFlyer.fileHash);
+      const existing = await findFlyerByHash(
+        flyer.supermarketId,
+        downloadedFlyer.fileHash,
+      );
       if (existing && existing._id !== flyer._id) {
         say(
           `${progress} ✕ duplicata hash de ${existing._id} — ${label}`,

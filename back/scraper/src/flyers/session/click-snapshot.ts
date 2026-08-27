@@ -282,6 +282,8 @@ export async function dumpGalleryScope(
         ) {
           return true;
         }
+        // Repeated card CTA ("Ver …") — dump captures real text via selectorsFor
+        if (/^ver\s+\S{3,}/i.test(text.trim())) return true;
         return false;
       }
 

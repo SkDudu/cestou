@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { chromium, type Browser } from "playwright";
 import { flyerConfig } from "../core/flyer-config.js";
 import { flyerLog } from "../core/flyer-logger.js";
-import { mimoAnalyzeFlow } from "../extraction/mimo/analyze-flow.js";
+import {
+  mimoAnalyzeFlow,
+  type AnalyzedFlow,
+} from "../extraction/mimo/analyze-flow.js";
 import { mimoLocateFlyers } from "../extraction/mimo/locate.js";
 import {
   buildContextOptions,
@@ -12,15 +15,23 @@ import {
 import { normalizeAction } from "../recorder/action-normalizer.js";
 import { replaceScraperSteps } from "../core/flyer-storage.js";
 import type { RecordedAction, ScopeMetadata, StepType } from "../types/flows.js";
-import { attachNetworkHarvester } from "../runner/flow-pipeline.js";
+import {
+  attachNetworkHarvester,
+  scanDomFlyerCandidates,
+  SCOPE_NOT_FOUND,
+} from "../runner/flow-pipeline.js";
 import {
   allowsImageUrls,
   discoverWithFlyerSource,
   filterFlyerDownloadButtons,
+  flyerViewerOpen,
+  listingKey,
   mergeDownloadHints,
+  preferImagesUnlessPdf,
   sanitizeFlyerSource,
+  scanDomImageCandidates,
 } from "../runner/flyer-discover.js";
-import { bindRecorder, recordElementAt } from "./action-bridge.js";
+import { bindRecorder, recordElementAt, attachRecorderNow } from "./action-bridge.js";
 import {
   capturePageChrome,
   captureTargetSnapshot,
@@ -37,6 +48,13 @@ import {
   type ScopeNode,
   type ScopePick,
 } from "./scope-pick.js";
+import {
+  buildTeachSteps,
+  galleryLooksLikeNavCards,
+  isViewerNoise,
+  listingItemSelectorsFromGallery,
+  mergeDetailHarvest,
+} from "./teach-repeat.js";
 import {
   emit,
   pushAction,
@@ -231,6 +249,7 @@ export async function createSession(args: {
       session.currentUrl = page.url();
       emit(session, { type: "url", url: session.currentUrl });
     }
+    void attachRecorderNow(page);
   });
 
   try {
@@ -238,6 +257,7 @@ export async function createSession(args: {
       waitUntil: "domcontentloaded",
       timeout: c.timeoutMs,
     });
+    await attachRecorderNow(page);
     await denyNativePermissionPrompts(
       context,
       page,
@@ -483,7 +503,7 @@ export async function probeScope(
     return {
       found: false,
       flyers: [],
-      error: "SCOPE_NOT_FOUND: não foi possível localizar a área configurada",
+      error: SCOPE_NOT_FOUND,
     };
   }
 
@@ -567,7 +587,7 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
     clearTimeout(timer);
   }
 
-  // Baixar = hint only. Upgrade to click-download solely when PDF/a[download] proven.
+  // Baixar = hint only. Upgrade to click-download solely when PDF href proven.
   const realDownloads = filterFlyerDownloadButtons(
     gallery?.downloadButtons ?? [],
   );
@@ -579,6 +599,9 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
   if (hintedSource) parsed.flyerSource = hintedSource;
   else if (parsed.flyerSource) {
     parsed.flyerSource = sanitizeFlyerSource(parsed.flyerSource);
+  }
+  if (parsed.flyerSource) {
+    parsed.flyerSource = preferImagesUnlessPdf(parsed.flyerSource, gallery);
   }
 
   const fromIndex =
@@ -611,7 +634,7 @@ export async function locateFlyersWithMimo(sessionId: string): Promise<{
   const pick = await inspectBySelector(session.page, used);
   if (!pick) {
     throw new Error(
-      "SCOPE_NOT_FOUND: não foi possível localizar a área configurada",
+      SCOPE_NOT_FOUND,
     );
   }
   const merged = [...new Set([used, ...tried, ...pick.selectors])];
@@ -701,12 +724,118 @@ export async function addSemantic(
   emit(session, { type: "actions", actions: session.actions });
 }
 
+async function countListingCards(
+  page: LiveSession["page"],
+  sels: string[],
+): Promise<number> {
+  let cardCount = 0;
+  for (const sel of sels) {
+    try {
+      const n = await page.locator(sel).count();
+      if (n > cardCount) cardCount = n;
+    } catch {
+      /* bad sel */
+    }
+  }
+  return cardCount;
+}
+
+function finishAnalyze(
+  session: LiveSession,
+  analyzed: AnalyzedFlow,
+): AnalyzedFlow {
+  session.proposed = analyzed;
+  const disc = analyzed.steps.find((s) => s.type === "discover-flyer");
+  if (disc?.config.flyerSource) session.flyerSource = disc.config.flyerSource;
+  flyerLog.info(
+    "SESSION",
+    `analyze ${session.sessionId} steps=${analyzed.steps.length} pass=${analyzed.teachPass ?? "-"}`,
+  );
+  return analyzed;
+}
+
 export async function analyzeSession(sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) throw new Error("Session not found");
   if (session.snapQueue) await session.snapQueue;
-  if (!session.actions.length) throw new Error("Nenhum clique gravado");
   const gallery = await dumpGalleryScope(session.page);
+  const navCards = galleryLooksLikeNavCards(gallery);
+  const listingSels = listingItemSelectorsFromGallery(gallery);
+  const cardCount = await countListingCards(session.page, listingSels);
+  const onStartListing =
+    listingKey(session.currentUrl) === listingKey(session.startUrl);
+  const looksNav =
+    navCards || (cardCount >= 2 && /encartes/i.test(session.currentUrl));
+  const viewerOpen = await flyerViewerOpen(session.page);
+
+  if (
+    session.listingTeach &&
+    (listingKey(session.currentUrl) !==
+      listingKey(session.listingTeach.listingUrl) ||
+      viewerOpen)
+  ) {
+    const imgs = await scanDomImageCandidates(session.page);
+    const classic = await scanDomFlyerCandidates(session.page);
+    const pdfUrls = classic
+      .map((c) => c.url)
+      .filter((u) => /\.pdf(\?|$)/i.test(u));
+    const lastClick = [...session.actions]
+      .reverse()
+      .find((a) => a.kind === "click" && !isViewerNoise((a.selectors ?? []).join(" ")));
+    const src = mergeDetailHarvest({
+      listing: session.listingTeach,
+      imageUrls: imgs.map((i) => i.url),
+      pdfUrls,
+      detailUrl: session.currentUrl,
+      clickSelectors: lastClick?.selectors,
+      hasCanvas: viewerOpen,
+    });
+    return finishAnalyze(session, {
+      version: 1,
+      startUrl: session.startUrl,
+      steps: buildTeachSteps({
+        startUrl: session.startUrl,
+        actions: session.actions,
+        flyerSource: src,
+      }),
+      awaitDetail: false,
+      teachPass: 2,
+      listingCount: session.listingTeach.count,
+      notes: `Flyer 1/${session.listingTeach.count} aberto. Run clica os ${session.listingTeach.count} com a mesma receita. Pode salvar.`,
+    });
+  }
+
+  if (looksNav && cardCount >= 1 && onStartListing && !viewerOpen) {
+    session.listingTeach = {
+      listingUrl: session.currentUrl,
+      itemSelectors: listingSels,
+      count: Math.min(cardCount, 12),
+    };
+    const src = sanitizeFlyerSource({
+      kind: "image-grid",
+      downloadStrategy: "open-each-item",
+      urlFrom: "click-then-network",
+      itemSelectors: listingSels,
+      evidence: `teach pass 1: ${session.listingTeach.count} cards — await detail`,
+    });
+    return finishAnalyze(session, {
+      version: 1,
+      startUrl: session.startUrl,
+      steps: buildTeachSteps({
+        startUrl: session.startUrl,
+        actions: session.actions,
+        flyerSource: src,
+      }),
+      awaitDetail: true,
+      teachPass: 1,
+      listingCount: session.listingTeach.count,
+      notes: `Achei ${session.listingTeach.count} encartes. Abre UM (capa, não o PDF morto) e Analisar de novo — o run replica nos outros.`,
+    });
+  }
+
+  if (!session.actions.length && !navCards) {
+    throw new Error("Nenhum clique gravado");
+  }
   await scrollGalleryIntoView(session.page, gallery);
   const buf = await session.page.screenshot({
     type: "jpeg",
@@ -730,7 +859,6 @@ export async function analyzeSession(sessionId: string) {
       imageUrl: `data:image/jpeg;base64,${jpeg}`,
       signal: ctrl.signal,
     });
-    // Baixar hint only — force click-download solely with proven PDF/a[download]
     const realDownloads = filterFlyerDownloadButtons(
       gallery?.downloadButtons ?? [],
     );
@@ -746,22 +874,14 @@ export async function analyzeSession(sessionId: string) {
         ...s,
         config: {
           ...s.config,
-          flyerSource: merged
-            ? merged
-            : sanitizeFlyerSource(s.config.flyerSource!),
+          flyerSource: preferImagesUnlessPdf(
+            merged ? merged : sanitizeFlyerSource(s.config.flyerSource!),
+            gallery,
+          ),
         },
       };
     });
-    session.proposed = analyzed;
-    const disc = analyzed.steps.find((s) => s.type === "discover-flyer");
-    if (disc?.config.flyerSource) {
-      session.flyerSource = disc.config.flyerSource;
-    }
-    flyerLog.info(
-      "SESSION",
-      `analyze ${sessionId} steps=${analyzed.steps.length}`,
-    );
-    return analyzed;
+    return finishAnalyze(session, analyzed);
   } finally {
     clearTimeout(timer);
   }

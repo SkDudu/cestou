@@ -25,8 +25,20 @@ import {
   mergeDownloadHints,
   parseFlyerSource,
   sanitizeItemSelectors,
+  coerceOpenEachIfCardCta,
+  preferImagesUnlessPdf,
+  hasTextNeedles,
+  cardItemSelectors,
 } from "./runner/flyer-discover.js";
 import { packTeachPayload } from "./session/click-snapshot.js";
+import {
+  galleryLooksLikeNavCards,
+  mergeDetailHarvest,
+  buildTeachSteps,
+  applyFlyerSource,
+  isViewerNoise,
+} from "./session/teach-repeat.js";
+import { SCOPE_NOT_FOUND } from "./runner/flow-pipeline.js";
 import {
   parseValidity,
   shouldExtractNow,
@@ -174,8 +186,16 @@ assert(
   "flyer href",
 );
 assert(
-  !isFlyerHref("https://cdn.vtexassets.com/arquivos/ids/123/sku.jpg"),
-  "sku not flyer",
+  !isFlyerHref("https://frangolandia.com/encartes/"),
+  "listing index not flyer",
+);
+assert(
+  !isFlyerHref("https://frangolandia.com/encartes/#content"),
+  "skip-to-content not flyer",
+);
+assert(
+  isFlyerHref("https://frangolandia.com/encartes/festival-bebe/"),
+  "encarte page is flyer",
 );
 assert(
   flyerKey("https://x/Flyer/?id=99") === flyerKey("https://x/Flyer/thumbnail/?id=99"),
@@ -323,6 +343,315 @@ assert(
   "generic jornal selector",
 );
 
+const collapsedCards = collapseFlyerTabClicks([
+  {
+    order: 0,
+    type: "click",
+    config: {
+      selector: 'a:has-text("Ver Encarte")',
+      description: "Ver Encarte",
+    },
+  },
+  {
+    order: 1,
+    type: "discover-flyer",
+    config: { scope: "page", duration: 3000 },
+  },
+]);
+assert(!collapsedCards.some((s) => s.type === "click"), "card cta click removed");
+assert(
+  collapsedCards.find((s) => s.type === "discover-flyer")?.config.flyerSource
+    ?.itemSelectors?.includes('a:has-text("Ver Encarte")'),
+  "card collapse copies click selector",
+);
+assert(
+  !collapsedCards
+    .find((s) => s.type === "discover-flyer")
+    ?.config.flyerSource?.itemSelectors?.includes('a:has-text("Ver Folheto")'),
+  "card collapse does not invent Ver Folheto",
+);
+
+{
+  const ofertas = collapseFlyerTabClicks([
+    {
+      order: 0,
+      type: "click",
+      config: {
+        selector: 'a:has-text("Ver ofertas")',
+        description: "Ver ofertas",
+      },
+    },
+    {
+      order: 1,
+      type: "discover-flyer",
+      config: { scope: "page", duration: 3000 },
+    },
+  ]);
+  assert(
+    ofertas
+      .find((s) => s.type === "discover-flyer")
+      ?.config.flyerSource?.itemSelectors?.includes('a:has-text("Ver ofertas")'),
+    "copies Ver ofertas from click",
+  );
+  assert(
+    !ofertas
+      .find((s) => s.type === "discover-flyer")
+      ?.config.flyerSource?.itemSelectors?.includes('a:has-text("Ver Encarte")'),
+    "does not inject Ver Encarte",
+  );
+}
+const frango = parseAnalyzedFlow(
+  JSON.stringify({
+    version: 1,
+    startUrl: "https://frangolandia.com/encartes/",
+    notes: "Simple gallery with VER ENCARTE buttons",
+    steps: [
+      {
+        type: "navigate",
+        config: { url: "https://frangolandia.com/encartes/" },
+      },
+      {
+        type: "discover-flyer",
+        config: {
+          flyerSource: {
+            kind: "pdf-links",
+            downloadStrategy: "direct-url",
+            urlFrom: "href",
+            itemSelectors: ['a:has-text("Ver Encarte")'],
+          },
+        },
+      },
+    ],
+  }),
+  "https://fallback.example",
+);
+const frangoSrc = frango.steps.find((s) => s.type === "discover-flyer")
+  ?.config.flyerSource;
+assert(frangoSrc?.downloadStrategy === "open-each-item", "force strategy");
+assert(frangoSrc?.kind === "image-grid", "force kind");
+assert(frangoSrc?.urlFrom === "click-then-network", "force urlFrom");
+assert(
+  frangoSrc?.itemSelectors?.[0] === 'a:has-text("Ver Encarte")',
+  "Ver Encarte CTA before capa",
+);
+
+const coerced = coerceOpenEachIfCardCta({
+  description: "Discover flyers from the gallery of 'Ver Encarte' cards",
+  flyerSource: {
+    kind: "pdf-links",
+    downloadStrategy: "direct-url",
+    urlFrom: "href",
+  },
+});
+assert(coerced.downloadStrategy === "open-each-item", "run coerce strategy");
+assert(coerced.kind === "image-grid", "run coerce kind");
+assert(
+  !coerced.itemSelectors?.length,
+  "coerce does not invent CTA selectors",
+);
+
+assert(
+  hasTextNeedles(['a:has-text("Ver ofertas")', "img.x"])[0] === "Ver ofertas",
+  "hasTextNeedles",
+);
+assert(
+  cardItemSelectors(['a:has-text("Abrir catálogo")'])[0] ===
+    'a:has-text("Abrir catálogo")',
+  "cardItemSelectors keeps dump CTA",
+);
+
+{
+  const fakePdf = preferImagesUnlessPdf(
+    { kind: "pdf-links", downloadStrategy: "direct-url", urlFrom: "href" },
+    { links: ["https://frangolandia.com/encartes/festival/"], downloadButtons: [] },
+  );
+  assert(fakePdf.kind === "image-grid", "no .pdf dump → images");
+  assert(fakePdf.downloadStrategy === "collect-images", "no items → collect-images");
+  const realPdf = preferImagesUnlessPdf(
+    { kind: "pdf-links", downloadStrategy: "direct-url", urlFrom: "href" },
+    { links: ["https://cdn.example/jornal.pdf"] },
+  );
+  assert(realPdf.kind === "pdf-links", "keep real pdf");
+}
+
+assert(
+  galleryLooksLikeNavCards({
+    tabButtons: [{ text: "Ver Encarte", selectors: ['a:has-text("Ver Encarte")'] }],
+    downloadButtons: [],
+    links: [],
+    iframes: [],
+    headings: [],
+    imageCount: 0,
+  }),
+  "gallery nav cards",
+);
+const mergedTeach = mergeDetailHarvest({
+  listing: {
+    listingUrl: "https://frangolandia.com/encartes/",
+    itemSelectors: [".elementor-widget-image img"],
+    count: 3,
+  },
+  imageUrls: ["https://cdn.example/flyer-page-1.jpg"],
+  pdfUrls: [],
+  detailUrl: "https://frangolandia.com/encartes/festival/",
+  clickSelectors: ["img.attachment-full"],
+});
+assert(mergedTeach.downloadStrategy === "open-each-item", "2-pass strategy");
+assert(mergedTeach.evidence?.includes("3 cards"), "2-pass count in evidence");
+{
+  const fakePdfTeach = mergeDetailHarvest({
+    listing: {
+      listingUrl: "https://frangolandia.com/encartes/",
+      itemSelectors: [".elementor-widget-image img"],
+      count: 7,
+    },
+    imageUrls: ["https://cdn.example/capa.webp"],
+    pdfUrls: ["https://frangolandia.com/encartes/"],
+    detailUrl: "https://frangolandia.com/encartes/",
+  });
+  assert(!fakePdfTeach.downloadSelectors?.length, "listing /encartes/ is not pdf");
+  assert(fakePdfTeach.evidence?.includes("imgs"), "2-pass detalhe imgs");
+}
+
+{
+  const taught = buildTeachSteps({
+    startUrl: "https://frangolandia.com/encartes/",
+    actions: [
+      {
+        kind: "click",
+        selectors: ["#uf"],
+        description: "CE",
+      },
+      {
+        kind: "click",
+        selectors: ['a:has-text("Ver Encarte")'],
+        description: "Ver Encarte",
+      },
+    ],
+    flyerSource: {
+      kind: "image-grid",
+      downloadStrategy: "open-each-item",
+      urlFrom: "click-then-network",
+    },
+  });
+  assert(taught[0]?.type === "navigate", "teach starts navigate");
+  assert(
+    taught.some((s) => s.type === "discover-flyer"),
+    "teach ends discover",
+  );
+  assert(
+    !taught.some(
+      (s) =>
+        s.type === "click" && /ver encarte/i.test(s.config.description ?? ""),
+    ),
+    "teach drops Ver Encarte click",
+  );
+  const patched = applyFlyerSource(taught, {
+    kind: "image-grid",
+    downloadStrategy: "open-each-item",
+    urlFrom: "href",
+  });
+  assert(
+    patched.find((s) => s.type === "discover-flyer")?.config.flyerSource
+      ?.urlFrom === "href",
+    "applyFlyerSource",
+  );
+}
+
+{
+  const noisy = buildTeachSteps({
+    startUrl: "https://cometasupermercados.com.br/encartes",
+    actions: [
+      {
+        kind: "click",
+        selectors: ["svg.lucide.lucide-x"],
+        description: "path",
+      },
+      {
+        kind: "click",
+        selectors: ["canvas.max-w-full.max-h-[80vh]"],
+        description: "canvas",
+      },
+      {
+        kind: "click",
+        selectors: ["button.aspect-\\[2\\/3\\]"],
+        description: "capa",
+      },
+    ],
+    flyerSource: {
+      kind: "image-grid",
+      downloadStrategy: "open-each-item",
+      urlFrom: "click-then-network",
+    },
+  });
+  assert(
+    !noisy.some((s) =>
+      s.type === "click" &&
+      /lucide|canvas|path/i.test(
+        `${s.config.selector ?? ""} ${s.config.description ?? ""}`,
+      ),
+    ),
+    "teach drops lucide-x/canvas/path",
+  );
+  assert(
+    noisy.some((s) => s.type === "click" && /aspect/i.test(s.config.selector ?? "")),
+    "teach keeps capa click",
+  );
+  assert(isViewerNoise("svg.lucide-x"), "noise lucide");
+  assert(isViewerNoise("canvas.max-h-[80vh]"), "noise canvas");
+}
+
+{
+  const canvasTeach = mergeDetailHarvest({
+    listing: {
+      listingUrl: "https://cometasupermercados.com.br/encartes",
+      itemSelectors: ["button.aspect-\\[2\\/3\\]"],
+      count: 12,
+    },
+    imageUrls: [],
+    pdfUrls: ["https://cometasupermercados.com.br/encartes/morto.pdf"],
+    detailUrl: "https://cometasupermercados.com.br/encartes",
+    clickSelectors: ["svg.lucide.lucide-x", "canvas.max-w-full"],
+    hasCanvas: true,
+  });
+  assert(!canvasTeach.downloadSelectors?.length, "canvas detalhe not dead pdf");
+  assert(canvasTeach.evidence?.includes("canvas"), "2-pass detalhe canvas");
+  assert(
+    !canvasTeach.itemSelectors?.some((s) => /lucide|canvas/i.test(s)),
+    "itemSelectors drop viewer noise",
+  );
+}
+
+assert(SCOPE_NOT_FOUND.startsWith("SCOPE_NOT_FOUND"), "scope err const");
+
+const galleryOnly = parseAnalyzedFlow(
+  JSON.stringify({
+    version: 1,
+    startUrl: "https://x/encartes",
+    steps: [
+      { type: "navigate", config: { url: "https://x/encartes" } },
+      {
+        type: "discover-flyer",
+        config: {
+          flyerSource: {
+            kind: "pdf-links",
+            downloadStrategy: "direct-url",
+            urlFrom: "href",
+          },
+        },
+      },
+    ],
+  }),
+  "https://x/encartes",
+  undefined,
+  { tabButtons: [{ text: "Ver Encarte", selectors: ['a:has-text("Ver Encarte")'] }], downloadButtons: [], links: [], iframes: [], headings: [], imageCount: 0 },
+);
+assert(
+  galleryOnly.steps.find((s) => s.type === "discover-flyer")?.config.flyerSource
+    ?.downloadStrategy === "open-each-item",
+  "gallery tab CTA forces loop",
+);
+
 const dirty = sanitizeItemSelectors(
   [
     '[role="tab"]',
@@ -374,10 +703,10 @@ assert(
   "pdf href proven",
 );
 assert(
-  hasProvenFileDownload([
+  !hasProvenFileDownload([
     { text: "Download", selectors: ["a[download]"] },
   ]),
-  "a[download] proven",
+  "a[download] not proven file (viewer liar)",
 );
 {
   const hinted = mergeDownloadHints(

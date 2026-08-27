@@ -189,6 +189,7 @@ export const recordDiscoveryResult = mutation({
     const flow = await ctx.db.get(args.flowId);
     if (!flow) throw new Error("Flow not found");
     const now = Date.now();
+    const scopeLost = (args.error ?? "").includes("SCOPE_NOT_FOUND");
 
     if (args.ok && args.newFlyers > 0) {
       await ctx.db.patch(flow._id, {
@@ -197,6 +198,25 @@ export const recordDiscoveryResult = mutation({
         updatedAt: now,
       });
       return { status: flow.status, attempts: 0 };
+    }
+
+    if (scopeLost) {
+      if (flow.status !== "error") {
+        await ctx.db.insert("flyerErrors", {
+          supermarketId: flow.supermarketId,
+          stage: "DISCOVERY",
+          message: args.error ?? "SCOPE_NOT_FOUND",
+          status: "open",
+          createdAt: now,
+        });
+      }
+      await ctx.db.patch(flow._id, {
+        lastRunAt: now,
+        discoveryAttempts: MAX_ATTEMPTS,
+        status: "error",
+        updatedAt: now,
+      });
+      return { status: "error" as const, attempts: MAX_ATTEMPTS };
     }
 
     const attempts = (flow.discoveryAttempts ?? 0) + 1;

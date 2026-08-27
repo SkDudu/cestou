@@ -50,6 +50,8 @@ export type LiveSession = {
   snapQueue?: Promise<void>;
   /** Last MiMo flyerSource from locate-flyers — saved into discover-flyer step. */
   flyerSource?: FlyerSource;
+  /** Pass 1 of teach: listing cards. Pass 2 = user opened one flyer. */
+  listingTeach?: import("./teach-repeat.js").ListingTeach;
 };
 
 export function emit(session: LiveSession, ev: SessionEvent) {
