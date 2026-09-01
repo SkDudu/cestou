@@ -4,6 +4,7 @@ import {
   finishScraperRun,
   getScraperFlow,
   markExpired,
+  progressScraperRun,
   recordDiscoveryResult,
   scheduleNextCheck,
   startScraperRun,
@@ -30,10 +31,6 @@ export async function executeFlowById(
       ? { onLog, signal }
       : onLog;
   const pipeline = opts.pipeline ?? "full";
-  const log = (line: string) => {
-    flyerLog.info("FLOW", line);
-    opts.onLog?.(line);
-  };
 
   const flow = await getScraperFlow(flowId);
   if (!flow) throw new Error(`Flow not found: ${flowId}`);
@@ -50,16 +47,13 @@ export async function executeFlowById(
     steps = steps.filter(
       (s) => s.type !== "download-flyers" && s.type !== "extract-offers",
     );
-    log("pipeline=discovery — só navegação/discover (sem download/extract)");
   } else if (steps.some((s) => s.type === "discover-flyer")) {
-    let added = false;
     if (!steps.some((s) => s.type === "download-flyers")) {
       steps.push({
         order: steps.length,
         type: "download-flyers",
         config: {},
       });
-      added = true;
     }
     if (!steps.some((s) => s.type === "extract-offers")) {
       steps.push({
@@ -67,12 +61,6 @@ export async function executeFlowById(
         type: "extract-offers",
         config: {},
       });
-      added = true;
-    }
-    if (added) {
-      log(
-        "pipeline=full — auto steps: download-flyers + extract-offers",
-      );
     }
   }
 
@@ -82,6 +70,33 @@ export async function executeFlowById(
   };
 
   const runId = (await startScraperRun(flowId)) as string;
+  const lines: string[] = [];
+  let lastFlush = 0;
+  const snapLog = () => lines.join("\n").slice(-48_000);
+  const flush = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastFlush < 1500) return;
+    lastFlush = now;
+    const stepsExecuted = lines.filter((l) => /✓ step \d+/i.test(l)).length;
+    void progressScraperRun({
+      id: runId,
+      log: snapLog(),
+      stepsExecuted,
+    }).catch(() => undefined);
+  };
+  const log = (line: string) => {
+    flyerLog.info("FLOW", line);
+    lines.push(line);
+    opts.onLog?.(line);
+    flush(/✓ step |✕ step |STOPPED|SUCCESS|FAILED|DUPLICATE/i.test(line));
+  };
+
+  if (pipeline === "discovery") {
+    log("pipeline=discovery — só navegação/discover (sem download/extract)");
+  } else if (steps.some((s) => s.type === "download-flyers")) {
+    log("pipeline=full — download-flyers + extract-offers");
+  }
+
   log(`run ${runId} — ${flow.name} v${flow.version} pipeline=${pipeline}`);
   if (pipeline === "full") {
     const expired = (await markExpired()) as { expired?: number };
@@ -90,9 +105,8 @@ export async function executeFlowById(
     }
   }
   log(`ctx ${JSON.stringify(fullCtx)}`);
-  log(
-    `steps ${steps.length}: ${steps.map((s) => s.type).join(" → ")}`,
-  );
+  log(`steps ${steps.length}: ${steps.map((s) => s.type).join(" → ")}`);
+  flush(true);
 
   const result = await runFlow(
     {
@@ -113,6 +127,11 @@ export async function executeFlowById(
   );
 
   const cancelled = result.error === "cancelled";
+  const duplicate =
+    !cancelled &&
+    result.ok &&
+    result.duplicates > 0 &&
+    result.newFlyers === 0;
   const summary = result.stepLogs
     .map(
       (l) =>
@@ -121,30 +140,32 @@ export async function executeFlowById(
     .join("\n")
     .slice(0, 8000);
 
-  await finishScraperRun({
-    id: runId,
-    status: result.ok ? "success" : "failed",
-    stepsExecuted: result.stepsExecuted,
-    flyersFound: result.flyersFound,
-    storesFound: result.storesFound,
-    error: result.error,
-    log: cancelled ? `cancelled\n${summary}` : summary,
-  });
+  const status = cancelled
+    ? "cancelled"
+    : duplicate
+      ? "duplicate"
+      : result.ok
+        ? "success"
+        : "failed";
+  const error = cancelled
+    ? result.error
+    : duplicate
+      ? "duplicate"
+      : result.error;
 
-  if (!cancelled && result.error?.includes("SCOPE_NOT_FOUND")) {
-    await recordDiscoveryResult({
-      flowId,
-      ok: false,
-      newFlyers: 0,
-      error: result.error,
-    });
-  }
-
-  log(result.ok ? "✓ SUCCESS" : cancelled ? "■ STOPPED" : "✕ FAILED");
   log(
-    `resumo: steps=${result.stepsExecuted} stores=${result.storesFound} flyers=${result.flyersFound} new=${result.newFlyers} offers=${result.offersFound}`,
+    result.ok
+      ? duplicate
+        ? "■ DUPLICATE"
+        : "✓ SUCCESS"
+      : cancelled
+        ? "■ STOPPED"
+        : "✕ FAILED",
   );
-  if (result.error) log(`error: ${result.error}`);
+  log(
+    `resumo: steps=${result.stepsExecuted} stores=${result.storesFound} flyers=${result.flyersFound} new=${result.newFlyers} dup=${result.duplicates} offers=${result.offersFound}`,
+  );
+  if (result.error && !cancelled && !duplicate) log(`error: ${result.error}`);
   for (const line of summary.split("\n")) {
     if (line) log(line);
   }
@@ -158,5 +179,24 @@ export async function executeFlowById(
     }
   }
 
-  return { ...result, runId };
+  await finishScraperRun({
+    id: runId,
+    status,
+    stepsExecuted: result.stepsExecuted,
+    flyersFound: result.flyersFound,
+    storesFound: result.storesFound,
+    error,
+    log: snapLog().slice(0, 100_000),
+  });
+
+  if (!cancelled && result.error?.includes("SCOPE_NOT_FOUND")) {
+    await recordDiscoveryResult({
+      flowId,
+      ok: false,
+      newFlyers: 0,
+      error: result.error,
+    });
+  }
+
+  return { ...result, runId, error };
 }

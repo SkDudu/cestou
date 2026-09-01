@@ -39,6 +39,8 @@ export type LiveSession = {
   closeBrowser: () => Promise<void>;
   subscribers: Set<(ev: SessionEvent) => void>;
   screenshotTimer?: ReturnType<typeof setInterval>;
+  /** True while main frame is mid-navigation — skip evaluate/screenshot. */
+  navigating?: boolean;
   error?: string;
   networkFlyers: NetworkFlyerDoc[];
   harvestDispose?: () => void;
@@ -46,12 +48,23 @@ export type LiveSession = {
   scopeIndex?: number;
   lastScopeMeta?: ScopeMetadata;
   lastJpegBase64?: string;
-  proposed?: { startUrl: string; notes?: string; steps: FlowStep[] };
+  proposed?: {
+    startUrl: string;
+    notes?: string;
+    steps: FlowStep[];
+    awaitDetail?: boolean;
+  };
   snapQueue?: Promise<void>;
-  /** Last MiMo flyerSource from locate-flyers — saved into discover-flyer step. */
+  /** Last teach flyerSource — saved into discover-flyer step. */
   flyerSource?: FlyerSource;
   /** Pass 1 of teach: listing cards. Pass 2 = user opened one flyer. */
   listingTeach?: import("./teach-repeat.js").ListingTeach;
+  /** Last MiMo section classify — drives flyerSource on Aprovar. */
+  sectionOpen?: {
+    openKind: "download" | "viewer" | "need_click";
+    downloadSelectors: string[];
+    clickTargetSelectors: string[];
+  };
 };
 
 export function emit(session: LiveSession, ev: SessionEvent) {
@@ -75,6 +88,21 @@ export function slimAction(action: RecordedAction): RecordedAction {
 
 export function pushAction(session: LiveSession, action: RecordedAction) {
   if (!session.recording) return;
+  if (action.kind === "click") {
+    const blob = [
+      action.description,
+      action.value,
+      ...(action.selectors ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    // Drop modal close / X — discover-flyer closes overlays itself
+    if (
+      /[×✕✖]|\bfechar\b|lucide-x|aria-label=["']?(close|fechar)/i.test(blob)
+    ) {
+      return;
+    }
+  }
   const last = session.actions[session.actions.length - 1];
   if (
     last &&

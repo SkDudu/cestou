@@ -70,6 +70,9 @@ export async function analyzeBrowserSession(sessionId: string): Promise<{
   version: number;
   startUrl: string;
   notes?: string;
+  awaitDetail?: boolean;
+  listingCount?: number;
+  teachPass?: 1 | 2;
   steps: Array<{ order: number; type: string; config: Record<string, unknown> }>;
 }> {
   const res = await req(`/sessions/${sessionId}/analyze`, {
@@ -149,6 +152,8 @@ export type ProbeResult = {
   tagName?: string;
   linkCount?: number;
   imageCount?: number;
+  cardCount?: number;
+  needPath?: boolean;
   error?: string;
 };
 
@@ -174,7 +179,13 @@ export async function clearSessionHover(sessionId: string) {
 
 export async function pickSessionScope(
   sessionId: string,
-  args: { x?: number; y?: number; ancestorIndex?: number },
+  args: {
+    x?: number;
+    y?: number;
+    ancestorIndex?: number;
+    selectors?: string[];
+    label?: string;
+  },
 ): Promise<ScopeNode> {
   const res = await req(`/sessions/${sessionId}/pick-scope`, {
     method: "POST",
@@ -196,20 +207,115 @@ export type FlyerSourceInfo = {
 };
 
 export type LocateFlyersResult = {
-  pick: ScopeNode;
-  probe: ProbeResult;
+  pick: ScopeNode | null;
+  probe: ProbeResult | null;
   selectors: string[];
   label: string;
-  source: "mimo" | "heuristic";
+  source: "dump" | "mimo";
+  status: "ready" | "need_click" | "not_found";
+  humanHint: string;
+  awaitDetail: boolean;
+  listingCount?: number;
+  stepCount: number;
   flyerSource?: FlyerSourceInfo;
+  candidates?: LocateCandidate[];
+  openKind?: "download" | "viewer" | "need_click";
+  itemSelectors?: string[];
 };
+
+export type LocateCandidate = {
+  label: string;
+  why?: string;
+  selectors: string[];
+  box?: ScopeBox;
+};
+
+export type HarvestPreviewFlyer = {
+  title: string;
+  pageCount: number;
+  originalUrl: string;
+  warn?: string;
+};
+
+export type PreviewDiscoverEvent =
+  | { type: "log"; line: string; ts?: number }
+  | {
+      type: "done";
+      ok: boolean;
+      flyers: HarvestPreviewFlyer[];
+      error?: string;
+      ts?: number;
+    };
+
+/** POST /sessions/:id/skip-flyer — denylist on live flyerSource. */
+export async function skipFlyerRemote(
+  sessionId: string,
+  args: { add?: string[]; remove?: string[] },
+): Promise<string[]> {
+  const res = await req(`/sessions/${sessionId}/skip-flyer`, {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+  const j = (await res.json()) as { error?: string; skipKeys?: string[] };
+  if (!res.ok) throw new Error(j.error ?? "skip-flyer failed");
+  return j.skipKeys ?? [];
+}
+
+/** POST /sessions/:id/preview-discover — SSE, no persist. */
+export async function previewDiscoverRemote(
+  sessionId: string,
+  onEvent: (ev: PreviewDiscoverEvent) => void,
+): Promise<void> {
+  const res = await fetch(`${BASE}/sessions/${sessionId}/preview-discover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!res.ok || !res.body) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(
+      (j as { error?: string }).error ?? `Preview failed HTTP ${res.status}`,
+    );
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        onEvent(JSON.parse(line.slice(6)) as PreviewDiscoverEvent);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
 
 export async function locateSessionFlyers(
   sessionId: string,
+  opts?: {
+    hint?: string;
+    selectedStep?: {
+      kind: string;
+      selectors?: string[];
+      description?: string;
+      value?: string;
+    };
+  },
 ): Promise<LocateFlyersResult> {
   const res = await req(`/sessions/${sessionId}/locate-flyers`, {
     method: "POST",
-    body: "{}",
+    body: JSON.stringify({
+      hint: opts?.hint,
+      selectedStep: opts?.selectedStep,
+    }),
   });
   const j = await res.json();
   if (!res.ok) throw new Error(j.error ?? "locate-flyers failed");
@@ -266,15 +372,61 @@ export async function removeSessionAction(sessionId: string, index: number) {
   return j as { ok: boolean; actions: SessionAction[] };
 }
 
+export type SelectAtPoint = {
+  selectors: string[];
+  label: string;
+  options: Array<{ value: string; label: string }>;
+};
+
 export async function clickSession(
   sessionId: string,
   x: number,
   y: number,
-) {
-  await req(`/sessions/${sessionId}/click`, {
+): Promise<{
+  ok: boolean;
+  select?: SelectAtPoint;
+  viewer?: {
+    viewerMode?: string;
+    notes: string;
+    images: number;
+    pdfs: number;
+    canvas: boolean;
+  };
+}> {
+  const res = await req(`/sessions/${sessionId}/click`, {
     method: "POST",
     body: JSON.stringify({ x, y }),
   });
+  const j = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    select?: SelectAtPoint;
+    viewer?: {
+      viewerMode?: string;
+      notes: string;
+      images: number;
+      pdfs: number;
+      canvas: boolean;
+    };
+    error?: string;
+  };
+  if (!res.ok) throw new Error(j.error ?? "click failed");
+  return { ok: true, select: j.select, viewer: j.viewer };
+}
+
+export async function chooseSelectOption(
+  sessionId: string,
+  args: { selectors: string[]; value: string; label?: string },
+) {
+  const res = await req(`/sessions/${sessionId}/select-option`, {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+  const j = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+  };
+  if (!res.ok) throw new Error(j.error ?? "select-option failed");
+  return j;
 }
 
 export async function typeSession(sessionId: string, text: string) {
@@ -395,4 +547,81 @@ export async function stopFlowRemote(): Promise<boolean> {
   });
   const j = (await res.json().catch(() => ({}))) as { stopped?: boolean };
   return Boolean(j.stopped);
+}
+
+export type ReanalyzeDiff = {
+  name: string;
+  pageNumber?: number;
+  beforePrice: number;
+  afterPrice: number;
+};
+
+export type ReanalyzeEvent =
+  | { type: "log"; line: string; ts?: number }
+  | {
+      type: "page";
+      pageNumber: number;
+      status: "running" | "done" | "failed" | "skipped";
+      offers?: number;
+      error?: string;
+      ts?: number;
+    }
+  | {
+      type: "done";
+      ok: boolean;
+      updated: number;
+      locked: number;
+      pages: number[];
+      diffs: ReanalyzeDiff[];
+      offersFound?: number;
+      error?: string;
+      ts?: number;
+    };
+
+/** POST /extract — re-parse flyer pages via Mimo (SSE). */
+export async function reanalyzeRemote(
+  args: {
+    flyerId: string;
+    pages?: number[];
+    includeLocked?: boolean;
+  },
+  onEvent: (ev: ReanalyzeEvent) => void,
+): Promise<Extract<ReanalyzeEvent, { type: "done" }> | null> {
+  const res = await fetch(`${BASE}/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok || !res.body) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(
+      (j as { error?: string }).error ?? `Extract failed HTTP ${res.status}`,
+    );
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let doneEv: Extract<ReanalyzeEvent, { type: "done" }> | null = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part
+        .split("\n")
+        .find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        const ev = JSON.parse(line.slice(6)) as ReanalyzeEvent;
+        onEvent(ev);
+        if (ev.type === "done") doneEv = ev;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return doneEv;
 }

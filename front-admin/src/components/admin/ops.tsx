@@ -5,20 +5,24 @@ export function OpsHeader({
   title,
   subtitle,
   stamp,
+  filter,
   filterTarget,
+  filterCount,
   primary,
 }: {
-  crumb?: string;
+  crumb?: ReactNode;
   title: string;
   subtitle?: string;
   stamp?: string;
+  filter?: ReactNode;
   filterTarget?: () => void;
+  filterCount?: number;
   primary?: ReactNode;
 }) {
   return (
     <header className="flex items-start justify-between gap-4 pb-[22px]">
       <div>
-        {crumb ? <p className="ds-crumb mb-1">{crumb}</p> : null}
+        {crumb ? <div className="ds-crumb mb-1">{crumb}</div> : null}
         <h1 className="text-[28px] font-bold leading-8 tracking-[-0.04em]">
           {title}
         </h1>
@@ -35,12 +39,20 @@ export function OpsHeader({
             {stamp}
           </span>
         ) : null}
-        {filterTarget ? (
-          <button type="button" className="ds-btn ds-btn--outline" onClick={filterTarget}>
-            <Funnel />
-            Filtrar
-          </button>
-        ) : null}
+        {filter ??
+          (filterTarget ? (
+            <button
+              type="button"
+              className="ds-btn ds-btn--outline"
+              onClick={filterTarget}
+            >
+              <Funnel />
+              Filtrar
+              {filterCount ? (
+                <span className="ds-filter-count">{filterCount}</span>
+              ) : null}
+            </button>
+          ) : null)}
         {primary}
       </div>
     </header>

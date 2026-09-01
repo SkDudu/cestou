@@ -8,11 +8,14 @@ import { OpsHeader, OpsKpi, OpsTabs } from "@/components/admin/ops";
 import {
   formatCompact,
   formatCurrency,
+  formatInstallment,
   formatPercent,
 } from "@/lib/format";
+import { ELIGIBILITY_OPTIONS } from "@/lib/eligibility";
 
 export default function OffersPage() {
   const [tab, setTab] = useState("all");
+  const [elig, setElig] = useState("all");
   const [q, setQ] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const { results, status, loadMore } = usePaginatedQuery(
@@ -39,13 +42,19 @@ export default function OffersPage() {
         return false;
       if (tab === "novo" && o.originalPrice != null) return false;
       if (tab === "expired" && o.validationStatus !== "rejected") return false;
+      if (
+        elig !== "all" &&
+        (o.eligibility ?? "ALL_CUSTOMERS") !== elig
+      ) {
+        return false;
+      }
       if (!needle) return true;
       return (
         o.name.toLowerCase().includes(needle) ||
         o.supermarketName.toLowerCase().includes(needle)
       );
     });
-  }, [results, tab, q]);
+  }, [results, tab, q, elig]);
 
   return (
     <div>
@@ -105,6 +114,19 @@ export default function OffersPage() {
             placeholder="Buscar SKU, marca ou loja"
             className="ds-search"
           />
+          <select
+            value={elig}
+            onChange={(e) => setElig(e.target.value)}
+            className="ds-search"
+            aria-label="Condição da oferta"
+          >
+            <option value="all">Condição: todas</option>
+            {ELIGIBILITY_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="ds-table-cols">
           <span className="ds-label-caps min-w-0 flex-[2]">Produto</span>
@@ -112,6 +134,7 @@ export default function OffersPage() {
           <span className="ds-label-caps w-[88px] shrink-0">Preço</span>
           <span className="ds-label-caps w-[88px] shrink-0">Antes</span>
           <span className="ds-label-caps w-[88px] shrink-0">Δ</span>
+          <span className="ds-label-caps w-[120px] shrink-0">Condição</span>
         </div>
         {rows.map((o) => {
           const drop =
@@ -124,6 +147,11 @@ export default function OffersPage() {
               <span className="w-[160px] shrink-0 truncate">{o.supermarketName}</span>
               <span className="w-[88px] shrink-0 font-mono">
                 {formatCurrency(o.price)}
+                {formatInstallment(o) ? (
+                  <span className="mt-0.5 block text-[11px] font-sans text-[var(--ds-color-muted-foreground)]">
+                    {formatInstallment(o)}
+                  </span>
+                ) : null}
               </span>
               <span className="w-[88px] shrink-0 font-mono text-[var(--ds-color-muted-foreground)]">
                 {o.originalPrice != null ? formatCurrency(o.originalPrice) : "—"}
@@ -136,6 +164,21 @@ export default function OffersPage() {
                 ) : (
                   <span className="ds-pill ds-pill--queue">{formatPercent(drop)}</span>
                 )}
+              </span>
+              <span className="w-[120px] shrink-0">
+                <span
+                  title={o.condition?.text}
+                  className={
+                    "block truncate " +
+                    (o.condition?.kind === "unknown"
+                      ? "ds-pill ds-pill--fail"
+                      : o.condition?.kind === "ok"
+                        ? "ds-pill ds-pill--review"
+                        : "ds-pill ds-pill--queue")
+                  }
+                >
+                  {o.condition?.text ?? "Todos"}
+                </span>
               </span>
             </Link>
           );

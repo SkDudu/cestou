@@ -202,7 +202,7 @@ export async function probeFlyersInScope(
 }> {
   const result = await page.evaluate((sels: string[]) => {
     const flyerRe =
-      /\/Flyer\/\?id=|\/flyer\/|flipbook|\/flip|api-middleware-flyer-services|\/encartes\/|\.pdf(\?|$)/i;
+      /\/Flyer\/\?id=|\/flyer\/|flipbook|\/flip|api-middleware-flyer-services|\/encartes?\/|\.pdf(\?|$)/i;
     let root: Element | null = null;
     let used: string | undefined;
     for (const sel of sels) {
@@ -264,10 +264,11 @@ export type FlyerDomCandidate = {
 
 export async function dumpFlyerCandidates(
   page: Page,
+  rootSelector?: string,
 ): Promise<FlyerDomCandidate[]> {
-  return page.evaluate(() => {
+  return page.evaluate((rootSel) => {
     const flyerRe =
-      /\/Flyer\/\?id=|\/flyer\/|flipbook|\/flip|api-middleware-flyer-services|\/encartes\/|\.pdf(\?|$)/i;
+      /\/Flyer\/\?id=|\/flyer\/|flipbook|\/flip|api-middleware-flyer-services|\/encartes?\/|\.pdf(\?|$)/i;
     const uiHintRe =
       /tab|carousel|swiper|slider|encarte|flyer|oferta|jornal|folheto|catalog|flipbook|gallery|galeria/i;
     const UTIL =
@@ -361,13 +362,19 @@ export async function dumpFlyerCandidates(
       return imgs >= 3 && el.getBoundingClientRect().height > 120;
     }
 
+    const root = rootSel
+      ? document.querySelector(rootSel)
+      : document.body;
+    if (!root) return [];
+
     const set = new Set<Element>();
-    for (const el of document.querySelectorAll(
+    if (rootSel) set.add(root);
+    for (const el of root.querySelectorAll(
       "section, article, ul, ol, main, [role=list], [role=tablist], [role=tabpanel]",
     )) {
       set.add(el);
     }
-    for (const a of document.querySelectorAll("a[href]")) {
+    for (const a of root.querySelectorAll("a[href]")) {
       if (!flyerRe.test(a.getAttribute("href") ?? "")) continue;
       let p: Element | null = a;
       for (let i = 0; i < 6 && p && p !== document.body; i++) {
@@ -375,7 +382,7 @@ export async function dumpFlyerCandidates(
         p = p.parentElement;
       }
     }
-    for (const el of document.querySelectorAll(
+    for (const el of root.querySelectorAll(
       "[data-oferta-index], [class*='swiper'], [class*='carousel'], [class*='encarte'], [class*='flyer'], [class*='oferta']",
     )) {
       let p: Element | null = el;
@@ -402,16 +409,21 @@ export async function dumpFlyerCandidates(
           imageCount: el.querySelectorAll("img[src]").length,
           area: Math.max(0, Math.round(r.width * r.height)),
           uiHint: looksLikeFlyerUi(el),
+          isRoot: rootSel ? el === root : false,
         };
       })
       .filter(
         (c) =>
           c.selectors.length &&
-          (c.flyerHrefs.length || c.uiHint || (c.imageCount >= 3 && c.area > 20000)),
+          (c.isRoot ||
+            c.flyerHrefs.length ||
+            c.uiHint ||
+            (c.imageCount >= 3 && c.area > 20000)),
       );
 
     raw.sort(
       (a, b) =>
+        Number(b.isRoot) - Number(a.isRoot) ||
         b.flyerHrefs.length - a.flyerHrefs.length ||
         Number(b.uiHint) - Number(a.uiHint) ||
         b.imageCount - a.imageCount ||
@@ -428,7 +440,7 @@ export async function dumpFlyerCandidates(
       imageCount: c.imageCount,
       area: c.area,
     }));
-  });
+  }, rootSelector ?? null);
 }
 
 export function formatFlyerCandidates(cands: FlyerDomCandidate[]): string {

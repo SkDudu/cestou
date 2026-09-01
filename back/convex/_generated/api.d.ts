@@ -23,6 +23,7 @@ import type * as flyerPages from "../flyerPages.js";
 import type * as flyerSources from "../flyerSources.js";
 import type * as flyers from "../flyers.js";
 import type * as flyersInternal from "../flyersInternal.js";
+import type * as offerEligibility from "../offerEligibility.js";
 import type * as offers from "../offers.js";
 import type * as scraperFlows from "../scraperFlows.js";
 import type * as scraperRuns from "../scraperRuns.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   flyerSources: typeof flyerSources;
   flyers: typeof flyers;
   flyersInternal: typeof flyersInternal;
+  offerEligibility: typeof offerEligibility;
   offers: typeof offers;
   scraperFlows: typeof scraperFlows;
   scraperRuns: typeof scraperRuns;

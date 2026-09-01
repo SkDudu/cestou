@@ -45,11 +45,14 @@ export async function downloadPending(opts?: {
     pending = pending.filter((f: { _id: string }) => set.has(f._id));
   }
   let downloaded = 0;
+  let duplicates = 0;
+  let skipped = 0;
+  let failed = 0;
 
   say(`fila: ${pending.length} flyer(s) pendente(s)`);
   if (!pending.length) {
     say("nada pra baixar");
-    return { downloaded: 0, pending: 0 };
+    return { downloaded: 0, pending: 0, duplicates: 0, skipped: 0, failed: 0 };
   }
 
   for (let i = 0; i < pending.length; i++) {
@@ -69,11 +72,13 @@ export async function downloadPending(opts?: {
         if (skipWhy === "validUntil expirado") {
           await setFlyerStatus(flyer._id, "expired");
         }
+        skipped++;
         continue;
       }
       if ((flyer as { storageId?: string }).storageId) {
         say(`${progress} skip já no storage — ${label}`);
         await setFlyerStatus(flyer._id, "downloaded");
+        duplicates++;
         continue;
       }
       await setFlyerStatus(flyer._id, "downloading");
@@ -112,16 +117,9 @@ export async function downloadPending(opts?: {
         downloadedFlyer.fileHash,
       );
       if (existing && existing._id !== flyer._id) {
-        say(
-          `${progress} ✕ duplicata hash de ${existing._id} — ${label}`,
-        );
-        await setFlyerStatus(flyer._id, "failed");
-        await insertFlyerError({
-          flyerId: flyer._id,
-          supermarketId: flyer.supermarketId,
-          stage: "DOWNLOAD",
-          message: `Duplicate fileHash of flyer ${existing._id}`,
-        });
+        say(`${progress} skip duplicata hash de ${existing._id} — ${label}`);
+        await setFlyerStatus(flyer._id, "duplicate");
+        duplicates++;
         continue;
       }
 
@@ -138,8 +136,11 @@ export async function downloadPending(opts?: {
         fileHash: downloadedFlyer.fileHash,
       });
       if (attach.duplicateOf) {
-        say(`${progress} ✕ attach duplicado — ${label}`);
-        await setFlyerStatus(flyer._id, "failed");
+        say(
+          `${progress} skip duplicata attach de ${attach.duplicateOf} — ${label}`,
+        );
+        await setFlyerStatus(flyer._id, "duplicate");
+        duplicates++;
         continue;
       }
 
@@ -159,6 +160,7 @@ export async function downloadPending(opts?: {
     } catch (err) {
       flyerLog.error("DOWNLOAD", `${flyer._id}: ${String(err)}`);
       opts?.onLog?.(`[DOWNLOAD] ${progress} ✕ ${label}: ${String(err)}`);
+      failed++;
       await setFlyerStatus(flyer._id, "failed");
       await insertFlyerError({
         flyerId: flyer._id,
@@ -170,8 +172,16 @@ export async function downloadPending(opts?: {
     }
   }
 
-  say(`fim: baixados ${downloaded}/${pending.length}`);
-  return { downloaded, pending: pending.length };
+  say(
+    `fim: baixados ${downloaded}/${pending.length} dup=${duplicates} skip=${skipped} fail=${failed}`,
+  );
+  return {
+    downloaded,
+    pending: pending.length,
+    duplicates,
+    skipped,
+    failed,
+  };
 }
 
 const isMain =

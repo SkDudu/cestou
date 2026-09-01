@@ -6,7 +6,6 @@ export const flyerConfig = {
   discoveryBeforeExpirationHours: Number(
     process.env.FLYER_DISCOVERY_BEFORE_EXPIRATION_HOURS ?? 24,
   ),
-  ocrEnabled: (process.env.FLYER_OCR_ENABLED ?? "true") !== "false",
   batchSize: Number(process.env.FLYER_BATCH_SIZE ?? 10),
   concurrency: Number(process.env.FLYER_CONCURRENCY ?? 2),
   allowedHosts: (
@@ -22,16 +21,14 @@ export const flyerConfig = {
   ).replace(/\/$/, ""),
   mimoModel: process.env.MIMO_MODEL ?? "mimo-v2.5",
   mimoMaxCompletionTokens: Number(
-    process.env.MIMO_MAX_COMPLETION_TOKENS ?? 4096,
+    process.env.MIMO_MAX_COMPLETION_TOKENS ?? 8192,
   ),
   mimoTimeout: Number(process.env.MIMO_TIMEOUT ?? 120000),
   mimoMaxRetries: Number(process.env.MIMO_MAX_RETRIES ?? 3),
   mimoConcurrency: Number(process.env.MIMO_CONCURRENCY ?? 1),
   aiEnabled: (process.env.FLYER_AI_ENABLED ?? "true") !== "false",
   aiProvider: (process.env.FLYER_AI_PROVIDER ?? "mimo").toLowerCase(),
-  aiFallbackOnEmpty:
-    (process.env.FLYER_AI_FALLBACK_ON_EMPTY ?? "true") !== "false",
-  aiPromptVersion: process.env.FLYER_AI_PROMPT_VERSION ?? "flyer-offers-v1",
+  aiPromptVersion: process.env.FLYER_AI_PROMPT_VERSION ?? "flyer-offers-v4",
   aiMaxImageEdgePx: Number(process.env.FLYER_AI_MAX_IMAGE_EDGE_PX ?? 2048),
 
   // Defaults for flow context / supermarket bootstrap

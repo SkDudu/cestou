@@ -7,7 +7,7 @@ import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime, formatInstallment } from "@/lib/format";
 
 export default function FlyerDetailPage() {
   const params = useParams();
@@ -106,7 +106,14 @@ export default function FlyerDetailPage() {
                     {o.name}
                   </Link>
                 </td>
-                <td className="px-3 py-2">{formatCurrency(o.price)}</td>
+                <td className="px-3 py-2">
+                  {formatCurrency(o.price)}
+                  {formatInstallment(o) ? (
+                    <span className="mt-0.5 block text-[11px] text-[var(--ds-color-muted-foreground)]">
+                      {formatInstallment(o)}
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-3 py-2">{o.pageNumber ?? "—"}</td>
                 <td className="px-3 py-2">
                   <StatusBadge status={o.validationStatus} />

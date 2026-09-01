@@ -297,8 +297,8 @@ launch Chromium
   → return sessionId
 ```
 
-`headless: false` recomendado em v1 (operador vê Chromium real **e** preview).  
-`headless: true` permitido se interação for só via preview (click-at).
+`headless: false` é o default (modals/selects pintam no preview).  
+`BROWSER_SESSION_HEADLESS=true` se quiser só JPEG na UI, sem janela OS.
 
 ---
 

@@ -33,6 +33,10 @@
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
   --color-foreground: var(--ds-color-foreground);
+  --color-primary: var(--ds-color-harbor);
+  --color-input: var(--ds-color-mist);
+  --color-ring: var(--ds-color-harbor);
+  --color-destructive: var(--ds-color-danger);
 }
 
 html,

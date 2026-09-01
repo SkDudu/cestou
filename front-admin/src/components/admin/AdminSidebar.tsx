@@ -9,7 +9,7 @@ import { api } from "@convex/_generated/api";
 const operacao = [
   { href: "/admin", label: "Visão geral", icon: "overview" },
   { href: "/admin/scraper", label: "Workers", icon: "workers", badge: "workers" },
-  { href: "/admin/errors", label: "Extração", icon: "extract", alert: true },
+  { href: "/admin/extraction", label: "Extração", icon: "extract", alert: true },
 ] as const;
 
 const catalogo = [

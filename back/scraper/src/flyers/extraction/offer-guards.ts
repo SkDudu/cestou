@@ -6,6 +6,12 @@ import {
   titleCaseBrand,
 } from "./text-normalizer.js";
 import type { ParsedOffer } from "../core/flyer-types.js";
+import { resolveEligibility } from "./eligibility.js";
+import {
+  asInstallmentCount,
+  asInterestFree,
+  shapePayment,
+} from "./payment.js";
 
 function discountPct(original: number, price: number): number {
   const o = Math.round(original * 100);
@@ -40,13 +46,7 @@ export function guardOffers(
     const name = sanitizeName(stripUnknown(rec.name) ?? "");
     if (name.length < 3 || /^\d+$/.test(name)) continue;
 
-    const price = toNumber(rec.price);
-    if (price === undefined || !(price > 0) || price >= 10000) continue;
-
-    let originalPrice = toNumber(rec.originalPrice);
-    if (originalPrice !== undefined && originalPrice < price) {
-      originalPrice = undefined;
-    }
+    const rawPrice = toNumber(rec.price);
 
     const quantity = stripUnknown(rec.quantity);
     const unitRaw = stripUnknown(rec.unit);
@@ -54,30 +54,79 @@ export function guardOffers(
     const brandRaw = stripUnknown(rec.brand);
     const brand = brandRaw ? titleCaseBrand(brandRaw) : undefined;
 
-    const key = `${nameDedupeKey(name)}|${nameDedupeKey(brand ?? "")}|${quantity ?? ""}|${unit ?? ""}|${price}`;
+    const haystack = [
+      name,
+      typeof rec.evidence === "object" && rec.evidence
+        ? JSON.stringify(rec.evidence)
+        : "",
+      typeof rec.conditions === "object" ? JSON.stringify(rec.conditions) : "",
+      typeof rec.cashPrice === "string" ? rec.cashPrice : "",
+    ].join(" ");
+
+    const pay = shapePayment({
+      price: rawPrice,
+      cashPrice: toNumber(rec.cashPrice),
+      originalPrice: toNumber(rec.originalPrice),
+      installmentCount: asInstallmentCount(rec.installmentCount),
+      installmentAmount: toNumber(rec.installmentAmount),
+      installmentInterestFree: asInterestFree(
+        rec.installmentInterestFree,
+        haystack,
+      ),
+      haystack,
+    });
+    if (!pay) continue;
+
+    // ponytail: same SKU two prices (cash vs Nx) = 1 row
+    const key = `${nameDedupeKey(name)}|${nameDedupeKey(brand ?? "")}|${quantity ?? ""}|${unit ?? ""}|${pageNumber}`;
     if (seen.has(key)) continue;
     seen.add(key);
+
+    const elig = resolveEligibility({
+      haystack,
+      pageNumber,
+      ai: {
+        eligibility: rec.eligibility,
+        conditions: rec.conditions,
+        confidence: rec.confidence,
+        evidence: rec.evidence,
+      },
+    });
 
     out.push({
       name: name.slice(0, 200),
       brand,
       quantity,
       unit,
-      price,
-      originalPrice,
+      price: pay.price,
+      originalPrice: pay.originalPrice,
+      cashPrice: pay.cashPrice,
+      installmentCount: pay.installmentCount,
+      installmentAmount: pay.installmentAmount,
+      installmentInterestFree: pay.installmentInterestFree,
       discountPercentage:
-        originalPrice !== undefined
-          ? discountPct(originalPrice, price)
+        pay.originalPrice !== undefined
+          ? discountPct(pay.originalPrice, pay.price)
           : undefined,
       pageNumber,
       rawText: JSON.stringify({
         name,
-        price,
-        originalPrice,
+        price: pay.price,
+        originalPrice: pay.originalPrice,
+        cashPrice: pay.cashPrice,
+        installmentCount: pay.installmentCount,
+        installmentAmount: pay.installmentAmount,
         quantity,
         brand,
+        eligibility: elig.eligibility,
+        evidence: elig.eligibilityEvidence?.text,
       }).slice(0, 1000),
       extractionConfidence: toNumber(rec.confidence) ?? 0.7,
+      eligibility: elig.eligibility,
+      conditions: elig.conditions,
+      eligibilityConfidence: elig.eligibilityConfidence,
+      eligibilityEvidence: elig.eligibilityEvidence,
+      eligibilityStatus: elig.eligibilityStatus,
     });
   }
 

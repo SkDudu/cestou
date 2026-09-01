@@ -12,8 +12,8 @@ import {
 } from "./flow-pipeline.js";
 import {
   allowsImageUrls,
-  coerceOpenEachIfCardCta,
   discoverWithFlyerSource,
+  resolveFlyerSource,
 } from "./flyer-discover.js";
 
 export type StepResult = {
@@ -23,6 +23,7 @@ export type StepResult = {
   flyersFound?: number;
   offersFound?: number;
   newFlyers?: number;
+  duplicates?: number;
   candidates?: unknown[];
 };
 
@@ -330,21 +331,21 @@ async function runStepOnce(
         say(`[FLYER] ${SCOPE_NOT_FOUND}`);
         return { ok: false, message: SCOPE_NOT_FOUND };
       }
-      const source = coerceOpenEachIfCardCta(cfg);
+      const source = resolveFlyerSource(cfg);
       say(
         `[FLYER] buscando ${useElement ? "no scope" : "na página"}…`,
       );
       const harvest = attachNetworkHarvester(page);
       try {
+        harvest.flyers.push(...state.networkFlyers);
         await page.waitForTimeout(cfg.duration ?? 4000);
         await page.evaluate(() => window.scrollBy(0, 600)).catch(() => undefined);
         await page.waitForTimeout(1500);
         const scopeSel = useElement ? state.scopeSelectors![0] : undefined;
-        const network = [...harvest.flyers, ...state.networkFlyers];
         const candidates = await discoverWithFlyerSource({
           page,
           scopeSelector: scopeSel,
-          network,
+          network: harvest.flyers,
           source,
           onLog: say,
         });
@@ -357,22 +358,26 @@ async function runStepOnce(
             c.pageUrls.some((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u)),
           );
         let persisted = 0;
+        let dupes = 0;
         if (state.supermarketId || state.ctx.supermarketId) {
           const res = await persistDiscovered(state, candidates, {
             allowImages,
           });
           persisted = res.created;
+          dupes = res.duplicates;
           say(
-            `[FLYER] salvos novos=${persisted} totalIds=${res.ids.length}`,
+            `[FLYER] salvos novos=${persisted} totalIds=${res.ids.length} dup=${res.duplicates}`,
           );
         } else {
           say("[FLYER] sem supermarketId — não persistiu");
         }
+        const ids = state.discoveredFlyerIds.length;
         return {
-          ok: true,
+          ok: !(state.supermarketId || state.ctx.supermarketId) || ids > 0,
           message: `[FLYER] ${source.kind}/${source.downloadStrategy} | Valid: ${candidates.length} saved=${persisted}`,
           flyersFound: persisted || candidates.length,
           newFlyers: persisted,
+          duplicates: dupes,
           candidates,
         };
       } finally {
@@ -391,9 +396,11 @@ async function runStepOnce(
         capturedPages: state.capturedPages,
       });
       return {
-        ok: dl.downloaded > 0 || dl.pending === 0,
-        message: `downloaded ${dl.downloaded}/${dl.pending}`,
+        ok: dl.failed === 0,
+        message: `downloaded ${dl.downloaded}/${dl.pending} dup=${dl.duplicates} skip=${dl.skipped}`,
         flyersFound: dl.downloaded,
+        newFlyers: dl.downloaded,
+        duplicates: dl.duplicates,
       };
     }
     case "extract-offers": {
@@ -410,7 +417,7 @@ async function runStepOnce(
         `[EXTRACT] concluído processed=${ex.processed}/${ex.pending} offers=${ex.offersFound}`,
       );
       return {
-        ok: true,
+        ok: ex.pending === 0 || ex.offersFound > 0,
         message: `extracted ${ex.processed}/${ex.pending} offers=${ex.offersFound}`,
         offersFound: ex.offersFound,
       };

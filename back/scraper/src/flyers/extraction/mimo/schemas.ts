@@ -7,6 +7,7 @@ export function parseMimoOffers(
   pageNumber: number,
 ): {
   offers: ParsedOffer[];
+  rawCount: number;
   confidence?: number;
   validFrom?: string;
   validUntil?: string;
@@ -20,6 +21,7 @@ export function parseMimoOffers(
   if (!Array.isArray(parsed.offers)) {
     throw new Error("MiMo JSON missing offers array");
   }
+  const rawCount = parsed.offers.length;
   const confidence =
     typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
       ? parsed.confidence
@@ -28,6 +30,7 @@ export function parseMimoOffers(
     typeof v === "string" && v.trim() && v !== "null" ? v.trim() : undefined;
   return {
     offers: guardOffers(parsed.offers, pageNumber),
+    rawCount,
     confidence,
     validFrom: str(parsed.validFrom),
     validUntil: str(parsed.validUntil),

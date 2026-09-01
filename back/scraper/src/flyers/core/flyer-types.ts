@@ -35,19 +35,6 @@ export type FlyerMetadata = {
   validUntil?: number;
 };
 
-export type OCRResult = {
-  text: string;
-  confidence?: number;
-  pageNumber: number;
-};
-
-export interface FlyerOCR {
-  extractText(page: {
-    pageNumber: number;
-    buffer: Buffer;
-  }): Promise<OCRResult>;
-}
-
 export type ParsedOffer = {
   name: string;
   brand?: string;
@@ -55,13 +42,31 @@ export type ParsedOffer = {
   unit?: string;
   price: number;
   originalPrice?: number;
+  cashPrice?: number;
+  installmentCount?: number;
+  installmentAmount?: number;
+  installmentInterestFree?: boolean;
   discountPercentage?: number;
   pageNumber?: number;
   rawText?: string;
   extractionConfidence?: number;
+  eligibility?: string;
+  conditions?: Array<{
+    type: string;
+    name?: string;
+    description?: string;
+    requirement?: string;
+  }>;
+  eligibilityConfidence?: number;
+  eligibilityEvidence?: {
+    text: string;
+    source?: string;
+    page?: number;
+  };
+  eligibilityStatus?: string;
 };
 
-export type FlyerOfferExtractorName = "mimo-v2.5" | "tesseract-rules";
+export type FlyerOfferExtractorName = "mimo-v2.5";
 
 export type FlyerOfferExtractionResult = {
   offers: ParsedOffer[];
@@ -70,6 +75,7 @@ export type FlyerOfferExtractionResult = {
   model?: string;
   latencyMs: number;
   pageConfidence?: number;
+  rawCount?: number;
   validFrom?: string;
   validUntil?: string;
   usage?: {

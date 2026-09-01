@@ -93,6 +93,7 @@ export async function setFlyerStatus(
     | "partially_processed"
     | "processed"
     | "expired"
+    | "duplicate"
     | "failed",
 ) {
   await getClient().mutation(api.flyers.setStatus, { id, status });
@@ -155,9 +156,12 @@ export async function insertOffers(args: {
   validFrom?: number;
   validUntil?: number;
   offers: ParsedOffer[];
-    replace?: boolean;
-    replacePageNumbers?: number[];
-  }) {
+  replace?: boolean;
+  replacePageNumbers?: number[];
+  replaceStatuses?: Array<
+    "pending" | "validated" | "rejected" | "suspicious"
+  >;
+}) {
   return await getClient().mutation(api.offers.insertBatch, {
     flyerId: args.flyerId,
     supermarketId: args.supermarketId,
@@ -165,6 +169,7 @@ export async function insertOffers(args: {
     validUntil: args.validUntil,
     replace: args.replace,
     replacePageNumbers: args.replacePageNumbers,
+    replaceStatuses: args.replaceStatuses,
     offers: args.offers.map((o) => ({
       name: o.name,
       brand: o.brand,
@@ -172,10 +177,19 @@ export async function insertOffers(args: {
       unit: o.unit,
       price: o.price,
       originalPrice: o.originalPrice,
+      cashPrice: o.cashPrice,
+      installmentCount: o.installmentCount,
+      installmentAmount: o.installmentAmount,
+      installmentInterestFree: o.installmentInterestFree,
       discountPercentage: o.discountPercentage,
       pageNumber: o.pageNumber,
       rawText: o.rawText,
       extractionConfidence: o.extractionConfidence,
+      eligibility: o.eligibility,
+      conditions: o.conditions,
+      eligibilityConfidence: o.eligibilityConfidence,
+      eligibilityEvidence: o.eligibilityEvidence,
+      eligibilityStatus: o.eligibilityStatus,
     })),
   });
 }
@@ -318,9 +332,19 @@ export async function startScraperRun(flowId: string) {
   });
 }
 
+export async function progressScraperRun(args: {
+  id: string;
+  stepsExecuted?: number;
+  flyersFound?: number;
+  storesFound?: number;
+  log?: string;
+}) {
+  return await getClient().mutation(api.scraperRuns.progress, args as never);
+}
+
 export async function finishScraperRun(args: {
   id: string;
-  status: "running" | "success" | "partial" | "failed";
+  status: "running" | "success" | "partial" | "cancelled" | "duplicate" | "failed";
   stepsExecuted: number;
   flyersFound: number;
   storesFound: number;

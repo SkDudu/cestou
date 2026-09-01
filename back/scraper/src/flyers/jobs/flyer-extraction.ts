@@ -1,4 +1,3 @@
-import { terminateOcr } from "../extraction/ocr.js";
 import {
   extractPageOffers,
   parseProviderArg,
@@ -72,11 +71,23 @@ async function mapLimit<T, R>(
   return out;
 }
 
+export type ExtractPageEvent = {
+  pageNumber: number;
+  status: "running" | "done" | "failed" | "skipped";
+  offers?: number;
+  error?: string;
+};
+
 export async function extractPending(opts?: {
   force?: boolean;
   supermarketId?: string;
   flyerIds?: string[];
+  pageNumbers?: number[];
+  replaceStatuses?: Array<
+    "pending" | "validated" | "rejected" | "suspicious"
+  >;
   onLog?: (line: string) => void;
+  onPage?: (ev: ExtractPageEvent) => void;
 }) {
   const say = (tag: string, msg: string) => {
     flyerLog.info(tag, msg);
@@ -86,7 +97,11 @@ export async function extractPending(opts?: {
   const force = opts?.force ?? process.argv.includes("--force");
   const provider = parseProviderArg();
   const flyerFilter = argValue("flyer");
-  const pageFilter = parsePageFilter();
+  const pageFilter =
+    opts?.pageNumbers?.length
+      ? new Set(opts.pageNumbers)
+      : parsePageFilter();
+  const replaceStatuses = opts?.replaceStatuses;
   if (!force) {
     const expired = (await markExpired()) as { expired?: number };
     if (expired.expired) {
@@ -117,7 +132,6 @@ export async function extractPending(opts?: {
   );
   if (!flyers.length) {
     say("EXTRACT", "nada pra analisar");
-    await terminateOcr();
     return { processed: 0, pending: 0, offersFound: 0 };
   }
 
@@ -182,6 +196,10 @@ export async function extractPending(opts?: {
                 "EXTRACT",
                 `${progress} pág ${page.pageNumber}/${pages.length} skip (já analisada)`,
               );
+              opts?.onPage?.({
+                pageNumber: page.pageNumber,
+                status: "skipped",
+              });
               return {
                 pageNumber: page.pageNumber,
                 offers: [] as ParsedOffer[],
@@ -195,6 +213,10 @@ export async function extractPending(opts?: {
             "EXTRACT",
             `${progress} pág ${page.pageNumber}/${pages.length} analisando…`,
           );
+          opts?.onPage?.({
+            pageNumber: page.pageNumber,
+            status: "running",
+          });
 
           try {
             const buffer = await downloadPageBuffer(page.url);
@@ -243,6 +265,7 @@ export async function extractPending(opts?: {
               pageConfidence: parts[0]!.pageConfidence,
               usage: parts[0]!.usage,
               latencyMs: parts.reduce((s, p) => s + (p.latencyMs ?? 0), 0),
+              rawCount: parts.reduce((s, p) => s + (p.rawCount ?? 0), 0),
               error: failed
                 ? parts
                     .map((p) => p.error)
@@ -274,7 +297,7 @@ export async function extractPending(opts?: {
 
             say(
               "EXTRACT",
-              `${progress} pág ${page.pageNumber}/${pages.length} ${result.status === "failed" ? "✕" : "✓"} offers=${result.offers.length} ${result.latencyMs ?? 0}ms${result.error ? ` — ${result.error}` : ""}`,
+              `${progress} pág ${page.pageNumber}/${pages.length} ${result.status === "failed" ? "✕" : "✓"} offers=${result.offers.length}${result.rawCount != null ? `/${result.rawCount}` : ""} ${result.latencyMs ?? 0}ms${result.error ? ` — ${result.error}` : ""}`,
             );
 
             if (result.status === "failed") {
@@ -283,6 +306,18 @@ export async function extractPending(opts?: {
                 supermarketId: flyer.supermarketId,
                 stage: "AI_VISION",
                 message: `page ${page.pageNumber}: ${result.error ?? "failed"}`,
+              });
+              opts?.onPage?.({
+                pageNumber: page.pageNumber,
+                status: "failed",
+                offers: 0,
+                error: result.error,
+              });
+            } else {
+              opts?.onPage?.({
+                pageNumber: page.pageNumber,
+                status: "done",
+                offers: result.offers.length,
               });
             }
 
@@ -322,6 +357,12 @@ export async function extractPending(opts?: {
               offerCount: 0,
               durationMs: 0,
             });
+            opts?.onPage?.({
+              pageNumber: page.pageNumber,
+              status: "failed",
+              offers: 0,
+              error: String(err),
+            });
             return {
               pageNumber: page.pageNumber,
               offers: [] as ParsedOffer[],
@@ -357,15 +398,23 @@ export async function extractPending(opts?: {
       const offerUntil = fresh?.validUntil ?? flyer.validUntil;
 
       if (ran.length && offers.length) {
+        const ranPages = ran.map((r) => r.pageNumber);
+        const wholeForce = Boolean(force && !pageFilter && !replaceStatuses);
         await insertOffers({
           flyerId: flyer._id,
           supermarketId: flyer.supermarketId,
           validFrom: offerFrom,
           validUntil: offerUntil,
           offers,
-          replace: force && !pageFilter,
-          replacePageNumbers:
-            force && !pageFilter ? undefined : ran.map((r) => r.pageNumber),
+          replace: wholeForce,
+          replacePageNumbers: wholeForce
+            ? undefined
+            : pageFilter
+              ? ranPages
+              : replaceStatuses
+                ? undefined
+                : ranPages,
+          replaceStatuses,
         });
         offersFound += offers.length;
       } else if (!offers.length && !results.some((r) => r.skipped)) {
@@ -415,7 +464,6 @@ export async function extractPending(opts?: {
     }
   }
 
-  await terminateOcr();
   say(
     "EXTRACT",
     `fim: processados ${processed}/${flyers.length} | ofertas=${offersFound}`,
@@ -431,13 +479,12 @@ if (isMain) {
   extractPending()
     .then((result) => {
       flyerLog.info(
-        "OCR",
+        "EXTRACT",
         `Done. processed=${result.processed}/${result.pending}`,
       );
     })
-    .catch(async (err) => {
+    .catch((err) => {
       console.error(err);
-      await terminateOcr();
       process.exit(1);
     });
 }

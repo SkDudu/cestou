@@ -1,5 +1,11 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  eligibilityEvidence,
+  eligibilityStatus,
+  eligibilityType,
+  offerCondition,
+} from "./offerEligibility";
 
 const flyerStatus = v.union(
   v.literal("discovered"),
@@ -9,6 +15,7 @@ const flyerStatus = v.union(
   v.literal("partially_processed"),
   v.literal("processed"),
   v.literal("expired"),
+  v.literal("duplicate"),
   v.literal("failed"),
 );
 
@@ -116,10 +123,19 @@ export default defineSchema({
     unit: v.optional(v.string()),
     price: v.number(),
     originalPrice: v.optional(v.number()),
+    cashPrice: v.optional(v.number()),
+    installmentCount: v.optional(v.number()),
+    installmentAmount: v.optional(v.number()),
+    installmentInterestFree: v.optional(v.boolean()),
     discountPercentage: v.optional(v.number()),
     pageNumber: v.optional(v.number()),
     rawText: v.optional(v.string()),
     extractionConfidence: v.optional(v.number()),
+    eligibility: v.optional(eligibilityType),
+    conditions: v.optional(v.array(offerCondition)),
+    eligibilityConfidence: v.optional(v.number()),
+    eligibilityEvidence: v.optional(eligibilityEvidence),
+    eligibilityStatus: v.optional(eligibilityStatus),
     sourceType: v.literal("flyer"),
     validationStatus: offerValidationStatus,
     validFrom: v.optional(v.number()),
@@ -131,7 +147,26 @@ export default defineSchema({
     .index("by_supermarket", ["supermarketId"])
     .index("by_validationStatus", ["validationStatus"])
     .index("by_confidence", ["extractionConfidence"])
-    .index("by_supermarket_status", ["supermarketId", "validationStatus"]),
+    .index("by_supermarket_status", ["supermarketId", "validationStatus"])
+    .index("by_eligibility", ["eligibility"])
+    .index("by_eligibilityStatus", ["eligibilityStatus"]),
+
+  // ponytail: admin has no operator userId yet
+  offerEligibilityHistory: defineTable({
+    offerId: v.id("offers"),
+    previousEligibility: v.optional(eligibilityType),
+    newEligibility: eligibilityType,
+    previousConfidence: v.optional(v.number()),
+    newConfidence: v.optional(v.number()),
+    source: v.union(
+      v.literal("rules"),
+      v.literal("ai"),
+      v.literal("human"),
+      v.literal("merge"),
+    ),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_offer", ["offerId"]),
 
   flyerExtractions: defineTable({
     flyerId: v.id("flyers"),
@@ -227,6 +262,8 @@ export default defineSchema({
       v.literal("running"),
       v.literal("success"),
       v.literal("partial"),
+      v.literal("cancelled"),
+      v.literal("duplicate"),
       v.literal("failed"),
     ),
     startedAt: v.number(),

@@ -6,7 +6,13 @@ import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { formatNumber, formatOpsStamp, formatRange } from "@/lib/format";
+import {
+  calendarDaysUntil,
+  formatExpiryPill,
+  formatNumber,
+  formatOpsStamp,
+  formatRange,
+} from "@/lib/format";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -123,10 +129,15 @@ export default function FlyersPage() {
           <span className="ds-label-caps w-[120px] shrink-0">Status</span>
         </div>
         {rows.map((f) => {
-          const near =
-            f.validUntil !== undefined &&
-            f.validUntil > now &&
-            f.validUntil < now + 2 * DAY;
+          const daysLeft =
+            f.validUntil !== undefined && f.validUntil > now
+              ? calendarDaysUntil(f.validUntil, now)
+              : null;
+          const near = daysLeft !== null && daysLeft <= 1;
+          const expiryLabel =
+            f.validUntil !== undefined
+              ? formatExpiryPill(f.validUntil, now)
+              : null;
           return (
             <Link key={f._id} href={`/admin/flyers/${f._id}`} className="ds-table-row">
               <span className="flex min-w-0 flex-[2] items-center gap-2">
@@ -159,8 +170,8 @@ export default function FlyersPage() {
                 Worker
               </span>
               <span className="w-[120px] shrink-0">
-                {near && f.status === "processed" ? (
-                  <span className="ds-pill ds-pill--review">Expira em 2d</span>
+                {near && f.status === "processed" && expiryLabel ? (
+                  <span className="ds-pill ds-pill--review">{expiryLabel}</span>
                 ) : (
                   <StatusBadge status={f.status} />
                 )}

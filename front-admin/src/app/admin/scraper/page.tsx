@@ -1,14 +1,20 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "convex/react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@convex/_generated/api";
-import type { Id } from "@convex/_generated/dataModel";
 import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
 import { OpsStatusPill } from "@/components/admin/OpsStatusPill";
 import { WorkerStartButton } from "@/components/admin/WorkerStartButton";
+import {
+  WorkerFilterPopover,
+  countWorkerFilter,
+  emptyWorkerFilter,
+  matchWorkerFilter,
+} from "@/components/admin/WorkerFilterModal";
+import { WorkerSetupModal } from "@/components/admin/WorkerSetupModal";
 import { checkWorkerHealth } from "@/lib/browser-session";
 import { formatOpsStamp, formatPercent } from "@/lib/format";
 
@@ -21,21 +27,27 @@ export default function ScraperFlowsPage() {
 }
 
 function WorkersPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const presetSupermarketId = searchParams.get("supermarketId") ?? "";
   const overview = useQuery(api.dashboard.overview);
   const markets = useQuery(api.supermarkets.listNames);
-  const create = useMutation(api.scraperFlows.create);
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState(Boolean(presetSupermarketId));
-  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState(emptyWorkerFilter);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(Boolean(presetSupermarketId));
   const [workerOnline, setWorkerOnline] = useState<boolean | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (presetSupermarketId) setOpen(true);
+    if (presetSupermarketId) setSetupOpen(true);
   }, [presetSupermarketId]);
+
+  function closeSetup() {
+    setSetupOpen(false);
+    if (presetSupermarketId) router.replace("/admin/scraper");
+  }
 
   useEffect(() => {
     let alive = true;
@@ -64,28 +76,16 @@ function WorkersPage() {
     const needle = q.trim().toLowerCase();
     return workers.filter((w) => {
       if (tab !== "all" && w.status !== tab) return false;
+      if (!matchWorkerFilter(w, filters)) return false;
       if (!needle) return true;
       return (
         w.slug.includes(needle) ||
         w.supermarketName.toLowerCase().includes(needle)
       );
     });
-  }, [workers, tab, q]);
+  }, [workers, tab, q, filters]);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const fd = new FormData(e.currentTarget);
-    try {
-      const id = await create({
-        supermarketId: String(fd.get("supermarketId")) as Id<"supermarkets">,
-        name: String(fd.get("name") ?? ""),
-      });
-      window.location.href = `/admin/scraper/${id}`;
-    } catch (err) {
-      setError(String(err));
-    }
-  }
+  const filterCount = countWorkerFilter(filters);
 
   if (overview === undefined) return <p className="ds-meta">Carregando…</p>;
 
@@ -96,7 +96,20 @@ function WorkersPage() {
       <OpsHeader
         title="Workers"
         stamp={`Atualizado ${formatOpsStamp(Date.now())}`}
-        filterTarget={() => searchRef.current?.focus()}
+        filter={
+          <WorkerFilterPopover
+            open={filterOpen}
+            workers={workers}
+            markets={markets ?? []}
+            value={filters}
+            filterCount={filterCount}
+            onOpenChange={setFilterOpen}
+            onApply={(next) => {
+              setFilters(next);
+              setFilterOpen(false);
+            }}
+          />
+        }
         primary={
           <>
             <span
@@ -121,38 +134,19 @@ function WorkersPage() {
             <button
               type="button"
               className="ds-btn ds-btn--primary"
-              onClick={() => setOpen((v) => !v)}
+              onClick={() => setSetupOpen(true)}
             >
-              {open ? "Fechar" : "Novo worker"}
+              Novo worker
             </button>
           </>
         }
       />
 
-      {open ? (
-        <form onSubmit={onSubmit} className="ds-form ds-form-2">
-          <select
-            name="supermarketId"
-            required
-            className="ds-input"
-            defaultValue={presetSupermarketId}
-          >
-            <option value="">Loja</option>
-            {(markets ?? []).map((m) => (
-              <option key={m._id} value={m._id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-          <input name="name" required placeholder="Nome do worker" className="ds-input" />
-          {error ? (
-            <p className="text-sm text-[var(--ds-color-danger)]">{error}</p>
-          ) : null}
-          <button type="submit" className="ds-btn ds-btn--primary ds-btn--lg">
-            Criar
-          </button>
-        </form>
-      ) : null}
+      <WorkerSetupModal
+        open={setupOpen}
+        presetSupermarketId={presetSupermarketId || undefined}
+        onClose={closeSetup}
+      />
 
       <section className="flex gap-4 pb-4">
         <OpsKpi

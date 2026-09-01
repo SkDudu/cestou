@@ -11,7 +11,8 @@ import {
 import { api } from "@convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/components/SessionProvider";
-import { Button, EmptyState, Money, Panel, Skeleton } from "@/components/ui";
+import { ConditionBadge } from "@/components/ConditionBadge";
+import { PaymentNote } from "@/components/PaymentNote";
 
 export default function HomePage() {
   const { userId, ready } = useSession();
@@ -161,6 +162,12 @@ export default function HomePage() {
                         <Money value={o.originalPrice} />
                       </p>
                     ) : null}
+                    <PaymentNote
+                      installmentCount={o.installmentCount}
+                      installmentAmount={o.installmentAmount}
+                      installmentInterestFree={o.installmentInterestFree}
+                    />
+                    <ConditionBadge condition={o.condition} />
                   </div>
                 </li>
               ))}

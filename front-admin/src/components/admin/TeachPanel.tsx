@@ -203,9 +203,7 @@ export function TeachPanel({ flowId, startUrl, onSaved }: Props) {
       </div>
 
       <p className="mb-3 text-xs text-[var(--ds-color-muted-foreground)]">
-        Chromium headed. Clique até os encartes. Analisar grava o fluxo — listing
-        de cards não usa MiMo. MiMo só se o site não for listing. Depois: Rodar
-        fluxo.
+        Chromium headed. Dump HTML/CSS/network acha a listagem. Aprovar se o highlight estiver certo.
       </p>
       <p className="mb-3 truncate text-xs text-zinc-600">URL: {currentUrl}</p>
 
@@ -227,7 +225,7 @@ export function TeachPanel({ flowId, startUrl, onSaved }: Props) {
               onClick={() => void analyze()}
               className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-40"
             >
-              {busy ? "Analisando…" : "Analisar"}
+              {busy ? "Detectando…" : "Detectar listagem"}
             </button>
             <button
               type="button"

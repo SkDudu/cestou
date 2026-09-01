@@ -141,6 +141,13 @@ function CompareInner() {
                       {m.coverage}/{result.itemCount} itens
                       {!m.complete ? " · incompleto" : ""}
                     </p>
+                    {m.lines.some(
+                      (l) => l.condition && l.condition.kind !== "none",
+                    ) ? (
+                      <p className="mt-1 text-[11px] text-[var(--amber)]">
+                        Inclui preço condicionado
+                      </p>
+                    ) : null}
                   </div>
                   <Money value={m.total} />
                 </li>

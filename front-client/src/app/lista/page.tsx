@@ -15,6 +15,8 @@ import {
   Money,
   Skeleton,
 } from "@/components/ui";
+import { ConditionBadge } from "@/components/ConditionBadge";
+import { PaymentNote } from "@/components/PaymentNote";
 
 export default function ListaPage() {
   const { userId, ready } = useSession();
@@ -119,10 +121,23 @@ export default function ListaPage() {
                       {item.queryText}
                     </p>
                     {item.offer ? (
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        {item.offer.name} · {item.offer.supermarketName} ·{" "}
-                        <Money value={item.offer.price} />
-                      </p>
+                      <div className="mt-1 text-xs text-[var(--muted)]">
+                        <p>
+                          {item.offer.name} · {item.offer.supermarketName} ·{" "}
+                          <Money value={item.offer.price} />
+                        </p>
+                        <PaymentNote
+                          installmentCount={item.offer.installmentCount}
+                          installmentAmount={item.offer.installmentAmount}
+                          installmentInterestFree={
+                            item.offer.installmentInterestFree
+                          }
+                        />
+                        <ConditionBadge
+                          condition={item.offer.condition}
+                          showAll
+                        />
+                      </div>
                     ) : (
                       <p className="mt-1 text-xs text-[var(--muted)]">
                         Sem oferta fixada — match na comparação

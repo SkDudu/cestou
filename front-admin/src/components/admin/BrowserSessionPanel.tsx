@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkWorkerHealth,
+  chooseSelectOption,
   clearSessionHover,
   clickSession,
   confirmSessionScope,
@@ -23,8 +24,10 @@ import {
   type ProbeResult,
   type ScopeBox,
   type ScopeNode,
+  type SelectAtPoint,
   type SessionAction,
   type FlyerSourceInfo,
+  type LocateCandidate,
 } from "@/lib/browser-session";
 
 type Props = {
@@ -77,16 +80,20 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
   const [busy, setBusy] = useState(false);
   const [typeBuf, setTypeBuf] = useState("");
   const [selectMode, setSelectMode] = useState(false);
+  const [nativeSelect, setNativeSelect] = useState<SelectAtPoint | null>(null);
   const [hoverBox, setHoverBox] = useState<ScopeBox | null>(null);
   const [picked, setPicked] = useState<ScopeNode | null>(null);
   const [scopeIndex, setScopeIndex] = useState(0);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [probing, setProbing] = useState(false);
   const [locating, setLocating] = useState(false);
-  const [locateSource, setLocateSource] = useState<"mimo" | "heuristic" | null>(
+  const [locateSource, setLocateSource] = useState<"dump" | "heuristic" | null>(
     null,
   );
   const [flyerSource, setFlyerSource] = useState<FlyerSourceInfo | null>(null);
+  const [candidates, setCandidates] = useState<LocateCandidate[]>([]);
+  const [candIdx, setCandIdx] = useState(0);
+  const [locateHint, setLocateHint] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const unsubRef = useRef<(() => void) | null>(null);
   const hoverAt = useRef(0);
@@ -249,7 +256,26 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
       }
       return;
     }
-    void clickSession(sessionId, x, y).catch((err) => setError(String(err)));
+    void clickSession(sessionId, x, y)
+      .then((r) => {
+        if (r.select?.options.length) setNativeSelect(r.select);
+        else setNativeSelect(null);
+      })
+      .catch((err) => setError(String(err)));
+  }
+
+  async function applyNativeSelect(opt: { value: string; label: string }) {
+    if (!sessionId || !nativeSelect) return;
+    try {
+      await chooseSelectOption(sessionId, {
+        selectors: nativeSelect.selectors,
+        value: opt.value,
+        label: opt.label,
+      });
+      setNativeSelect(null);
+    } catch (err) {
+      setError(String(err));
+    }
   }
 
   async function climbContainer() {
@@ -270,15 +296,23 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
     if (!sessionId) return;
     setLocating(true);
     setError(null);
+    setLocateHint(null);
+    setCandidates([]);
     try {
       const r = await locateSessionFlyers(sessionId);
-      setSelectMode(true);
+      setSelectMode(Boolean(r.pick));
       setPicked(r.pick);
-      setHoverBox(r.pick.box);
+      setHoverBox(r.pick?.box ?? null);
       setScopeIndex(0);
       setProbe(r.probe);
-      setLocateSource(r.source);
+      setLocateSource("dump");
       setFlyerSource(r.flyerSource ?? null);
+      setCandidates(r.candidates ?? []);
+      setCandIdx(0);
+      if (r.status === "not_found") setError(r.humanHint);
+      else if (r.awaitDetail || r.status === "need_click") {
+        setLocateHint(r.humanHint);
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -334,6 +368,37 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
   const overlay = hoverBox
     ? overlayStyle(hoverBox, imgRef.current, frameSize)
     : null;
+
+  async function chooseCandidate(i: number) {
+    const c = candidates[i];
+    if (!c) return;
+    setCandIdx(i);
+    if (c.box) {
+      setPicked({
+        tagName: "DIV",
+        selectors: c.selectors,
+        label: c.label,
+        box: c.box,
+        linkCount: 0,
+        imageCount: 0,
+        textCount: 0,
+        childCount: 0,
+      });
+      setHoverBox(c.box);
+    }
+    if (!sessionId || !c.selectors.length) return;
+    try {
+      const n = await pickSessionScope(sessionId, {
+        selectors: c.selectors,
+        label: c.label,
+      });
+      setPicked(n);
+      setHoverBox(n.box);
+      setScopeIndex(0);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
 
   return (
     <section className="mb-8 rounded-lg border border-[var(--ds-color-border)] bg-[var(--ds-color-card)]/30 p-4">
@@ -409,7 +474,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
           onClick={() => void runLocate()}
           className="rounded-md border border-violet-800 px-3 py-1.5 text-sm text-violet-300 hover:bg-violet-950 disabled:opacity-40"
         >
-          {locating ? "MiMo analisando…" : "Detectar flyers (MiMo)"}
+            {locating ? "Dump…" : "Detectar listagem"}
         </button>
         <button
           type="button"
@@ -477,7 +542,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
               <p className="mb-2 text-xs text-emerald-400">
                 ✓ Área encontrada · Flyers: {probe.flyers.length}
                 {locateSource
-                  ? ` · ${locateSource === "mimo" ? "MiMo" : "heurística"}`
+                  ? ` · ${locateSource === "dump" ? "auto" : "heurística"}`
                   : ""}
                 {flyerSource
                   ? ` · ${flyerSource.kind}/${flyerSource.downloadStrategy}`
@@ -506,7 +571,7 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
                 onClick={() => void confirmArea()}
                 className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
               >
-                Confirmar área
+                Aprovar listagem
               </button>
             </>
           ) : (
@@ -578,6 +643,37 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
       </div>
 
       {error ? <p className="mb-3 text-sm text-[var(--ds-color-danger)]">{error}</p> : null}
+      {locateHint ? (
+        <p className="mb-3 rounded-md border border-amber-800 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
+          {locateHint}
+        </p>
+      ) : null}
+      {candidates.length > 0 ? (
+        <ul className="mb-3 flex flex-col gap-1">
+          {candidates.map((c, i) => (
+            <li key={`${c.label}-${i}`}>
+              <button
+                type="button"
+                className={`w-full rounded-md border px-2 py-1.5 text-left text-xs ${
+                  i === candIdx
+                    ? "border-sky-700 bg-sky-950/50"
+                    : "border-[var(--ds-color-border)]"
+                }`}
+                onClick={() => void chooseCandidate(i)}
+              >
+                <span className="mr-1 font-mono text-violet-300">{i + 1}</span>
+                {c.label}
+                {c.why ? (
+                  <span className="text-[var(--ds-color-muted-foreground)]">
+                    {" "}
+                    — {c.why}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="overflow-hidden rounded-md border border-[var(--ds-color-border)] bg-black">
@@ -592,7 +688,48 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
                 onClick={(e) => void onPreviewClick(e)}
                 onMouseMove={onPreviewMove}
               />
-              {selectMode && overlay ? <div style={overlay} /> : null}
+              {candidates.length === 0 && selectMode && overlay ? (
+                <div style={overlay} />
+              ) : null}
+              {candidates.map((c, i) => {
+                if (!c.box) return null;
+                const st = overlayStyle(c.box, imgRef.current, frameSize);
+                if (!st) return null;
+                const on = i === candIdx;
+                return (
+                  <div
+                    key={`cand-${i}`}
+                    style={{
+                      ...st,
+                      border: on ? "2px solid #38bdf8" : "2px dashed #c4b5fd",
+                      background: on
+                        ? "rgba(56,189,248,0.14)"
+                        : "rgba(167,139,250,0.08)",
+                      pointerEvents: "none",
+                      zIndex: on ? 2 : 1,
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: -1,
+                        top: -1,
+                        width: 16,
+                        height: 16,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: on ? "#0284c7" : "#6d28d9",
+                        color: "#fff",
+                        fontSize: 10,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex h-48 items-center justify-center text-sm text-zinc-600">
@@ -604,6 +741,37 @@ export function BrowserSessionPanel({ flowId, startUrl, onSaved }: Props) {
             clique só marca o container.
           </p>
         </div>
+
+        {nativeSelect ? (
+          <div className="rounded-md border border-[var(--ds-color-border)] bg-[var(--ds-color-muted)] p-2">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold">{nativeSelect.label}</span>
+              <button
+                type="button"
+                className="text-[11px] text-[var(--ds-color-muted-foreground)]"
+                onClick={() => setNativeSelect(null)}
+              >
+                Cancelar
+              </button>
+            </div>
+            <p className="mb-1 text-[11px] text-[var(--ds-color-muted-foreground)]">
+              Select nativo — escolha aqui.
+            </p>
+            <ul className="flex max-h-40 flex-col gap-0.5 overflow-auto">
+              {nativeSelect.options.map((o) => (
+                <li key={`${o.value}-${o.label}`}>
+                  <button
+                    type="button"
+                    className="w-full truncate rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--ds-color-card)]"
+                    onClick={() => void applyNativeSelect(o)}
+                  >
+                    {o.label || o.value || "(vazio)"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="max-h-[420px] overflow-y-auto rounded-md border border-[var(--ds-color-border)]">
           <div className="border-b border-[var(--ds-color-border)] bg-[var(--ds-color-muted)] px-3 py-2 text-xs uppercase text-[var(--ds-color-muted-foreground)]">

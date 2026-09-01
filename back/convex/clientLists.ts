@@ -9,6 +9,7 @@ import {
   resolveCompareStores,
   tokensMatch,
 } from "./clientLib";
+import { publicCondition, publicPayment } from "./offerEligibility";
 
 async function requireListOwner(
   ctx: QueryCtx,
@@ -93,6 +94,8 @@ export const getShoppingList = query({
                 name: offer.name,
                 price: offer.price,
                 supermarketName: supermarket?.name ?? "—",
+                condition: publicCondition(offer),
+                ...publicPayment(offer),
               }
             : null,
         };
@@ -295,6 +298,7 @@ export const compareShoppingList = query({
       unitPrice: number | null;
       lineTotal: number | null;
       available: boolean;
+      condition: ReturnType<typeof publicCondition> | null;
     };
 
     const markets = [];
@@ -320,6 +324,7 @@ export const compareShoppingList = query({
             unitPrice: null,
             lineTotal: null,
             available: false,
+            condition: null,
           });
           continue;
         }
@@ -334,6 +339,7 @@ export const compareShoppingList = query({
           unitPrice: offer.price,
           lineTotal,
           available: true,
+          condition: publicCondition(offer),
         });
       }
       markets.push({
@@ -490,7 +496,7 @@ export const compareShoppingList = query({
         : null,
       split,
       disclaimer:
-        "Comparação baseada em ofertas de encarte validadas e vigentes — não é catálogo completo de prateleira.",
+        "Comparação baseada em ofertas de encarte validadas e vigentes. Preço condicionado (clube, cartão, CPF, app) não é preço para todos.",
     };
   },
 });

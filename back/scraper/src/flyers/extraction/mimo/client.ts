@@ -6,17 +6,17 @@ export type MimoChatArgs = {
   system: string;
   user: string;
   signal: AbortSignal;
-  imageUrl: string;
+  imageUrl?: string;
 };
 
 export async function mimoChat(args: MimoChatArgs): Promise<ChatCompletionResponse> {
-  const content: unknown[] = [
-    { type: "text", text: args.user },
-    {
+  const content: unknown[] = [{ type: "text", text: args.user }];
+  if (args.imageUrl) {
+    content.push({
       type: "image_url",
       image_url: { url: args.imageUrl },
-    },
-  ];
+    });
+  }
 
   const res = await fetch(`${flyerConfig.mimoBaseUrl}/chat/completions`, {
     method: "POST",

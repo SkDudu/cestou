@@ -1,5 +1,11 @@
 import { normalizeWhitespace } from "./text-normalizer.js";
 import type { ParsedOffer } from "../core/flyer-types.js";
+import { resolveEligibility } from "./eligibility.js";
+import {
+  PRICE_MAX,
+  parsePaymentFromText,
+  shapePayment,
+} from "./payment.js";
 
 const PRICE_RE = /(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/g;
 const QTY_RE =
@@ -34,7 +40,7 @@ function isNoiseLine(line: string): boolean {
 function extractPrices(text: string): number[] {
   return [...text.matchAll(PRICE_RE)]
     .map((m) => parseBrl(m[1]!))
-    .filter((p) => p > 0 && p < 10000);
+    .filter((p) => p > 0 && p < PRICE_MAX);
 }
 
 function cleanName(raw: string): string {
@@ -68,24 +74,48 @@ function pushOffer(
 ) {
   const name = cleanName(partial.name).slice(0, 200);
   if (name.length < 3) return;
-  if (!(partial.price > 0) || partial.price > 10000) return;
+  const haystack = `${name}\n${partial.rawText ?? ""}`;
+  const fromText = parsePaymentFromText(haystack);
+  const pay = shapePayment({
+    price: partial.price,
+    cashPrice: partial.cashPrice ?? fromText.cashPrice,
+    originalPrice: partial.originalPrice,
+    installmentCount: partial.installmentCount ?? fromText.installmentCount,
+    installmentAmount: partial.installmentAmount ?? fromText.installmentAmount,
+    installmentInterestFree:
+      partial.installmentInterestFree ?? fromText.installmentInterestFree,
+    haystack,
+  });
+  if (!pay) return;
 
-  const key = `${name.toLowerCase()}|${partial.price}|${partial.pageNumber ?? 0}`;
+  const key = `${name.toLowerCase()}|${partial.pageNumber ?? 0}`;
   if (seen.has(key)) return;
   seen.add(key);
 
-  const original =
-    partial.originalPrice && partial.originalPrice > partial.price
-      ? partial.originalPrice
-      : undefined;
+  const original = pay.originalPrice;
+
+  const elig = resolveEligibility({
+    haystack,
+    pageNumber: partial.pageNumber,
+  });
 
   offers.push({
     ...partial,
     name,
+    price: pay.price,
     originalPrice: original,
+    cashPrice: pay.cashPrice,
+    installmentCount: pay.installmentCount,
+    installmentAmount: pay.installmentAmount,
+    installmentInterestFree: pay.installmentInterestFree,
     discountPercentage: original
-      ? discountPct(original, partial.price)
+      ? discountPct(original, pay.price)
       : undefined,
+    eligibility: elig.eligibility,
+    conditions: elig.conditions,
+    eligibilityConfidence: elig.eligibilityConfidence,
+    eligibilityEvidence: elig.eligibilityEvidence,
+    eligibilityStatus: elig.eligibilityStatus,
   });
 }
 
@@ -128,7 +158,7 @@ export function parseOffersFromText(
     if (dePorInline && /POR/i.test(line)) {
       originalPrice = parseBrl(dePorInline[1]!);
       price = parseBrl(dePorInline[2]!);
-      rawText = lines.slice(Math.max(0, i - 5), i + 1).join("\n");
+      rawText = lines.slice(Math.max(0, i - 5), i + 3).join("\n");
       usedPriceLines.add(i);
       if (i > 0) usedPriceLines.add(i - 1);
     } else if (
@@ -140,7 +170,7 @@ export function parseOffersFromText(
       const deMatch = lines[i - 1]!.match(/([\d.,]+)/);
       originalPrice = deMatch ? parseBrl(deMatch[1]!) : undefined;
       price = parseBrl(por[1]!);
-      rawText = lines.slice(Math.max(0, i - 5), i + 1).join("\n");
+      rawText = lines.slice(Math.max(0, i - 5), i + 3).join("\n");
       usedPriceLines.add(i);
       usedPriceLines.add(i - 1);
     } else {
@@ -166,6 +196,9 @@ export function parseOffersFromText(
   for (let i = 0; i < lines.length; i++) {
     if (usedPriceLines.has(i)) continue;
     const line = lines[i]!;
+    if (/^\d{1,2}\s*[xX]\b/i.test(line) || /^ou\s+\d{1,2}\s*[xX]/i.test(line)) {
+      continue;
+    }
     const prices = extractPrices(line);
     if (!prices.length) continue;
 
@@ -173,7 +206,8 @@ export function parseOffersFromText(
     let price: number;
     let originalPrice: number | undefined;
 
-    if (prices.length >= 2) {
+    const nxish = /\d{1,2}\s*[xX]\b|à\s*vista|a\s*vista/i.test(line);
+    if (prices.length >= 2 && !nxish) {
       const sorted = [...prices].sort((a, b) => b - a);
       originalPrice = sorted[0];
       price = sorted[1]!;
@@ -203,7 +237,7 @@ export function parseOffersFromText(
     if (/^[\d\s.,/-]+$/.test(name)) continue;
 
     const qtyMatch = `${name}\n${line}`.match(QTY_RE);
-    const rawText = lines.slice(Math.max(0, i - 4), i + 1).join("\n");
+    const rawText = lines.slice(Math.max(0, i - 4), i + 3).join("\n");
 
     pushOffer(offers, seen, {
       name,

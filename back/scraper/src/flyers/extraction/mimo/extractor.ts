@@ -107,11 +107,12 @@ export class MimoVisionExtractor implements FlyerOfferExtractor {
 
         flyerLog.info(
           "AI_VISION",
-          `page ${page.pageNumber} model=${flyerConfig.mimoModel} offers=${parsed.offers.length} ${latencyMs}ms tokens=${json.usage?.total_tokens ?? "?"}`,
+          `page ${page.pageNumber} model=${flyerConfig.mimoModel} offers=${parsed.offers.length}/${parsed.rawCount} ${latencyMs}ms tokens=${json.usage?.total_tokens ?? "?"}`,
         );
 
         return {
           offers: parsed.offers,
+          rawCount: parsed.rawCount,
           rawResponse,
           provider: this.name,
           model: flyerConfig.mimoModel,

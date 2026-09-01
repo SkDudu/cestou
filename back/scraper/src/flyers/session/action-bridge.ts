@@ -178,6 +178,66 @@ export async function bindRecorder(
   await injectRecorder(page);
 }
 
+export type SelectAtPoint = {
+  selectors: string[];
+  label: string;
+  options: Array<{ value: string; label: string }>;
+};
+
+/** Native `<select>` under point — options never paint in JPEG preview. */
+export async function inspectSelectAt(
+  page: Page,
+  x: number,
+  y: number,
+): Promise<SelectAtPoint | null> {
+  return page.evaluate(
+    ({ x, y }) => {
+      const raw = document.elementFromPoint(x, y);
+      const el =
+        raw instanceof HTMLSelectElement
+          ? raw
+          : (raw?.closest?.("select") as HTMLSelectElement | null);
+      if (!el) return null;
+      const selectors: string[] = [];
+      if (el.id) {
+        try {
+          selectors.push(`#${CSS.escape(el.id)}`);
+        } catch {
+          selectors.push(`#${el.id}`);
+        }
+      }
+      if (el.name) selectors.push(`select[name="${el.name}"]`);
+      const aria = el.getAttribute("aria-label");
+      if (aria) selectors.push(`select[aria-label="${aria}"]`);
+      const cls = String(el.className || "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(".");
+      const css = "select" + (cls ? "." + cls : "");
+      if (cls) {
+        const same = Array.from(document.querySelectorAll(css));
+        const idx = same.indexOf(el);
+        if (idx >= 0) selectors.push(`${css} >> nth=${idx}`);
+        selectors.push(css);
+      }
+      if (!selectors.length) selectors.push("select");
+      const options = Array.from(el.options).map((o) => ({
+        value: o.value,
+        label: (o.textContent ?? "").trim() || o.value,
+      }));
+      const label =
+        aria ||
+        el.getAttribute("name") ||
+        el.id ||
+        "Selecione uma opção";
+      return { selectors, label, options };
+    },
+    { x, y },
+  );
+}
+
 /** Element under point → synthetic recorded click (after mouse.click). */
 export async function recordElementAt(
   page: Page,

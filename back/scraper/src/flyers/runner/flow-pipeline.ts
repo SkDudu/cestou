@@ -20,6 +20,7 @@ export type DiscoveredCandidate = {
 
 /** Listing index / skip-to-content — not a flyer document. */
 export function isJunkNavHref(u: string): boolean {
+  if (isPolicyDocHref(u)) return true;
   try {
     const url = new URL(u, "https://local.invalid");
     if (/content|main|primary|skip/i.test(url.hash.replace(/^#/, ""))) {
@@ -32,19 +33,54 @@ export function isJunkNavHref(u: string): boolean {
   }
 }
 
+/** Cookie / privacy / terms PDFs in footer — not an encarte. */
+export function isPolicyDocHref(u: string): boolean {
+  return /cookie|privacidade|privacy|lgpd|termos|pol[ií]tica/i.test(u);
+}
+
 export function isFlyerHref(u: string): boolean {
   if (!/^https?:\/\//i.test(u) && !u.startsWith("/")) return false;
   if (isJunkNavHref(u)) return false;
   if (/productcluster|productsquery|productgallery|vtexcommercestable|sku/i.test(u)) {
     return false;
   }
-  return /\/Flyer\/\?id=|\/Flyer\/thumbnail|\/flyer\/|flipbook|\/flip(\/|\?|$)|api-middleware-flyer-services|\/encartes\/|\.pdf(\?|$)/i.test(
+  if (/\.pdf(\?|#|$)/i.test(u)) return true;
+  // page images use isPersistableMedia — not doc hrefs (avoids /encarte/foo.jpg)
+  if (/\.(jpe?g|png|webp)(\?|#|$)/i.test(u)) return false;
+  // /encarte/ and /encartes/ (WP CPT singular + listing plural)
+  return /\/Flyer\/\?id=|\/Flyer\/thumbnail|\/flyer\/|flipbook|\/flip(\/|\?|$)|api-middleware-flyer-services|flyer-services|\/encartes?\//i.test(
+    u,
+  ) || /\/folhetos?\/|\/jornais?\//i.test(u);
+}
+
+/** CDN page image from flyer API (not product SKU). */
+export function isFlyerPageImageUrl(u: string): boolean {
+  if (!/^https?:\/\//i.test(u)) return false;
+  if (/productcluster|productsquery|sku|icon|logo|sprite|favicon|avatar|pixel/i.test(u)) {
+    return false;
+  }
+  if (!/\.(jpe?g|png|webp)(\?|$)/i.test(u)) return false;
+  return /jornal|encarte|oferta|flyer|catalog|folheto|flipbook|\/pages?\/|pagina|página|mercadapp|cloudfront|cdn/i.test(
     u,
   );
 }
 
+/** File PDF (href, query, or blob labeled pdf) — raster all pages; not a screenshot. */
+export function isPdfDocumentUrl(u: string): boolean {
+  if (!u) return false;
+  if (isPolicyDocHref(u)) return false;
+  if (/\.pdf(\?|#|$)/i.test(u)) return true;
+  if (/^blob:/i.test(u) && /pdf/i.test(u)) return true;
+  return false;
+}
+
 function isDocHref(u: string): boolean {
   return isFlyerHref(u) && !/\/Flyer\/thumbnail/i.test(u);
+}
+
+function asUrlList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === "string" && x.length > 8);
 }
 
 /** Walk JSON for flyer documents (not SKU images). */
@@ -55,6 +91,7 @@ export function collectFlyerDocsFromJson(
 ) {
   if (depth > 10 || out.length > 80) return;
   if (typeof obj === "string") {
+    // ponytail: page JPEGs are pages, not flyers — only file/API hrefs as docs
     if (isDocHref(obj)) out.push({ url: obj });
     return;
   }
@@ -70,6 +107,9 @@ export function collectFlyerDocsFromJson(
     (typeof rec.pdfUrl === "string" && rec.pdfUrl) ||
     (typeof rec.flyerUrl === "string" && rec.flyerUrl) ||
     (typeof rec.url_document === "string" && rec.url_document) ||
+    (typeof rec.fileUrl === "string" && rec.fileUrl) ||
+    (typeof rec.downloadUrl === "string" && rec.downloadUrl) ||
+    // ponytail: page JPEG in .url is a page, not a flyer record
     (typeof rec.url === "string" && isDocHref(rec.url) ? rec.url : "");
   const thumbs =
     typeof rec.urlFinalDocumentThumbnail === "string"
@@ -84,21 +124,31 @@ export function collectFlyerDocsFromJson(
         ? rec.title
         : undefined;
   const validity = rec.validity as { initial?: string; final?: string } | undefined;
-  const images =
-    rec.images_urls ?? rec.imagesUrls ?? rec.pages ?? rec.pageUrls ?? rec.images;
+  const images = asUrlList(
+    rec.images_urls ??
+      rec.imagesUrls ??
+      rec.pages ??
+      rec.pageUrls ??
+      rec.images ??
+      rec.urls ??
+      rec.files ??
+      rec.assets,
+  ).filter((u) => isDocHref(u) || isFlyerPageImageUrl(u) || /\.pdf(\?|$)/i.test(u));
   let pushed = false;
-  if (Array.isArray(images) && images.length && (rec.id || rec.name || rec.title)) {
-    const pages = images.filter((x): x is string => typeof x === "string");
-    if (pages.length) {
-      out.push({
-        url: doc || pages[0]!,
-        title,
-        thumbnail: thumbs,
-        validFrom: validity?.initial,
-        validUntil: validity?.final,
-      });
-      pushed = true;
-    }
+  if (
+    images.length >= 2 ||
+    (images.length && (rec.id || rec.name || rec.title || doc))
+  ) {
+    out.push({
+      url: doc || images[0]!,
+      title,
+      thumbnail: thumbs,
+      validFrom: validity?.initial,
+      validUntil: validity?.final,
+      pageUrls: images,
+      pdf: images.every((u) => /\.pdf(\?|$)/i.test(u)) || undefined,
+    });
+    pushed = true;
   } else if (doc) {
     out.push({
       url: doc,
@@ -106,11 +156,12 @@ export function collectFlyerDocsFromJson(
       thumbnail: thumbs,
       validFrom: validity?.initial,
       validUntil: validity?.final,
+      pdf: /\.pdf(\?|$)/i.test(doc) || undefined,
     });
     pushed = true;
   }
-  if (Array.isArray(rec.flyers)) {
-    collectFlyerDocsFromJson(rec.flyers, out, depth + 1);
+  if (Array.isArray(rec.flyers) || Array.isArray(rec.encartes) || Array.isArray(rec.jornais)) {
+    collectFlyerDocsFromJson(rec.flyers ?? rec.encartes ?? rec.jornais, out, depth + 1);
     return;
   }
   if (pushed) return;
@@ -133,34 +184,27 @@ export function attachNetworkHarvester(page: Page): {
       if (ct.includes("pdf") || (isDocHref(url) && ct.includes("octet-stream"))) {
         if (!seen.has(url)) {
           seen.add(url);
-          flyers.push({ url });
+          flyers.push({ url, pdf: true });
         }
         return;
       }
-      // Soft harvest: CDN/page images that look like encartes (Assaí etc.)
-      if (
-        ct.includes("image/") &&
-        /jornal|encarte|oferta|flyer|catalog|folheto|flipbook|\/pages?\//i.test(
-          url,
-        ) &&
-        !/sku|product|icon|logo|sprite|favicon|avatar/i.test(url)
-      ) {
-        if (!seen.has(url)) {
-          seen.add(url);
-          flyers.push({ url });
-        }
-        return;
-      }
+      // ponytail: bare CDN JPEG ≠ flyer. Pages come from JSON pageUrls or DOM after open.
+      if (ct.includes("image/")) return;
       if (!ct.includes("json")) return;
-      if (/product|graphql|analytics|gtm|collect/i.test(url)) return;
+      if (/product|graphql|analytics|gtm|collect|hotjar|sentry/i.test(url)) {
+        return;
+      }
       const json = await res.json().catch(() => null);
       if (!json) return;
       const batch: NetworkFlyerDoc[] = [];
       collectFlyerDocsFromJson(json, batch);
       for (const d of batch) {
-        if (seen.has(d.url)) continue;
-        seen.add(d.url);
-        flyers.push(d);
+        const key = d.pageUrls?.length
+          ? `${d.url}|${d.pageUrls.length}|${d.title ?? ""}`
+          : d.url;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        flyers.push({ ...d, sourceUrl: url });
       }
     } catch {
       /* ignore */
@@ -202,7 +246,7 @@ export async function scanDomFlyerCandidates(
 ): Promise<Array<{ url: string; id?: string; text?: string }>> {
   return page.evaluate((rootSel) => {
     const flyerRe =
-      /\/Flyer\/\?id=|\/Flyer\/thumbnail|\/flyer\/|flipbook|\/flip(\/|\?|$)|api-middleware-flyer-services|\/encartes\/|\.pdf(\?|$)/i;
+      /\/Flyer\/\?id=|\/Flyer\/thumbnail|\/flyer\/|flipbook|\/flip(\/|\?|$)|api-middleware-flyer-services|\/encartes?\/|\.pdf(\?|$)/i;
     const skipRe = /productcluster|productsquery|productgallery|sku/i;
     const isFlyer = (u: string) => flyerRe.test(u) && !skipRe.test(u);
     const root = rootSel ? document.querySelector(rootSel) : document;
@@ -286,32 +330,38 @@ export function buildCandidates(
   }
 
   for (const n of network) {
-    const key = flyerKey(n.url);
+    const pages = [
+      ...new Set([
+        ...(n.pageUrls?.length ? n.pageUrls : [n.url]),
+        ...(n.pdf || /\.pdf(\?|$)/i.test(n.url) ? [n.url] : []),
+      ]),
+    ].filter(Boolean);
+    const key = flyerKey(n.url) + (n.title ? `|${n.title}` : "");
     const existing = byKey.get(key);
     if (existing) {
-      if (isDocHref(n.url)) {
-        existing.originalUrl = n.url;
-        existing.pageUrls = [
-          n.url,
-          ...existing.pageUrls.filter((u) => u !== n.url),
-        ];
-        if (!existing.externalId) {
-          existing.externalId = flyerExternalId(n.url);
-        }
-      } else if (!existing.pageUrls.includes(n.url)) {
-        existing.pageUrls.push(n.url);
+      for (const u of pages) {
+        if (!existing.pageUrls.includes(u)) existing.pageUrls.push(u);
       }
+      if (isDocHref(n.url) || n.pdf) existing.originalUrl = n.url;
       if (n.title && !existing.title) existing.title = n.title;
       if (n.validFrom && !existing.validFrom) existing.validFrom = n.validFrom;
       if (n.validUntil && !existing.validUntil) existing.validUntil = n.validUntil;
       continue;
     }
-    if (dom.length) continue;
-    if (!isDocHref(n.url)) continue;
+    if (dom.length && !pages.some((u) => isDocHref(u) || isFlyerPageImageUrl(u))) {
+      continue;
+    }
+    if (
+      !isDocHref(n.url) &&
+      !n.pdf &&
+      !pages.some((u) => isDocHref(u) || isFlyerPageImageUrl(u))
+    ) {
+      continue;
+    }
     byKey.set(key, {
       originalUrl: n.url,
       title: n.title,
-      pageUrls: [n.url],
+      pageUrls: pages.length ? pages : [n.url],
       externalId: flyerExternalId(n.url),
       validFrom: n.validFrom,
       validUntil: n.validUntil,
@@ -319,7 +369,9 @@ export function buildCandidates(
   }
 
   return [...byKey.values()].filter(
-    (c) => isDocHref(c.originalUrl) || c.pageUrls.some(isDocHref),
+    (c) =>
+      isDocHref(c.originalUrl) ||
+      c.pageUrls.some((u) => isDocHref(u) || isFlyerPageImageUrl(u)),
   );
 }
 
@@ -327,7 +379,7 @@ export async function persistDiscovered(
   state: FlowState,
   candidates: DiscoveredCandidate[],
   opts?: { allowImages?: boolean },
-): Promise<{ created: number; ids: string[] }> {
+): Promise<{ created: number; duplicates: number; ids: string[] }> {
   const allowImages = opts?.allowImages ?? false;
   const ok = (u: string) =>
     allowImages
@@ -352,6 +404,7 @@ export async function persistDiscovered(
 
   const ids: string[] = [];
   let created = 0;
+  let duplicates = 0;
   const say = state.onLog;
   if (!state.capturedPages) state.capturedPages = new Map();
   for (const c of candidates) {
@@ -362,6 +415,9 @@ export async function persistDiscovered(
       (ok(c.originalUrl) ? c.originalUrl : undefined) ||
       pages[0];
     if (!original || (!pages.length && !c.pageBuffers?.length)) {
+      say?.(
+        `[DISCOVER] skip (sem mídia persistível) → ${c.title ?? c.originalUrl}`,
+      );
       continue;
     }
     const originalUrl = original;
@@ -391,11 +447,12 @@ export async function persistDiscovered(
         `[DISCOVER] novo flyer → ${c.title ?? originalUrl} (${pageUrls.length} pág${c.pageBuffers?.length ? ` +${c.pageBuffers.length} buf` : ""})`,
       );
     } else {
+      duplicates++;
       say?.(
         `[DISCOVER] já existia → ${c.title ?? originalUrl}`,
       );
     }
   }
   state.discoveredFlyerIds.push(...ids);
-  return { created, ids };
+  return { created, duplicates, ids };
 }

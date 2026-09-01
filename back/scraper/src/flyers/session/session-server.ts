@@ -1,11 +1,13 @@
 import http from "node:http";
 import { flyerLog } from "../core/flyer-logger.js";
 import { runSchedulerLoop } from "../jobs/flow-scheduler.js";
+import { reanalyzeFlyer } from "../jobs/flyer-reanalyze.js";
 import { executeFlowById } from "../runner/execute-flow.js";
 import {
   addSemantic,
   analyzeSession,
   clearScopeHighlight,
+  chooseSelectOption,
   clickAt,
   confirmScope,
   createSession,
@@ -16,9 +18,11 @@ import {
   locateFlyersWithMimo,
   pickScope,
   pressKey,
+  previewDiscover,
   probeScope,
   removeAction,
   saveSession,
+  skipPreviewFlyer,
   scrollSession,
   setRecording,
   subscribe,
@@ -90,6 +94,7 @@ export function startSessionServer() {
   const host = process.env.BROWSER_SESSION_HOST ?? "127.0.0.1";
   const port = Number(process.env.BROWSER_SESSION_PORT ?? 8791);
   let runBusy = false;
+  let extractBusy = false;
   let activeAbort: AbortController | null = null;
 
   const server = http.createServer(async (req, res) => {
@@ -184,6 +189,48 @@ export function startSessionServer() {
         } finally {
           activeAbort = null;
           runBusy = false;
+          res.end();
+        }
+        return;
+      }
+
+      /** Re-parse flyer pages with Mimo — no scrape. */
+      if (req.method === "POST" && path === "/extract") {
+        const body = (await readJson(req)) as {
+          flyerId?: string;
+          pages?: number[];
+          includeLocked?: boolean;
+        };
+        if (!body.flyerId) {
+          sendJson(res, 400, { error: "flyerId required" });
+          return;
+        }
+        if (extractBusy) {
+          sendJson(res, 409, { error: "Another extract is in progress" });
+          return;
+        }
+        extractBusy = true;
+        const send = startSse(res);
+        try {
+          await reanalyzeFlyer({
+            flyerId: body.flyerId,
+            pages: body.pages,
+            includeLocked: body.includeLocked,
+            onEvent: (ev) => send(ev),
+          });
+        } catch (err) {
+          send({
+            type: "done",
+            ok: false,
+            updated: 0,
+            locked: 0,
+            pages: [],
+            diffs: [],
+            error: String(err),
+            ts: Date.now(),
+          });
+        } finally {
+          extractBusy = false;
           res.end();
         }
         return;
@@ -292,6 +339,8 @@ export function startSessionServer() {
           x?: number;
           y?: number;
           ancestorIndex?: number;
+          selectors?: string[];
+          label?: string;
         };
         const pick = await pickScope(sessionId, body);
         sendJson(res, 200, pick);
@@ -299,9 +348,69 @@ export function startSessionServer() {
       }
 
       if (req.method === "POST" && action === "locate-flyers") {
-        await readJson(req);
-        const result = await locateFlyersWithMimo(sessionId);
+        const body = (await readJson(req)) as {
+          hint?: string;
+          selectedStep?: {
+            kind?: string;
+            selectors?: string[];
+            description?: string;
+            value?: string;
+          };
+        };
+        const result = await locateFlyersWithMimo(sessionId, {
+          hint: body.hint,
+          selectedStep: body.selectedStep
+            ? {
+                kind: body.selectedStep.kind ?? "click",
+                selectors: body.selectedStep.selectors,
+                description: body.selectedStep.description,
+                value: body.selectedStep.value,
+              }
+            : undefined,
+        });
         sendJson(res, 200, result);
+        return;
+      }
+
+      if (req.method === "POST" && action === "preview-discover") {
+        await readJson(req);
+        const send = startSse(res);
+        send({ type: "log", line: "teste encartes…", ts: Date.now() });
+        try {
+          const result = await previewDiscover(sessionId, (line) =>
+            send({ type: "log", line, ts: Date.now() }),
+          );
+          send({
+            type: "done",
+            ok: result.flyers.length > 0,
+            flyers: result.flyers,
+            ts: Date.now(),
+          });
+        } catch (err) {
+          send({
+            type: "done",
+            ok: false,
+            error: String(err).replace(/^Error:\s*/, ""),
+            flyers: [],
+            ts: Date.now(),
+          });
+        } finally {
+          res.end();
+        }
+        return;
+      }
+
+      if (req.method === "POST" && action === "skip-flyer") {
+        const body = (await readJson(req)) as {
+          add?: string[];
+          remove?: string[];
+        };
+        if (!body.add?.length && !body.remove?.length) {
+          sendJson(res, 400, { error: "add or remove required" });
+          return;
+        }
+        const result = skipPreviewFlyer(sessionId, body);
+        sendJson(res, 200, { ok: true, ...result });
         return;
       }
 
@@ -368,8 +477,31 @@ export function startSessionServer() {
           sendJson(res, 400, { error: "x,y required" });
           return;
         }
-        await clickAt(sessionId, body.x, body.y);
-        sendJson(res, 200, { ok: true });
+        const result = await clickAt(sessionId, body.x, body.y);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (req.method === "POST" && action === "select-option") {
+        const body = (await readJson(req)) as {
+          selectors?: string[];
+          value?: string;
+          label?: string;
+        };
+        if (!body.selectors?.length) {
+          sendJson(res, 400, { error: "selectors required" });
+          return;
+        }
+        if (body.value == null && !body.label) {
+          sendJson(res, 400, { error: "value or label required" });
+          return;
+        }
+        const result = await chooseSelectOption(sessionId, {
+          selectors: body.selectors,
+          value: body.value ?? "",
+          label: body.label,
+        });
+        sendJson(res, 200, result);
         return;
       }
 

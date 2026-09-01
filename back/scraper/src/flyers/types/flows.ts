@@ -20,6 +20,12 @@ export type NetworkFlyerDoc = {
   thumbnail?: string;
   validFrom?: string;
   validUntil?: string;
+  /** Set when response Content-Type was PDF (URL may lack .pdf). */
+  pdf?: boolean;
+  /** Page image/PDF URLs from API JSON (prefer over single url). */
+  pageUrls?: string[];
+  /** Response URL that produced this doc — for networkHints.urlIncludes. */
+  sourceUrl?: string;
 };
 
 export type FlowState = {
@@ -73,18 +79,35 @@ export type FlyerDownloadStrategy =
   | "harvest-after-activate"
   | "click-download";
 
+/** How pages load inside an open flyer viewer (teach pass2 / runtime). */
+export type FlyerViewerMode =
+  | "one-page"
+  | "img-stack"
+  | "lazy-scroll"
+  | "pdf";
+
 export type FlyerSource = {
   kind: FlyerSourceKind;
   itemSelectors?: string[];
   /** Buttons/links that download the flyer PDF (Assaí "Baixar" etc.). */
   downloadSelectors?: string[];
+  /** Next/ver-mais/swiper arrows — discover clicks these to load more items or pages. */
+  pagerSelectors?: string[];
   urlFrom?: "href" | "img.src" | "data-attr" | "network" | "click-then-network";
   networkHints?: {
     urlIncludes?: string[];
     jsonKeys?: string[];
   };
   downloadStrategy: FlyerDownloadStrategy;
+  /**
+   * Viewer page pattern (modal). Not flyer count — runtime still counts.
+   * one-page = single image/canvas; img-stack = many img URLs in DOM;
+   * lazy-scroll = new img src after scroll; pdf = file PDF.
+   */
+  viewerMode?: FlyerViewerMode;
   evidence?: string;
+  /** originalUrl / title rejected in teach test — discover skips these. */
+  skipKeys?: string[];
 };
 
 /** Compact DOM dump for MiMo teach — not full page/webpack. */

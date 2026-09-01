@@ -9,6 +9,7 @@ import {
   tokensMatch,
 } from "./clientLib";
 import type { Id } from "./_generated/dataModel";
+import { publicCondition, publicPayment } from "./offerEligibility";
 
 export const searchOffers = query({
   args: {
@@ -57,13 +58,16 @@ export const searchOffers = query({
         brand?: string;
         quantity?: string;
         unit?: string;
-        prices: {
-          offerId: Id<"offers">;
-          supermarketId: Id<"supermarkets">;
-          supermarketName: string;
-          price: number;
-          originalPrice?: number;
-        }[];
+        prices: Array<
+          {
+            offerId: Id<"offers">;
+            supermarketId: Id<"supermarkets">;
+            supermarketName: string;
+            price: number;
+            originalPrice?: number;
+            condition: ReturnType<typeof publicCondition>;
+          } & ReturnType<typeof publicPayment>
+        >;
       }
     >();
 
@@ -89,6 +93,8 @@ export const searchOffers = query({
         supermarketName: storeName.get(o.supermarketId) ?? "—",
         price: o.price,
         originalPrice: o.originalPrice,
+        condition: publicCondition(o),
+        ...publicPayment(o),
       });
     }
 
@@ -114,7 +120,7 @@ export const getOffer = query({
     if (!offer || offer.validationStatus !== "validated") return null;
     const supermarket = await ctx.db.get(offer.supermarketId);
     const flyer = await ctx.db.get(offer.flyerId);
-    return { ...offer, supermarket, flyer };
+    return { ...offer, supermarket, flyer, condition: publicCondition(offer) };
   },
 });
 
@@ -202,7 +208,7 @@ export const listFlyerOffers = query({
     return {
       flyer,
       supermarket,
-      offers: list,
+      offers: list.map((o) => ({ ...o, condition: publicCondition(o) })),
     };
   },
 });
@@ -250,6 +256,8 @@ export const listHomeOffers = query({
         discountPercentage: o.discountPercentage,
         supermarketId: o.supermarketId,
         supermarketName: storeName.get(o.supermarketId) ?? "—",
+        condition: publicCondition(o),
+        ...publicPayment(o),
       }));
   },
 });

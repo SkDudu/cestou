@@ -152,12 +152,28 @@ function workerSlug(name: string) {
   return slug.startsWith("wrk_") ? slug : `wrk_${slug || "flow"}`;
 }
 
+function sourceKinds(startUrl: string, types: string[]): string[] {
+  const kinds = new Set<string>();
+  for (const t of types) {
+    if (t === "dynamic") kinds.add("api");
+    else if (t === "pdf") kinds.add("pdf");
+    else kinds.add("html");
+  }
+  if (!kinds.size) {
+    kinds.add(/\.pdf(\?|$)/i.test(startUrl) ? "pdf" : "html");
+  }
+  return [...kinds];
+}
+
 function opsStatus(
   flowStatus: string,
   lastStatus: string | undefined,
   jobs24h: number,
 ): "running" | "queue" | "review" | "fail" {
-  if (flowStatus === "error" || lastStatus === "failed") return "fail";
+  if (flowStatus === "error") return "fail";
+  if (lastStatus === "cancelled") return "queue";
+  if (lastStatus === "duplicate") return "review";
+  if (lastStatus === "failed") return "fail";
   if (lastStatus === "running") return "running";
   if (lastStatus === "partial" || flowStatus === "testing") return "review";
   if (flowStatus === "active" && jobs24h > 0) return "running";
@@ -176,7 +192,7 @@ export const overview = query({
       return d.getTime();
     };
 
-    const [flows, flyers, offers, runs, errors] = await Promise.all([
+    const [flows, flyers, offers, runs, errors, sources] = await Promise.all([
       ctx.db.query("scraperFlows").collect(),
       ctx.db.query("flyers").collect(),
       ctx.db.query("offers").collect(),
@@ -185,9 +201,16 @@ export const overview = query({
         .query("flyerErrors")
         .withIndex("by_status", (q) => q.eq("status", "open"))
         .collect(),
+      ctx.db.query("flyerSources").collect(),
     ]);
     const supermarkets = await ctx.db.query("supermarkets").collect();
     const names = new Map(supermarkets.map((s) => [s._id, s.name]));
+    const sourcesByMarket = new Map<string, string[]>();
+    for (const s of sources) {
+      const list = sourcesByMarket.get(s.supermarketId) ?? [];
+      list.push(s.type);
+      sourcesByMarket.set(s.supermarketId, list);
+    }
 
     const weekAgo = now - 7 * DAY;
     const twoWeeksAgo = now - 14 * DAY;
@@ -242,7 +265,9 @@ export const overview = query({
       flowRuns.sort((a, b) => b.startedAt - a.startedAt);
       const last = flowRuns[0];
       const last24 = flowRuns.filter((r) => r.startedAt >= now - DAY);
-      const ok = last24.filter((r) => r.status === "success").length;
+      const ok = last24.filter(
+        (r) => r.status === "success" || r.status === "duplicate",
+      ).length;
       const taxa = last24.length ? ok / last24.length : null;
       return {
         _id: flow._id,
@@ -251,8 +276,22 @@ export const overview = query({
         supermarketName: names.get(flow.supermarketId) ?? "—",
         jobs24h: last24.length,
         taxa,
-        status: opsStatus(flow.status, last?.status, last24.length),
+        status: opsStatus(
+          flow.status,
+          last?.status === "failed" && last.error === "cancelled"
+            ? "cancelled"
+            : last?.error === "duplicate"
+              ? "duplicate"
+              : last?.status,
+          last24.length,
+        ),
         flowStatus: flow.status,
+        startUrl: flow.startUrl,
+        lastRunAt: flow.lastRunAt ?? last?.finishedAt ?? last?.startedAt,
+        sourceKinds: sourceKinds(
+          flow.startUrl,
+          sourcesByMarket.get(flow.supermarketId) ?? [],
+        ),
       };
     });
     workerRows.sort((a, b) => b.jobs24h - a.jobs24h);

@@ -15,6 +15,8 @@ import {
   Panel,
   Skeleton,
 } from "@/components/ui";
+import { ConditionBadge } from "@/components/ConditionBadge";
+import { PaymentNote } from "@/components/PaymentNote";
 
 export default function BuscaPage() {
   const { userId } = useSession();
@@ -143,7 +145,15 @@ export default function BuscaPage() {
                       <span className="text-[var(--muted)]">
                         {p.supermarketName}
                       </span>
-                      <Money value={p.price} />
+                      <span className="text-right">
+                        <Money value={p.price} />
+                        <PaymentNote
+                          installmentCount={p.installmentCount}
+                          installmentAmount={p.installmentAmount}
+                          installmentInterestFree={p.installmentInterestFree}
+                        />
+                        <ConditionBadge condition={p.condition} showAll />
+                      </span>
                     </li>
                   ))}
                 </ul>

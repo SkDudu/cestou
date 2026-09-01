@@ -6,6 +6,7 @@ import type {
   FlyerDownloadStrategy,
   FlyerSource,
   FlyerSourceKind,
+  FlyerViewerMode,
   NetworkFlyerDoc,
   StepConfig,
 } from "../types/flows.js";
@@ -13,10 +14,13 @@ import { detectContentType } from "../core/flyer-downloader.js";
 import {
   buildCandidates,
   isFlyerHref,
+  isFlyerPageImageUrl,
   isJunkNavHref,
+  isPdfDocumentUrl,
   scanDomFlyerCandidates,
   type DiscoveredCandidate,
 } from "./flow-pipeline.js";
+import { parseValidity } from "../core/validity.js";
 
 const KINDS = new Set<FlyerSourceKind>([
   "tabs",
@@ -34,6 +38,13 @@ const STRATEGIES = new Set<FlyerDownloadStrategy>([
   "open-each-item",
   "harvest-after-activate",
   "click-download",
+]);
+
+const VIEWER_MODES = new Set<FlyerViewerMode>([
+  "one-page",
+  "img-stack",
+  "lazy-scroll",
+  "pdf",
 ]);
 
 /** App store / promo CTAs — never flyer downloads. */
@@ -69,6 +80,30 @@ export function filterFlyerDownloadButtons<
  * Drop per-tab instance selectors ("Jornal 1", data-oferta-index="31").
  * Tab defaults only when kind is tabs/carousel.
  */
+const CTA_PREFIX =
+  /^(Ver\s+encarte|Ver\s+oferta|Ver\s+folheto|Abrir\s+cat[aá]logo|Ver\s+jornal(?:\s+de\s+ofertas)?)/i;
+
+/** Unique aria-label / long has-text → prefix so open-each-item loops all cards. */
+function generalizeItemSelector(sel: string): string | undefined {
+  const aria = sel.match(
+    /\[aria-label(?:\*=|\^=|=)(["'])((?:\\.|(?!\1).)*)\1\]/i,
+  );
+  if (aria) {
+    const val = aria[2]!.replace(/\\(.)/g, "$1");
+    const m = val.match(CTA_PREFIX);
+    if (m) return `[aria-label^="${m[1]}"]`;
+    if (val.length > 28 || /\d{1,2}\s*\/\s*\d{1,2}/.test(val)) return "";
+  }
+  const ht = sel.match(/:has-text\("([^"]+)"\)/);
+  if (ht?.[1]) {
+    const m = ht[1].match(CTA_PREFIX);
+    if (m && ht[1].length > m[1].length + 1) {
+      return sel.replace(ht[1], m[1]);
+    }
+  }
+  return undefined;
+}
+
 export function sanitizeItemSelectors(
   sels: string[] | undefined,
   opts?: { kind?: FlyerSourceKind },
@@ -83,7 +118,14 @@ export function sanitizeItemSelectors(
       continue;
     }
     if (/^text=/.test(sel) && /\d/.test(sel)) continue;
+    if (/:nth-(?:child|of-type)\(/.test(sel)) continue;
     if (/button\.selecionado|\.selecionado\b/.test(sel)) continue;
+    const gen = generalizeItemSelector(sel);
+    if (gen === "") continue;
+    if (gen) {
+      out.push(gen);
+      continue;
+    }
     const m = sel.match(/:has-text\("([^"]+)"\)/);
     if (m?.[1] && /\d+\s*$/.test(m[1])) {
       const base = m[1].replace(/\s+\d+\s*$/, "").trim();
@@ -95,9 +137,14 @@ export function sanitizeItemSelectors(
   const forceTabs = opts?.kind === "tabs" || opts?.kind === "carousel";
   let cleaned = [...new Set(out)];
   if (forceTabs) {
-    cleaned = [
-      ...new Set(['[role="tab"]', "[data-oferta-index]", ...cleaned]),
-    ];
+    const extras: string[] = [];
+    if (cleaned.some((s) => /data-oferta-index/.test(s))) {
+      extras.push("[data-oferta-index]");
+    }
+    if (cleaned.some((s) => /role=["']?tab/.test(s))) {
+      extras.push('[role="tab"]');
+    }
+    cleaned = [...new Set([...extras, ...cleaned])];
   } else {
     // pdf-links / image-grid: strip Assaí defaults that sanitize used to force
     cleaned = cleaned.filter(
@@ -122,6 +169,84 @@ export function sanitizeDownloadSelectors(
   return out.length ? [...new Set(out)].slice(0, 6) : undefined;
 }
 
+const ARCHIVE_TITLE_RE =
+  /anteriores|arquiv|edi[cç][oõ]es?\s+passad|encartes?\s+antig/i;
+
+const DATE_TOKEN_RE =
+  /(\d{1,2})\s*[./-]\s*(\d{1,2})(?:\s*[./-]\s*(\d{2,4}))?/g;
+const DATE_RANGE_RE =
+  /(\d{1,2}\s*[./-]\s*\d{1,2}(?:\s*[./-]\s*\d{2,4})?)\s+a\s+(\d{1,2}\s*[./-]\s*\d{1,2}(?:\s*[./-]\s*\d{2,4})?)/i;
+
+function toSlashDate(raw: string): string | undefined {
+  const m = raw
+    .trim()
+    .match(/^(\d{1,2})\s*[./-]\s*(\d{1,2})(?:\s*[./-]\s*(\d{2,4}))?$/);
+  if (!m) return undefined;
+  return m[3] ? `${m[1]}/${m[2]}/${m[3]}` : `${m[1]}/${m[2]}`;
+}
+
+/** Skip listing cards under archive copy or with validUntil already past. */
+export function skipStaleFlyerTitle(title: string, now = Date.now()): boolean {
+  if (ARCHIVE_TITLE_RE.test(title)) return true;
+  const range = title.match(DATE_RANGE_RE);
+  const tokens = range
+    ? [range[2]!]
+    : [...title.matchAll(DATE_TOKEN_RE)].map((m) => m[0]!);
+  const last = tokens[tokens.length - 1];
+  if (!last) return false;
+  const slash = toSlashDate(last);
+  if (!slash) return false;
+  const until = parseValidity(slash, undefined, "until");
+  return until !== undefined && until < now;
+}
+
+/** Teach-test denylist: originalUrl and/or title. */
+export function dropSkipped(
+  cands: Array<{ originalUrl: string; title?: string }>,
+  skipKeys: string[] | undefined,
+  onLog?: (line: string) => void,
+): typeof cands {
+  const keys = cleanSkipKeys(skipKeys);
+  if (!keys?.length) return cands;
+  const set = new Set(keys.map((s) => s.toLowerCase()));
+  const kept = cands.filter((c) => {
+    const url = c.originalUrl.trim().toLowerCase();
+    const title = (c.title ?? "").trim().toLowerCase();
+    return !set.has(url) && !(title && set.has(title));
+  });
+  const n = cands.length - kept.length;
+  if (n) onLog?.(`[FLYER] skip ${n} rejeitado(s) no teste`);
+  return kept;
+}
+
+/** Generic listing CTAs — teach pass 1 can save without opening one card. */
+export function listingSelectorsReadyToLoop(sels: string[]): boolean {
+  if (!sels.length) return false;
+  const blob = sels.join(" ");
+  if (
+    /data-oferta-index|role=["']?tab|:has-text\("Ver |aria-label\^=/i.test(blob)
+  ) {
+    return true;
+  }
+  const cleaned = sanitizeItemSelectors(sels, { kind: "image-grid" });
+  return Boolean(
+    cleaned?.some((s) => /:has-text\("Ver /i.test(s) || /aria-label\^=/.test(s)),
+  );
+}
+
+function cleanSkipKeys(keys: unknown): string[] | undefined {
+  if (!Array.isArray(keys)) return undefined;
+  const out = [
+    ...new Set(
+      keys
+        .filter((x): x is string => typeof x === "string")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && s !== "(sem título)"),
+    ),
+  ].slice(0, 40);
+  return out.length ? out : undefined;
+}
+
 export function sanitizeFlyerSource(source: FlyerSource): FlyerSource {
   return {
     ...source,
@@ -129,7 +254,9 @@ export function sanitizeFlyerSource(source: FlyerSource): FlyerSource {
       kind: source.kind,
     }),
     downloadSelectors: sanitizeDownloadSelectors(source.downloadSelectors),
+    pagerSelectors: sanitizeDownloadSelectors(source.pagerSelectors),
     evidence: source.evidence?.slice(0, 160),
+    skipKeys: cleanSkipKeys(source.skipKeys),
   };
 }
 
@@ -181,6 +308,16 @@ export function parseFlyerSource(raw: unknown): FlyerSource | undefined {
         (x): x is string => typeof x === "string" && x.trim().length > 0,
       )
     : undefined;
+  const pagerSelectors = Array.isArray(o.pagerSelectors)
+    ? o.pagerSelectors.filter(
+        (x): x is string => typeof x === "string" && x.trim().length > 0,
+      )
+    : undefined;
+  const viewerMode =
+    typeof o.viewerMode === "string" &&
+    VIEWER_MODES.has(o.viewerMode as FlyerViewerMode)
+      ? (o.viewerMode as FlyerViewerMode)
+      : undefined;
 
   return sanitizeFlyerSource({
     kind,
@@ -188,51 +325,11 @@ export function parseFlyerSource(raw: unknown): FlyerSource | undefined {
     urlFrom,
     itemSelectors: itemSelectors?.length ? itemSelectors : undefined,
     downloadSelectors: downloadSelectors?.length ? downloadSelectors : undefined,
+    pagerSelectors: pagerSelectors?.length ? pagerSelectors : undefined,
     networkHints,
+    viewerMode,
     evidence: typeof o.evidence === "string" ? o.evidence.slice(0, 240) : undefined,
-  });
-}
-
-export function urlsLookLikePdfFile(urls: string[]): boolean {
-  return urls.some(
-    (u) =>
-      /\.pdf(\?|$)/i.test(u) ||
-      /\/Flyer\//i.test(u) ||
-      /flipbook/i.test(u),
-  );
-}
-
-/** MiMo labels jpeg viewers as PDF. No real .pdf in dump → images. */
-export function preferImagesUnlessPdf(
-  source: FlyerSource,
-  hints?: {
-    links?: string[];
-    downloadButtons?: Array<{ text: string; href?: string; selectors?: string[] }>;
-  },
-): FlyerSource {
-  if (!hints) return source;
-  const hrefs = [
-    ...(hints?.links ?? []),
-    ...(hints?.downloadButtons ?? []).map((b) => b.href ?? ""),
-  ];
-  if (
-    hasProvenFileDownload(hints?.downloadButtons ?? []) ||
-    urlsLookLikePdfFile(hrefs)
-  ) {
-    return source;
-  }
-  const pdfGuess =
-    source.kind === "pdf-links" ||
-    source.downloadStrategy === "direct-url" ||
-    source.urlFrom === "href";
-  if (!pdfGuess) return source;
-  const loop = Boolean(source.itemSelectors?.length);
-  return sanitizeFlyerSource({
-    ...source,
-    kind: "image-grid",
-    downloadStrategy: loop ? "open-each-item" : "collect-images",
-    urlFrom: loop ? "click-then-network" : "img.src",
-    evidence: `${source.evidence ?? ""} | no .pdf in dump → images`.slice(0, 160),
+    skipKeys: cleanSkipKeys(o.skipKeys),
   });
 }
 
@@ -261,47 +358,76 @@ export function hasTextNeedles(sels: string[]): string[] {
   return [...new Set(out)];
 }
 
-/** Saved card-loop flows: keep recorded itemSelectors, force open-each-item. */
-export function coerceOpenEachIfCardCta(cfg: StepConfig): FlyerSource {
-  const prev = resolveFlyerSource(cfg);
-  const blob = [
-    cfg.description,
-    ...(prev.itemSelectors ?? []),
-    prev.evidence,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const looksCard =
-    /ver\s+\S{3,}|has-text\("/i.test(blob) ||
-    Boolean(prev.itemSelectors?.some((s) => /:has-text\(/.test(s)));
-  if (!looksCard) return prev;
-  const itemSelectors = cardItemSelectors(prev.itemSelectors ?? []);
-  if (prev.downloadStrategy === "open-each-item") {
-    return sanitizeFlyerSource({
-      ...prev,
-      itemSelectors: itemSelectors.length ? itemSelectors : prev.itemSelectors,
-    });
-  }
-  return sanitizeFlyerSource({
-    kind: "image-grid",
-    downloadStrategy: "open-each-item",
-    urlFrom: "click-then-network",
-    itemSelectors: itemSelectors.length ? itemSelectors : prev.itemSelectors,
-    downloadSelectors: prev.downloadSelectors,
-    networkHints: prev.networkHints,
-    evidence: (prev.evidence ?? "") + " | run: card CTA → open-each-item",
-  });
-}
-
 export function allowsImageUrls(source: FlyerSource): boolean {
   return (
     source.downloadStrategy === "collect-images" ||
     source.downloadStrategy === "open-each-item" ||
     source.downloadStrategy === "click-download" ||
+    source.downloadStrategy === "harvest-after-activate" ||
     source.kind === "image-grid" ||
     source.kind === "tabs" ||
     source.kind === "carousel" ||
-    source.kind === "react-viewer"
+    source.kind === "react-viewer" ||
+    source.kind === "api-json"
+  );
+}
+
+/** Network docs rich enough to skip modal JPEG harvest. */
+export function networkDocsAreRich(network: NetworkFlyerDoc[]): boolean {
+  return pruneBarePageImageDocs(network).some(
+    (n) =>
+      Boolean(n.pdf) ||
+      /\.pdf(\?|#|$)/i.test(n.url) ||
+      (n.pageUrls?.length ?? 0) >= 2 ||
+      (n.pageUrls?.length === 1 &&
+        /\.(jpe?g|png|webp|pdf)(\?|$)/i.test(n.pageUrls[0]!)),
+  );
+}
+
+/** Real flyer record vs lone page JPEG mistaken for a flyer. */
+export function isBarePageImageDoc(n: {
+  url: string;
+  title?: string;
+  pdf?: boolean;
+  pageUrls?: string[];
+}): boolean {
+  if (n.pdf || n.title) return false;
+  if ((n.pageUrls?.length ?? 0) >= 2) return false;
+  if (isFlyerHref(n.url) && !isFlyerPageImageUrl(n.url)) return false;
+  if (isFlyerPageImageUrl(n.url)) return true;
+  const only = n.pageUrls?.length === 1 ? n.pageUrls[0]! : "";
+  return Boolean(only && isFlyerPageImageUrl(only));
+}
+
+export function pruneBarePageImageDocs<
+  T extends { url: string; title?: string; pdf?: boolean; pageUrls?: string[] },
+>(network: T[]): T[] {
+  return network.filter((n) => !isBarePageImageDoc(n));
+}
+
+/** Prefer titled / multi-page / PDF records when those exist. */
+export function groupedNetworkDocs(
+  network: NetworkFlyerDoc[],
+): NetworkFlyerDoc[] {
+  const cleaned = pruneBarePageImageDocs(network);
+  const grouped = cleaned.filter(
+    (n) =>
+      (n.pageUrls?.length ?? 0) >= 2 ||
+      Boolean(n.title) ||
+      Boolean(n.pdf) ||
+      isFlyerHref(n.url),
+  );
+  return grouped.length ? grouped : cleaned;
+}
+
+export function candidatesFromNetwork(
+  network: NetworkFlyerDoc[],
+  source: FlyerSource,
+): DiscoveredCandidate[] {
+  const net = groupedNetworkDocs(filterNet(network, source, true));
+  if (!net.length) return [];
+  return buildLooseCandidates([], net, true).filter(
+    (c) => c.pageUrls.length > 0,
   );
 }
 
@@ -324,6 +450,17 @@ function matchesNetworkHints(url: string, source: FlyerSource): boolean {
   return hints.some((h) => low.includes(h.toLowerCase()));
 }
 
+/** Pull url(...) from CSS background-image (Elementor gallery tiles). */
+export function urlsFromBackgroundImageCss(css: string): string[] {
+  const out: string[] = [];
+  const re = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(css))) {
+    if (m[1]) out.push(m[1]);
+  }
+  return out;
+}
+
 export async function scanDomImageCandidates(
   page: Page,
   scopeSelector?: string,
@@ -335,28 +472,60 @@ export async function scanDomImageCandidates(
     if (!root) return [];
     const out: Array<{ url: string; id?: string; text?: string }> = [];
     const seen = new Set<string>();
+    const push = (raw: string | null | undefined, text?: string) => {
+      if (!raw || raw.startsWith("data:") || skipRe.test(raw)) return;
+      let abs = raw;
+      try {
+        abs = new URL(raw, location.href).href;
+      } catch {
+        return;
+      }
+      if (seen.has(abs)) return;
+      if (!/\.(jpe?g|png|webp)(\?|$)/i.test(abs) && !/encarte|flyer|jornal|wp-content\/uploads/i.test(abs)) {
+        return;
+      }
+      seen.add(abs);
+      out.push({ url: abs, text: (text ?? "").trim().slice(0, 80) });
+    };
     for (const el of Array.from(root.querySelectorAll("img[src]"))) {
       const href = el.getAttribute("src") ?? "";
-      if (!href || href.startsWith("data:")) continue;
-      let abs = href;
-      try {
-        abs = new URL(href, location.href).href;
-      } catch {
-        continue;
-      }
-      if (seen.has(abs) || skipRe.test(abs)) continue;
       const img = el as HTMLImageElement;
       const w = img.naturalWidth || img.width || 0;
       const h = img.naturalHeight || img.height || 0;
       if (w > 0 && h > 0 && (w < 180 || h < 180)) continue;
-      seen.add(abs);
-      out.push({
-        url: abs,
-        text: (img.getAttribute("alt") ?? img.getAttribute("title") ?? "")
-          .trim()
-          .slice(0, 80),
-      });
+      push(
+        href,
+        img.getAttribute("alt") ?? img.getAttribute("title") ?? "",
+      );
       if (out.length >= 40) break;
+    }
+    // Gallery tiles: a[href]=page jpeg/pdf + div bg / data-thumbnail
+    if (out.length < 40) {
+      for (const a of Array.from(
+        root.querySelectorAll(
+          'a.e-gallery-item[href], a.elementor-gallery-item[href], [class*="gallery"] a[href]',
+        ),
+      )) {
+        push(a.getAttribute("href"));
+        if (out.length >= 40) break;
+      }
+      for (const el of Array.from(
+        root.querySelectorAll(
+          '.e-gallery-image, [class*="gallery-item__image"], [class*="gallery-item"], [data-thumbnail]',
+        ),
+      )) {
+        push(el.getAttribute("data-thumbnail"));
+        push(el.getAttribute("data-src"));
+        push(el.getAttribute("data-full"));
+        const inline = (el as HTMLElement).style?.backgroundImage ?? "";
+        const computed = window.getComputedStyle(el).backgroundImage;
+        for (const css of [inline, computed]) {
+          const re = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(css))) push(m[1]);
+        }
+        if (out.length >= 40) break;
+      }
     }
     return out;
   }, scopeSelector ?? null);
@@ -368,8 +537,11 @@ function filterNet(
   allowImages: boolean,
 ): NetworkFlyerDoc[] {
   return network.filter((n) => {
-    if (!matchesNetworkHints(n.url, source)) return false;
-    return isPersistableMedia(n.url, allowImages);
+    const urls = [n.url, n.sourceUrl, ...(n.pageUrls ?? [])].filter(
+      (u): u is string => Boolean(u),
+    );
+    if (!urls.some((u) => matchesNetworkHints(u, source))) return false;
+    return urls.some((u) => isPersistableMedia(u, allowImages));
   });
 }
 
@@ -387,32 +559,50 @@ function buildLooseCandidates(
   const byKey = new Map<string, DiscoveredCandidate>();
   for (const c of classic) byKey.set(c.externalId || c.originalUrl, c);
 
+  for (const n of network) {
+    if (isBarePageImageDoc(n)) continue;
+    const pages = (
+      n.pageUrls?.length ? n.pageUrls : [n.url]
+    ).filter((u) => isPersistableMedia(u, true));
+    if (!pages.length) continue;
+    const key = n.title || n.url;
+    const existing = byKey.get(key);
+    if (existing) {
+      for (const u of pages) {
+        if (!existing.pageUrls.includes(u)) existing.pageUrls.push(u);
+      }
+      if (n.title && !existing.title) existing.title = n.title;
+      continue;
+    }
+    byKey.set(key, {
+      originalUrl: n.url,
+      title: n.title || "Encarte",
+      pageUrls: [...new Set(pages)],
+      externalId: n.title || n.url,
+      validFrom: n.validFrom,
+      validUntil: n.validUntil,
+    });
+  }
+
   const media = [
     ...dom.map((d) => d.url),
-    ...network.map((n) => n.url),
+    ...network.flatMap((n) => (n.pageUrls?.length ? n.pageUrls : [n.url])),
   ].filter((u) => isPersistableMedia(u, true));
 
   if (!media.length && classic.length) return classic;
 
-  if (media.length) {
+  if (media.length && !byKey.size) {
     const title =
       dom.find((d) => d.text)?.text ||
       network.find((n) => n.title)?.title ||
       "Encarte";
     const key = media[0]!;
-    if (!byKey.has(key)) {
-      byKey.set(key, {
-        originalUrl: media[0]!,
-        title,
-        pageUrls: [...new Set(media)],
-        externalId: media[0],
-      });
-    } else {
-      const existing = byKey.get(key)!;
-      for (const u of media) {
-        if (!existing.pageUrls.includes(u)) existing.pageUrls.push(u);
-      }
-    }
+    byKey.set(key, {
+      originalUrl: media[0]!,
+      title,
+      pageUrls: [...new Set(media)],
+      externalId: media[0],
+    });
   }
 
   return [...byKey.values()].map((c) => ({
@@ -436,7 +626,7 @@ async function discoverDirect(
     ? await scanDomImageCandidates(page, scopeSel)
     : [];
   const dom = [...domClassic, ...domImages];
-  const net = filterNet(network, source, allowImages);
+  const net = groupedNetworkDocs(filterNet(network, source, allowImages));
   if (allowImages) return buildLooseCandidates(dom, net, true);
   return buildCandidates(domClassic, net);
 }
@@ -447,8 +637,11 @@ async function discoverCollectImages(
   network: NetworkFlyerDoc[],
   source: FlyerSource,
 ): Promise<DiscoveredCandidate[]> {
+  for (let i = 0; i < 4; i++) {
+    if (!(await loadMoreListing(page, source, scopeSel, "img[src]"))) break;
+  }
   const imgs = await scanDomImageCandidates(page, scopeSel);
-  const net = filterNet(network, source, true);
+  const net = groupedNetworkDocs(filterNet(network, source, true));
   return buildLooseCandidates(imgs, net, true);
 }
 
@@ -487,6 +680,28 @@ async function returnToListing(
   await page.waitForTimeout(400);
 }
 
+/** Same-page tab/card: wait new img src OR overlay canvas (modal flipbook). */
+async function waitForSamePageViewerReady(
+  page: Page,
+  scopeSel: string | undefined,
+  before: Set<string>,
+  ms = 5000,
+): Promise<boolean> {
+  if (!before.size) return true;
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    const urls = (await scanDomImageCandidates(page, scopeSel)).map((x) => x.url);
+    if (urls.some((u) => !before.has(u))) return true;
+    if (await overlayVisible(page)) {
+      const light = await harvestLightboxUrls(page);
+      if (light.some((u) => !before.has(u))) return true;
+      if ((await harvestCanvasPages(page)).length) return true;
+    }
+    await page.waitForTimeout(250);
+  }
+  return false;
+}
+
 async function discoverOpenEachItem(
   page: Page,
   scopeSel: string | undefined,
@@ -513,9 +728,7 @@ async function discoverOpenEachItem(
     leftListing: boolean,
   ): Promise<DiscoveredCandidate | null> => {
     const harvestScope = leftListing ? undefined : scopeSel;
-    const provenDl = (source.downloadSelectors ?? []).some((s) =>
-      /\.pdf/i.test(s),
-    );
+    const provenDl = (source.downloadSelectors ?? []).length > 0;
     if (provenDl && source.downloadSelectors?.length) {
       const viaDl = await clickDownloadOnce(
         page,
@@ -533,57 +746,88 @@ async function discoverOpenEachItem(
         return viaDl;
       }
     }
-    const light = await harvestLightboxUrls(page);
-    const canvases = await harvestCanvasPages(page);
-    const netDelta = filterNet(network.slice(netBefore), source, true).filter(
-      (n) => /\.(jpe?g|png|webp)(\?|$)/i.test(n.url) || isFlyerHref(n.url),
-    );
-    if (canvases.length) {
+    // ponytail: file PDF (dom/net/embed) → raster all pages. Canvas only if no file.
+    const pdfs = [
+      ...(await scanDomFlyerCandidates(page, harvestScope))
+        .map((d) => d.url)
+        .filter((u) => isPdfDocumentUrl(u)),
+      ...(await collectViewerPdfUrls(page)),
+      ...network
+        .slice(netBefore)
+        .filter((n) => n.pdf || isPdfDocumentUrl(n.url))
+        .map((n) => n.url),
+    ].filter((u) => !isJunkNavHref(u));
+    const uniquePdfs = [...new Set(pdfs)];
+    const pdfBufs = uniquePdfs.length
+      ? await fetchPdfBuffers(page, uniquePdfs)
+      : [];
+    const overlay = await harvestScrolledViewer(page, source.viewerMode);
+    const overlayUrls =
+      !leftListing && imgsBefore.size
+        ? overlay.urls.filter((u) => !imgsBefore.has(u))
+        : overlay.urls;
+    // ponytail: canvas modal has no img URL delta — never drop buffers on imgsBefore filter
+    const overlayN = overlayUrls.length + overlay.buffers.length;
+    const itemAnchor = `${page.url().split("#")[0]}#item-${i}`;
+    const overlayGot = (): DiscoveredCandidate => {
+      const pageUrls = overlayUrls.length
+        ? overlayUrls.slice(0, 24)
+        : overlay.buffers.map((b, k) => b.url ?? `capture://canvas-${k}`);
       return {
-        originalUrl: `${page.url().split("#")[0]}#canvas-${i}`,
-        title,
-        pageUrls: canvases.map((b, k) => b.url ?? `capture://canvas-${k}`),
-        externalId: `item-${i}-${title.slice(0, 40)}`,
-        pageBuffers: canvases,
-      };
-    }
-    if (light.length) {
-      const pageUrls = [
-        ...new Set(
-          [...light, ...netDelta.map((n) => n.url)].filter(
-            (u) => !isJunkNavHref(u) && isPersistableMedia(u, true),
-          ),
-        ),
-      ].slice(0, 12);
-      if (!pageUrls.length) return null;
-      if (pageUrls.every((u) => seenUrls.has(u))) return null;
-      return {
-        originalUrl: pageUrls[0]!,
+        originalUrl: itemAnchor,
         title,
         pageUrls,
         externalId: `item-${i}-${title.slice(0, 40)}`,
+        pageBuffers: overlay.buffers.length ? overlay.buffers : undefined,
+      };
+    };
+    // Viewer canvas/imgs beat footer cookie PDFs (one-page overlayN=1 used to lose).
+    if (overlayN) return overlayGot();
+    if (pdfBufs.length) {
+      return {
+        originalUrl: uniquePdfs[0]!,
+        title,
+        pageUrls: uniquePdfs,
+        externalId: `item-${i}-${title.slice(0, 40)}`,
+        pageBuffers: pdfBufs,
       };
     }
+    const httpPdf = uniquePdfs.filter((u) => !u.startsWith("blob:"));
+    if (httpPdf.length) {
+      return {
+        originalUrl: httpPdf[0]!,
+        title,
+        pageUrls: httpPdf,
+        externalId: `item-${i}-${title.slice(0, 40)}`,
+      };
+    }
+    const light = overlayUrls;
+    const netDelta = filterNet(network.slice(netBefore), source, true).filter(
+      (n) => /\.(jpe?g|png|webp)(\?|$)/i.test(n.url) || isFlyerHref(n.url),
+    );
     const imgs = await scanDomImageCandidates(page, harvestScope);
     const newImgs = imgs.filter((x) => !imgsBefore.has(x.url));
     const here = page.url();
-    const useImgs = leftListing ? imgs.filter((x) => !imgsBefore.has(x.url)) : newImgs;
-    if (!useImgs.length && !netDelta.length && !(leftListing && isPersistableMedia(here, true))) {
-      return null;
-    }
+    const useImgs = leftListing
+      ? imgs.filter((x) => !imgsBefore.has(x.url))
+      : newImgs;
+    const htmlHere =
+      leftListing && isPersistableMedia(here, true) ? [here] : [];
     const pageUrls = [
       ...new Set([
+        ...pdfs,
+        ...light,
         ...useImgs.map((x) => x.url),
         ...netDelta.map((n) => n.url),
-        ...(leftListing && isPersistableMedia(here, true) ? [here] : []),
+        ...htmlHere,
       ]),
     ]
       .filter((u) => !isJunkNavHref(u) && isPersistableMedia(u, true))
-      .slice(0, 12);
+      .slice(0, 24);
     if (!pageUrls.length) return null;
     if (pageUrls.every((u) => seenUrls.has(u))) return null;
     return {
-      originalUrl: pageUrls[0]!,
+      originalUrl: itemAnchor,
       title,
       pageUrls,
       externalId: `item-${i}-${title.slice(0, 40)}`,
@@ -615,12 +859,19 @@ async function discoverOpenEachItem(
 
   for (const sel of itemSels) {
     try {
-      const n = await root().locator(sel).count();
-      if (!n) continue;
-      say?.(`[FLYER] items "${sel}" count=${Math.min(n, 12)}`);
-      const limit = Math.min(n, 12);
-      const moreNav = limit > 1;
-      for (let i = 0; i < limit; i++) {
+      // ponytail: 8 pager rounds, 12 flyers max — bump if listings routinely exceed
+      for (let round = 0; round < 8 && out.length < 12; round++) {
+        const n = await root().locator(sel).count();
+        if (!n) {
+          say?.(
+            `[FLYER] items "${sel}" count=0 scope=${scopeSel ?? "page"}`,
+          );
+          break;
+        }
+        say?.(`[FLYER] items "${sel}" count=${n} round=${round}`);
+        const limit = Math.min(n, 12);
+        const moreNav = limit > 1 || Boolean(source.pagerSelectors?.length);
+        for (let i = 0; i < limit && out.length < 12; i++) {
         if (moreNav) await closeFlyerOverlay(page);
         await returnToListing(page, listingUrl, sel);
         const item0 = root().locator(sel).nth(i);
@@ -632,8 +883,12 @@ async function discoverOpenEachItem(
         )
           .replace(/\s+/g, " ")
           .trim()
-          .slice(0, 80);
+          .slice(0, 150);
         if (/^(ir para o conteúdo|pular para|skip to content|encartes?)$/i.test(title)) {
+          continue;
+        }
+        if (skipStaleFlyerTitle(title)) {
+          say?.(`[FLYER] skip stale "${title.slice(0, 40)}"`);
           continue;
         }
         const genericCta = GENERIC_ITEM_CTA.test(title);
@@ -651,31 +906,105 @@ async function discoverOpenEachItem(
             (await scanDomImageCandidates(page, scopeSel)).map((x) => x.url),
           );
           const netBefore = network.length;
+          const looksNewTab = await loc
+            .evaluate((el) => {
+              const t = (
+                el.getAttribute("aria-label") ||
+                el.getAttribute("title") ||
+                el.textContent ||
+                ""
+              ).toLowerCase();
+              const href =
+                (el as HTMLAnchorElement).href ||
+                el.getAttribute("href") ||
+                "";
+              const a = el.closest("a");
+              const blank =
+                el.getAttribute("target") === "_blank" ||
+                a?.getAttribute("target") === "_blank";
+              return (
+                blank ||
+                /baixar|download|\bpdf\b/.test(t) ||
+                /\.(pdf|jpe?g|png|webp)(\?|$)/i.test(href)
+              );
+            })
+            .catch(() => false);
+          const popupPromise = looksNewTab
+            ? page
+                .context()
+                .waitForEvent("page", { timeout: 5000 })
+                .catch(() => null)
+            : Promise.resolve(null);
           if (!(await clickMaybeForce(loc))) {
             say?.(`[FLYER] click item ${i} try ${t} falhou`);
+            await popupPromise;
             continue;
           }
           say?.(`[FLYER] item ${i} try ${t} click`);
+          const popup = await popupPromise;
           await Promise.race([
             page.waitForLoadState("domcontentloaded"),
             page.waitForTimeout(2500),
           ]).catch(() => undefined);
-          await page.waitForTimeout(800);
+          if (popup) {
+            await page.waitForTimeout(800);
+          } else if (imgsBefore.size) {
+            const ready = await waitForSamePageViewerReady(
+              page,
+              scopeSel,
+              imgsBefore,
+            );
+            if (!ready) {
+              say?.(`[FLYER] item ${i} try ${t} no viewer ready`);
+            }
+          } else {
+            await page.waitForTimeout(800);
+          }
+          if (popup) {
+            const harvested = await harvestPopupUrls(popup, say);
+            if (harvested.urls.length || harvested.buffers.length) {
+              const pageUrls = harvested.urls.length
+                ? harvested.urls
+                : harvested.buffers.map(
+                    (b, k) => b.url ?? `capture://popup-${k}`,
+                  );
+              got = {
+                originalUrl: pageUrls[0]!,
+                title,
+                pageUrls,
+                externalId: `popup-${i}-${title.slice(0, 40)}`,
+                pageBuffers: harvested.buffers.length
+                  ? harvested.buffers
+                  : undefined,
+              };
+              say?.(`[FLYER] item ${i} popup media ×${pageUrls.length}`);
+            }
+          }
           const leftListing =
             listingKey(page.url()) !== listingKey(listingUrl);
-          got = await harvestOnce(
-            title,
-            i,
-            imgsBefore,
-            netBefore,
-            leftListing,
-          );
+          if (!got) {
+            got = await harvestOnce(
+              title,
+              i,
+              imgsBefore,
+              netBefore,
+              leftListing,
+            );
+          }
+          if (got) got = await paginateViewer(page, got, source);
           if (leftListing) await returnToListing(page, listingUrl, sel);
           else if (moreNav) await closeFlyerOverlay(page);
         }
-        if (!got) continue;
+        if (!got) {
+          say?.(`[FLYER] item ${i} harvest vazio`);
+          continue;
+        }
         for (const u of got.pageUrls) seenUrls.add(u);
         out.push(got);
+        }
+        if (out.length >= 12) break;
+        const grew = await loadMoreListing(page, source, scopeSel, sel);
+        if (!grew) break;
       }
       if (out.length) break;
     } catch {
@@ -684,197 +1013,247 @@ async function discoverOpenEachItem(
   }
 
   if (!out.length) {
-    say?.("[FLYER] open-each-item vazio — fallback collect-images");
-    return discoverCollectImages(page, scopeSel, network, source);
+    say?.("[FLYER] open-each-item vazio");
   }
   return out;
 }
 
-/** True when gallery button looks like real file download (PDF href), not viewer CTA. */
+/** True when gallery button looks like real file download (PDF/image href or new tab). */
 export function hasProvenFileDownload(
-  buttons: Array<{ text: string; href?: string; selectors?: string[] }>,
+  buttons: Array<{
+    text: string;
+    href?: string;
+    selectors?: string[];
+    opensTab?: boolean;
+  }>,
 ): boolean {
   return buttons.some((b) => {
     if (b.href && /\.pdf(\?|$)/i.test(b.href)) return true;
+    if (b.href && /\.(jpe?g|png|webp)(\?|$)/i.test(b.href)) return true;
     if (b.href && /[?&]download=|content-disposition/i.test(b.href)) return true;
-    // ponytail: a[download] alone is a liar (Assaí opens viewer). Need .pdf href.
-    return (b.selectors ?? []).some((s) => /href\*=["'][^"']*\.pdf/i.test(s));
-  });
-}
-
-/** Merge gallery Baixar selectors as hints — never force click-download without PDF proof. */
-export function mergeDownloadHints(
-  prev: FlyerSource | undefined,
-  buttons: Array<{ text: string; href?: string; selectors?: string[] }>,
-  opts?: { kind?: FlyerSourceKind; tabSelectors?: string[] },
-): FlyerSource | undefined {
-  const real = filterFlyerDownloadButtons(buttons);
-  if (!real.length && !prev) return undefined;
-  const dlSels = sanitizeDownloadSelectors(
-    real.flatMap((b) => b.selectors ?? []),
-  );
-  const proven = hasProvenFileDownload(real);
-  const kind =
-    prev?.kind ??
-    (opts?.kind ?? (opts?.tabSelectors?.length ? "tabs" : "pdf-links"));
-  const mergeTabs = kind === "tabs" || kind === "carousel";
-
-  if (!prev) {
-    if (!proven || !dlSels?.length) return undefined;
-    return sanitizeFlyerSource({
-      kind,
-      downloadStrategy: "click-download",
-      urlFrom: "click-then-network",
-      downloadSelectors: dlSels,
-      itemSelectors: mergeTabs ? opts?.tabSelectors : undefined,
-      evidence: "proven PDF/download attr",
-    });
-  }
-
-  const next: FlyerSource = {
-    ...prev,
-    downloadSelectors: [
-      ...new Set([...(prev.downloadSelectors ?? []), ...(dlSels ?? [])]),
-    ].slice(0, 6),
-    itemSelectors: sanitizeItemSelectors(
-      [
-        ...(prev.itemSelectors ?? []),
-        ...(opts?.tabSelectors ?? []),
-      ],
-      { kind },
-    ),
-  };
-
-  // Only upgrade strategy when file download is proven
-  if (proven && prev.downloadStrategy !== "click-download" && dlSels?.length) {
-    next.downloadStrategy = "click-download";
-    next.urlFrom = prev.urlFrom ?? "click-then-network";
-    next.evidence =
-      (prev.evidence ?? "") + " | upgraded: proven PDF/download attr";
-  } else if (dlSels?.length) {
-    next.evidence =
-      (prev.evidence ?? "") +
-      " | baixar hint (may open viewer — harvest after click)";
-  }
-  return sanitizeFlyerSource(next);
-}
-
-/** Large imgs in dialog/lightbox/viewer after Baixar opens media instead of file. */
-async function harvestLightboxUrls(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const skipRe =
-      /productcluster|productsquery|sku|icon|logo|sprite|favicon|avatar|pixel|tracking/i;
-    const roots: Element[] = [];
-    for (const sel of [
-      '[role="dialog"]',
-      '[aria-modal="true"]',
-      ".modal.show",
-      ".modal.in",
-      ".elementor-lightbox",
-      ".fancybox-container",
-      ".pswp--open",
-      "dialog[open]",
-      '[class*="lightbox"]',
-      '[class*="Lightbox"]',
-      '[class*="flyer-viewer"]',
-      '[class*="flipbook"]',
-    ]) {
-      for (const el of Array.from(document.querySelectorAll(sel))) {
-        const st = window.getComputedStyle(el);
-        if (st.display === "none" || st.visibility === "hidden") continue;
-        roots.push(el);
-      }
+    if ((b.selectors ?? []).some((s) => /href\*=["'][^"']*\.pdf/i.test(s))) {
+      return true;
     }
-    if (!roots.length) return [];
-
-    const out: string[] = [];
-    const seen = new Set<string>();
-    const push = (raw: string | null | undefined) => {
-      if (!raw || raw.startsWith("data:") || skipRe.test(raw)) return;
-      let abs = raw;
-      try {
-        abs = new URL(raw, location.href).href;
-      } catch {
-        return;
-      }
-      if (seen.has(abs)) return;
-      seen.add(abs);
-      out.push(abs);
-    };
-
-    for (const root of roots) {
-      for (const img of Array.from(root.querySelectorAll("img[src]"))) {
-        const el = img as HTMLImageElement;
-        const w = el.naturalWidth || el.width || 0;
-        const h = el.naturalHeight || el.height || 0;
-        if (w > 0 && h > 0 && (w < 280 || h < 280)) continue;
-        const st = window.getComputedStyle(el);
-        if (st.display === "none" || st.visibility === "hidden" || st.opacity === "0") {
-          continue;
-        }
-        if (el.closest('[aria-hidden="true"]')) continue;
-        push(el.currentSrc || el.src || el.getAttribute("src"));
-        push(el.getAttribute("data-src"));
-        push(el.getAttribute("data-full"));
-      }
-      for (const a of Array.from(root.querySelectorAll("a[href]"))) {
-        const href = a.getAttribute("href") ?? "";
-        if (/\.pdf(\?|$)/i.test(href) || /flyer|encarte|folheto|jornal/i.test(href)) {
-          push(href);
-        }
-      }
-      for (const emb of Array.from(
-        root.querySelectorAll("embed[src], object[data], iframe[src]"),
-      )) {
-        push(
-          emb.getAttribute("src") ||
-            emb.getAttribute("data") ||
-            undefined,
-        );
-      }
-      if (out.length >= 40) break;
-    }
-    // Viewer without dialog role: large on-screen imgs
-    if (!out.length) {
-      for (const img of Array.from(document.querySelectorAll("img[src]"))) {
-        const el = img as HTMLImageElement;
-        const r = el.getBoundingClientRect();
-        if (r.width < 360 || r.height < 360) continue;
-        if (r.bottom < 0 || r.top > window.innerHeight) continue;
-        push(el.currentSrc || el.src);
-        if (out.length >= 40) break;
-      }
-    }
-    return out;
-  });
-}
-
-async function overlayVisible(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    for (const sel of [
-      '[role="dialog"]',
-      '[aria-modal="true"]',
-      "dialog[open]",
-      ".fancybox-container",
-      ".pswp--open",
-      ".elementor-lightbox",
-      '[class*="lightbox"]',
-      '[class*="flyer-viewer"]',
-    ]) {
-      for (const el of Array.from(document.querySelectorAll(sel))) {
-        const st = window.getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        if (st.display === "none" || st.visibility === "hidden") continue;
-        if (r.width < 80 || r.height < 80) continue;
-        return true;
-      }
-    }
+    // ponytail: target=_blank Baixar → popup PDF/image (not same-page viewer liar)
+    if (b.opensTab && isFlyerDownloadButton(b.text, b.href)) return true;
     return false;
   });
 }
 
+const OVERLAY_IMG_EVAL = () => {
+  const skipRe =
+    /productcluster|productsquery|sku|icon|logo|sprite|favicon|avatar|pixel|tracking/i;
+  const shells: Element[] = [];
+  for (const sel of [
+    '[role="dialog"]',
+    '[aria-modal="true"]',
+    ".modal.show",
+    ".modal.in",
+    ".elementor-lightbox",
+    ".fancybox-container",
+    ".pswp--open",
+    "dialog[open]",
+    '[class*="lightbox"]',
+    '[class*="Lightbox"]',
+    '[class*="flyer-viewer"]',
+    '[class*="flipbook"]',
+    '[class*="modal"]',
+  ]) {
+    for (const el of Array.from(document.querySelectorAll(sel))) {
+      const st = window.getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      if (st.display === "none" || st.visibility === "hidden") continue;
+      if (r.width < 80 || r.height < 80) continue;
+      shells.push(el);
+    }
+  }
+  if (!shells.length) {
+    for (const el of Array.from(document.querySelectorAll("body *"))) {
+      const st = window.getComputedStyle(el);
+      if (st.position !== "fixed" && st.position !== "absolute") continue;
+      if (st.display === "none" || st.visibility === "hidden") continue;
+      const z = parseInt(st.zIndex, 10);
+      if (!Number.isFinite(z) || z < 10) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 240 || r.height < 240) continue;
+      const hasBig = [...el.querySelectorAll("img, canvas, embed, object")].some(
+        (m) => {
+          const mr = m.getBoundingClientRect();
+          return mr.width >= 200 && mr.height >= 200;
+        },
+      );
+      if (hasBig) shells.push(el);
+    }
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string | null | undefined) => {
+    if (!raw || raw.startsWith("data:") || skipRe.test(raw)) return;
+    let abs = raw;
+    try {
+      abs = new URL(raw, location.href).href;
+    } catch {
+      return;
+    }
+    if (seen.has(abs)) return;
+    seen.add(abs);
+    out.push(abs);
+  };
+  const walkBg = (root: Element) => {
+    const nodes = [root, ...Array.from(root.querySelectorAll("*"))];
+    for (const n of nodes) {
+      const inline = (n as HTMLElement).style?.backgroundImage ?? "";
+      const computed = window.getComputedStyle(n).backgroundImage;
+      for (const css of [inline, computed]) {
+        const re = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(css))) push(m[1]);
+      }
+    }
+  };
+  const walkImgs = (root: ParentNode) => {
+    for (const img of Array.from(root.querySelectorAll("img"))) {
+      const el = img as HTMLImageElement;
+      const src =
+        el.currentSrc ||
+        el.src ||
+        el.getAttribute("src") ||
+        el.getAttribute("data-src") ||
+        el.getAttribute("data-full") ||
+        el.getAttribute("data-lazy") ||
+        el.getAttribute("data-original") ||
+        "";
+      const w = el.naturalWidth || el.width || 0;
+      const h = el.naturalHeight || el.height || 0;
+      const pageLike =
+        /\.(jpe?g|png|webp)(\?|$)/i.test(src) ||
+        /encarte|flyer|jornal|flipbook|pagina|página|\/pages?\//i.test(src);
+      // ponytail: keep display:none lazy pages; skip only tiny loaded icons
+      if (!pageLike && w > 0 && h > 0 && (w < 280 || h < 280)) continue;
+      push(src);
+      push(el.getAttribute("data-src"));
+      push(el.getAttribute("data-full"));
+      push(el.getAttribute("data-lazy"));
+      push(el.getAttribute("data-original"));
+      const srcset = el.getAttribute("srcset") || el.getAttribute("data-srcset") || "";
+      for (const part of srcset.split(",")) {
+        push(part.trim().split(/\s+/)[0]);
+      }
+    }
+  };
+  // Gallery tiles: a[href] to page jpeg/pdf + div bg / data-thumbnail (not only overlay)
+  const walkPageGallery = () => {
+    for (const a of Array.from(
+      document.querySelectorAll(
+        'a.e-gallery-item[href], a.elementor-gallery-item[href], [class*="gallery"] a[href]',
+      ),
+    )) {
+      const href = a.getAttribute("href") ?? "";
+      if (/\.(jpe?g|png|webp|pdf)(\?|#|$)/i.test(href)) push(href);
+    }
+    for (const el of Array.from(
+      document.querySelectorAll(
+        '.e-gallery-image, [class*="gallery-item__image"], [class*="gallery-item"], [class*="gallery"] [data-thumbnail], [data-thumbnail]',
+      ),
+    )) {
+      push(el.getAttribute("data-thumbnail"));
+      push(el.getAttribute("data-src"));
+      push(el.getAttribute("data-full"));
+      push(el.getAttribute("data-lazy"));
+      walkBg(el);
+    }
+  };
+  if (shells.length) {
+    for (const root of shells) {
+      walkImgs(root);
+      walkBg(root);
+      for (const a of Array.from(root.querySelectorAll("a[href]"))) {
+        const href = a.getAttribute("href") ?? "";
+        if (/\.pdf(\?|#|$)/i.test(href) || /flyer|encarte|folheto|jornal/i.test(href)) {
+          push(href);
+        }
+      }
+    }
+  } else {
+    for (const img of Array.from(document.querySelectorAll("img[src]"))) {
+      const el = img as HTMLImageElement;
+      const r = el.getBoundingClientRect();
+      if (r.width < 280 || r.height < 280) continue;
+      push(el.currentSrc || el.src);
+    }
+  }
+  walkPageGallery();
+  return out;
+};
+
+/** Overlay imgs + page gallery tiles (e-gallery data-thumbnail / bg) — all frames. */
+export async function harvestLightboxUrls(page: Page): Promise<string[]> {
+  const out: string[] = [];
+  for (const frame of page.frames()) {
+    const part = await frame.evaluate(OVERLAY_IMG_EVAL).catch(() => [] as string[]);
+    out.push(...part);
+  }
+  return [...new Set(out)];
+}
+
+/** Modal / lightbox / fixed flyer viewer open on page (any frame). */
+export async function overlayVisible(page: Page): Promise<boolean> {
+  for (const frame of page.frames()) {
+    const ok = await frame
+      .evaluate(() => {
+        for (const sel of [
+          '[role="dialog"]',
+          '[aria-modal="true"]',
+          "dialog[open]",
+          ".fancybox-container",
+          ".pswp--open",
+          ".elementor-lightbox",
+          '[class*="lightbox"]',
+          '[class*="Lightbox"]',
+          '[class*="flyer-viewer"]',
+          '[class*="flipbook"]',
+          '[class*="modal"]',
+        ]) {
+          for (const el of Array.from(document.querySelectorAll(sel))) {
+            const st = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            if (st.display === "none" || st.visibility === "hidden") continue;
+            if (r.width < 80 || r.height < 80) continue;
+            return true;
+          }
+        }
+        // Custom shells (Mercadapp etc.): fixed/absolute + big media + z-index
+        for (const el of Array.from(document.querySelectorAll("body *"))) {
+          const st = window.getComputedStyle(el);
+          if (st.position !== "fixed" && st.position !== "absolute") continue;
+          if (st.display === "none" || st.visibility === "hidden") continue;
+          const z = parseInt(st.zIndex, 10);
+          if (!Number.isFinite(z) || z < 10) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 240 || r.height < 240) continue;
+          const hasBig = [...el.querySelectorAll("img, canvas, embed, object")].some(
+            (m) => {
+              const mr = m.getBoundingClientRect();
+              return mr.width >= 200 && mr.height >= 200;
+            },
+          );
+          const hasBg = [...el.querySelectorAll("*")].some((n) => {
+            const bg = window.getComputedStyle(n).backgroundImage;
+            return /url\(/i.test(bg) && /\.(jpe?g|png|webp)/i.test(bg);
+          });
+          if (hasBig || hasBg) return true;
+        }
+        return false;
+      })
+      .catch(() => false);
+    if (ok) return true;
+  }
+  return false;
+}
+
 /** Same-URL flyer viewer (canvas/modal) — not cookie chrome. */
 export async function flyerViewerOpen(page: Page): Promise<boolean> {
+  if (await overlayVisible(page)) return true;
   return page.evaluate(() => {
     const big = (el: Element) => {
       const st = window.getComputedStyle(el);
@@ -908,32 +1287,39 @@ export async function flyerViewerOpen(page: Page): Promise<boolean> {
 export async function harvestCanvasPages(
   page: Page,
 ): Promise<NonNullable<DiscoveredCandidate["pageBuffers"]>> {
-  const dataUrls = await page.evaluate(() => {
-    const out: string[] = [];
-    for (const c of Array.from(document.querySelectorAll("canvas"))) {
-      const r = c.getBoundingClientRect();
-      if (r.width < 200 || r.height < 200) continue;
-      try {
-        out.push(c.toDataURL("image/jpeg", 0.82));
-      } catch {
-        /* tainted */
-      }
-    }
-    return out.slice(0, 12);
-  });
   const pages: NonNullable<DiscoveredCandidate["pageBuffers"]> = [];
-  for (let i = 0; i < dataUrls.length; i++) {
-    const b64 = dataUrls[i]?.split(",")[1];
-    if (!b64) continue;
-    const buffer = Buffer.from(b64, "base64");
-    if (!buffer.length) continue;
-    pages.push({
-      buffer,
-      contentType: "image/jpeg",
-      url: `capture://canvas-${i}.jpg`,
-    });
+  let idx = 0;
+  for (const frame of page.frames()) {
+    const dataUrls = await frame
+      .evaluate(() => {
+        const out: string[] = [];
+        for (const c of Array.from(document.querySelectorAll("canvas"))) {
+          const r = c.getBoundingClientRect();
+          const w = c.width || r.width;
+          const h = c.height || r.height;
+          if (w < 200 || h < 200) continue;
+          try {
+            out.push(c.toDataURL("image/jpeg", 0.82));
+          } catch {
+            /* tainted */
+          }
+        }
+        return out.slice(0, 24);
+      })
+      .catch(() => [] as string[]);
+    for (const dataUrl of dataUrls) {
+      const b64 = dataUrl.split(",")[1];
+      if (!b64) continue;
+      const buffer = Buffer.from(b64, "base64");
+      if (!buffer.length) continue;
+      pages.push({
+        buffer,
+        contentType: "image/jpeg",
+        url: `capture://canvas-${idx++}.jpg`,
+      });
+    }
   }
-  if (pages.length) return pages;
+  if (pages.length) return pages.slice(0, 24);
   const loc = page.locator("canvas").first();
   if ((await loc.count()) === 0) return [];
   if (!(await loc.isVisible().catch(() => false))) return [];
@@ -946,6 +1332,326 @@ export async function harvestCanvasPages(
   } catch {
     return [];
   }
+}
+
+function canvasKey(b: Buffer): string {
+  return `${b.length}:${b.subarray(0, 24).toString("hex")}`;
+}
+
+/** Scroll overflow pane in overlay (main + iframes). Also overflow:hidden with scrollHeight. */
+async function scrollViewer(page: Page): Promise<boolean> {
+  let moved = false;
+  for (const frame of page.frames()) {
+    const ok = await frame
+      .evaluate(() => {
+        const shells: Element[] = [];
+        for (const sel of [
+          "[role='dialog']",
+          "[aria-modal='true']",
+          "dialog[open]",
+          "[class*='lightbox']",
+          "[class*='Lightbox']",
+          "[class*='flipbook']",
+          "[class*='flyer-viewer']",
+          "[class*='modal']",
+        ]) {
+          for (const el of Array.from(document.querySelectorAll(sel))) {
+            const st = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            if (st.display === "none" || st.visibility === "hidden") continue;
+            if (r.width < 80 || r.height < 80) continue;
+            shells.push(el);
+          }
+        }
+        if (!shells.length) {
+          for (const el of Array.from(document.querySelectorAll("body *"))) {
+            const st = window.getComputedStyle(el);
+            if (st.position !== "fixed" && st.position !== "absolute") continue;
+            if (st.display === "none" || st.visibility === "hidden") continue;
+            const z = parseInt(st.zIndex, 10);
+            if (!Number.isFinite(z) || z < 10) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width < 240 || r.height < 240) continue;
+            const hasBig = [
+              ...el.querySelectorAll("img, canvas, embed, object"),
+            ].some((m) => {
+              const mr = m.getBoundingClientRect();
+              return mr.width >= 200 && mr.height >= 200;
+            });
+            if (hasBig) shells.push(el);
+          }
+        }
+        const roots = shells.length ? shells : [document.documentElement];
+        const found: { el: HTMLElement; rank: number; size: number }[] = [];
+        for (const root of roots) {
+          const nodes = [root, ...Array.from(root.querySelectorAll("*"))];
+          for (const node of nodes) {
+            if (!(node instanceof HTMLElement)) continue;
+            if (node.scrollHeight < node.clientHeight + 40) continue;
+            const st = window.getComputedStyle(node);
+            const oy = `${st.overflowY} ${st.overflow}`;
+            const rank = /(auto|scroll|overlay)/i.test(oy)
+              ? 2
+              : /hidden/i.test(oy)
+                ? 1
+                : 0;
+            if (!rank) continue;
+            found.push({ el: node, rank, size: node.scrollHeight });
+          }
+        }
+        found.sort((a, b) => b.rank - a.rank || b.size - a.size);
+        const h = found[0]?.el;
+        if (!h) {
+          const se = document.scrollingElement as HTMLElement | null;
+          if (!se || se.scrollHeight < se.clientHeight + 40) return false;
+          const before = se.scrollTop;
+          se.scrollTop += Math.max(Math.floor(se.clientHeight * 0.9), 360);
+          return se.scrollTop > before + 8;
+        }
+        const before = h.scrollTop;
+        h.scrollTop += Math.max(Math.floor(h.clientHeight * 0.9), 360);
+        return h.scrollTop > before + 8;
+      })
+      .catch(() => false);
+    if (ok) moved = true;
+  }
+  return moved;
+}
+
+async function nudgeViewer(page: Page): Promise<void> {
+  for (const frame of page.frames()) {
+    await frame
+      .evaluate(() => {
+        const imgs = Array.from(document.querySelectorAll("img"));
+        let last: HTMLImageElement | undefined;
+        for (const img of imgs) {
+          const src =
+            img.currentSrc || img.src || img.getAttribute("data-src") || "";
+          if (
+            !/\.(jpe?g|png|webp)|encarte|flyer|jornal|pagina|página/i.test(src) &&
+            img.naturalWidth < 200
+          ) {
+            continue;
+          }
+          last = img;
+        }
+        last?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      })
+      .catch(() => undefined);
+  }
+  const vp = page.viewportSize();
+  if (vp) {
+    await page.mouse
+      .move(Math.floor(vp.width / 2), Math.floor(vp.height / 2))
+      .catch(() => undefined);
+  }
+  await page.keyboard.press("PageDown").catch(() => undefined);
+  await page.mouse.wheel(0, 900).catch(() => undefined);
+}
+
+/** True if overlay has a scrollable pane (no move). */
+async function overlayCanScroll(page: Page): Promise<boolean> {
+  for (const frame of page.frames()) {
+    const ok = await frame
+      .evaluate(() => {
+        const shells: Element[] = [];
+        for (const sel of [
+          "[role='dialog']",
+          "[aria-modal='true']",
+          "dialog[open]",
+          "[class*='lightbox']",
+          "[class*='flyer-viewer']",
+          "[class*='flipbook']",
+          "[class*='modal']",
+        ]) {
+          for (const el of Array.from(document.querySelectorAll(sel))) {
+            const st = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            if (st.display === "none" || st.visibility === "hidden") continue;
+            if (r.width < 80 || r.height < 80) continue;
+            shells.push(el);
+          }
+        }
+        const roots = shells.length ? shells : [document.documentElement];
+        for (const root of roots) {
+          for (const node of [root, ...Array.from(root.querySelectorAll("*"))]) {
+            if (!(node instanceof HTMLElement)) continue;
+            if (node.scrollHeight < node.clientHeight + 40) continue;
+            const st = window.getComputedStyle(node);
+            const oy = `${st.overflowY} ${st.overflow}`;
+            if (/(auto|scroll|overlay|hidden)/i.test(oy)) return true;
+          }
+        }
+        const se = document.scrollingElement;
+        return Boolean(se && se.scrollHeight > se.clientHeight + 40);
+      })
+      .catch(() => false);
+    if (ok) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve viewer page pattern. Teach wins except pdf-when-images.
+ * Never treat a tall single image as many pages (no viewport screenshots).
+ */
+async function resolveViewerMode(
+  page: Page,
+  hinted?: FlyerViewerMode,
+): Promise<FlyerViewerMode> {
+  const urls = await harvestLightboxUrls(page);
+  if (hinted && hinted !== "pdf") return hinted;
+  if (urls.length >= 2) return "img-stack";
+  const pdfs = await collectViewerPdfUrls(page);
+  if (pdfs.length && urls.length === 0) return "pdf";
+  if (await overlayCanScroll(page)) return "lazy-scroll";
+  return "one-page";
+}
+
+async function harvestScrolledViewer(
+  page: Page,
+  modeHint?: FlyerViewerMode,
+): Promise<{
+  urls: string[];
+  buffers: NonNullable<DiscoveredCandidate["pageBuffers"]>;
+}> {
+  const urls: string[] = [];
+  const buffers: NonNullable<DiscoveredCandidate["pageBuffers"]> = [];
+  const seenUrl = new Set<string>();
+  const seenBuf = new Set<string>();
+  const ingest = async () => {
+    for (const u of await harvestLightboxUrls(page)) {
+      if (!isPersistableMedia(u, true) || seenUrl.has(u)) continue;
+      seenUrl.add(u);
+      urls.push(u);
+    }
+    for (const c of await harvestCanvasPages(page)) {
+      const k = canvasKey(c.buffer);
+      if (seenBuf.has(k)) continue;
+      seenBuf.add(k);
+      buffers.push({
+        ...c,
+        url: `capture://canvas-${buffers.length}.jpg`,
+      });
+    }
+  };
+  await ingest();
+  const mode = await resolveViewerMode(page, modeHint);
+  // ponytail: one-page / pdf → no scroll harvest (tall 1-img ≠ N pages)
+  if (mode === "one-page" || mode === "pdf") {
+    return { urls: urls.slice(0, 24), buffers: buffers.slice(0, 24) };
+  }
+  let stale = 0;
+  // img-stack / lazy-scroll: only new img/canvas URLs — never viewport screenshots
+  for (let i = 0; i < 24 && urls.length + buffers.length < 24; i++) {
+    const moved = await scrollViewer(page);
+    if (!moved) {
+      if (mode === "lazy-scroll") await nudgeViewer(page);
+      else break;
+    }
+    await page.waitForTimeout(moved ? 400 : 650);
+    const n = urls.length + buffers.length;
+    await ingest();
+    if (urls.length + buffers.length > n) {
+      stale = 0;
+      continue;
+    }
+    stale += 1;
+    if (stale >= 3) break;
+  }
+  return { urls: urls.slice(0, 24), buffers: buffers.slice(0, 24) };
+}
+
+async function collectViewerPdfUrls(page: Page): Promise<string[]> {
+  const out: string[] = [];
+  for (const frame of page.frames()) {
+    const urls = await frame
+      .evaluate(() => {
+        const found: string[] = [];
+        for (const el of Array.from(
+          document.querySelectorAll("embed, object, iframe, a[href]"),
+        )) {
+          const src =
+            el.getAttribute("src") ||
+            el.getAttribute("data") ||
+            el.getAttribute("href") ||
+            "";
+          if (!src) continue;
+          const type = el.getAttribute("type") ?? "";
+          const tag = el.tagName;
+          const blobViewer =
+            /^blob:/i.test(src) &&
+            (/pdf/i.test(type) ||
+              tag === "EMBED" ||
+              tag === "OBJECT" ||
+              (tag === "IFRAME" && Boolean(el.closest("[role='dialog'], [aria-modal='true'], dialog"))));
+          if (!/\.pdf(\?|#|$)/i.test(src) && !/pdf/i.test(type) && !blobViewer) {
+            continue;
+          }
+          try {
+            found.push(new URL(src, location.href).href);
+          } catch {
+            /* skip */
+          }
+        }
+        return found;
+      })
+      .catch(() => [] as string[]);
+    out.push(...urls);
+  }
+  return [...new Set(out)];
+}
+
+async function fetchPdfBuffers(
+  page: Page,
+  urls: string[],
+): Promise<NonNullable<DiscoveredCandidate["pageBuffers"]>> {
+  const out: NonNullable<DiscoveredCandidate["pageBuffers"]> = [];
+  for (const url of urls.slice(0, 4)) {
+    try {
+      let buffer: Buffer | undefined;
+      if (url.startsWith("blob:")) {
+        let b64 = "";
+        for (const frame of page.frames()) {
+          b64 = await frame
+            .evaluate(async (u) => {
+              const r = await fetch(u);
+              const bytes = new Uint8Array(await r.arrayBuffer());
+              if (bytes.length < 5) return "";
+              const head = String.fromCharCode(
+                bytes[0]!,
+                bytes[1]!,
+                bytes[2]!,
+                bytes[3]!,
+                bytes[4]!,
+              );
+              if (head !== "%PDF-") return "";
+              let bin = "";
+              const step = 0x8000;
+              for (let i = 0; i < bytes.length; i += step) {
+                bin += String.fromCharCode(...bytes.subarray(i, i + step));
+              }
+              return btoa(bin);
+            }, url)
+            .catch(() => "");
+          if (b64) break;
+        }
+        if (b64) buffer = Buffer.from(b64, "base64");
+      } else {
+        const res = await page.request.get(url, { timeout: 20_000 });
+        if (res.ok()) buffer = Buffer.from(await res.body());
+      }
+      if (!buffer?.length) continue;
+      const pdf =
+        buffer.subarray(0, 5).toString("latin1") === "%PDF-" ||
+        isPdfDocumentUrl(url);
+      if (!pdf) continue;
+      out.push({ buffer, contentType: "application/pdf", url });
+    } catch {
+      /* next url */
+    }
+  }
+  return out;
 }
 
 async function clickMaybeForce(loc: Locator): Promise<boolean> {
@@ -962,7 +1668,111 @@ async function clickMaybeForce(loc: Locator): Promise<boolean> {
   }
 }
 
-async function closeFlyerOverlay(page: Page): Promise<void> {
+const DEFAULT_PAGER = [
+  ".swiper-button-next:not(.swiper-button-disabled)",
+  ".slick-next:not(.slick-disabled)",
+  '[aria-label*="próximo" i]',
+  '[aria-label*="proximo" i]',
+  '[aria-label*="Next" i]',
+  'button:has-text("Ver mais")',
+  'button:has-text("Mostrar mais")',
+  'a:has-text("Ver mais")',
+];
+
+async function clickFirstPager(
+  page: Page,
+  extra?: string[],
+): Promise<boolean> {
+  const skipPrev = /prev|anterior|slick-prev|button-prev/i;
+  for (const sel of [...(extra ?? []), ...DEFAULT_PAGER]) {
+    if (skipPrev.test(sel) && !/next|pr[oó]ximo|mais/i.test(sel)) continue;
+    try {
+      const loc = page.locator(sel).first();
+      if ((await loc.count()) === 0) continue;
+      if (!(await loc.isVisible().catch(() => false))) continue;
+      const dis = await loc.getAttribute("aria-disabled").catch(() => null);
+      if (dis === "true") continue;
+      if (!(await clickMaybeForce(loc))) continue;
+      await page.waitForTimeout(450);
+      return true;
+    } catch {
+      /* bad sel */
+    }
+  }
+  return false;
+}
+
+async function loadMoreListing(
+  page: Page,
+  source: FlyerSource,
+  scopeSel: string | undefined,
+  itemSel: string,
+): Promise<boolean> {
+  const root = scopeSel ? page.locator(scopeSel).first() : page.locator("body");
+  const before = await root.locator(itemSel).count().catch(() => 0);
+  if (await clickFirstPager(page, source.pagerSelectors)) return true;
+  await page
+    .evaluate(() => {
+      const el = document.querySelector(
+        "[class*='swiper'], [class*='carousel'], [class*='slick']",
+      );
+      (el ?? document.scrollingElement)?.scrollBy(0, 480);
+    })
+    .catch(() => undefined);
+  await page.waitForTimeout(400);
+  const after = await root.locator(itemSel).count().catch(() => 0);
+  return after > before;
+}
+
+async function paginateViewer(
+  page: Page,
+  got: DiscoveredCandidate,
+  source: FlyerSource,
+): Promise<DiscoveredCandidate> {
+  if (!(await overlayVisible(page))) return got;
+  const urls = [...got.pageUrls];
+  const bufs = [...(got.pageBuffers ?? [])];
+  if (bufs.some((b) => isPdfCapBuf(b))) return got;
+  let stale = 0;
+  for (let i = 0; i < 10; i++) {
+    const n = urls.length + bufs.length;
+    const paged = await clickFirstPager(page, source.pagerSelectors);
+    const scrolled = paged ? false : await scrollViewer(page);
+    if (!paged && !scrolled) await nudgeViewer(page);
+    await page.waitForTimeout(paged || scrolled ? 280 : 550);
+    const light = await harvestLightboxUrls(page);
+    for (const u of light) {
+      if (!urls.includes(u)) urls.push(u);
+    }
+    const canvases = await harvestCanvasPages(page);
+    for (const c of canvases) {
+      const k = canvasKey(c.buffer);
+      if (bufs.some((b) => canvasKey(b.buffer) === k)) continue;
+      bufs.push({ ...c, url: `capture://canvas-${bufs.length}.jpg` });
+    }
+    if (urls.length + bufs.length > n) {
+      stale = 0;
+      continue;
+    }
+    stale += 1;
+    if (stale >= 3) break;
+  }
+  return {
+    ...got,
+    pageUrls: urls.slice(0, 24),
+    pageBuffers: bufs.length ? bufs.slice(0, 24) : got.pageBuffers,
+  };
+}
+
+function isPdfCapBuf(b: { buffer: Buffer; contentType: string }): boolean {
+  return (
+    b.contentType.includes("pdf") ||
+    (b.buffer.length >= 5 &&
+      b.buffer.subarray(0, 5).toString("latin1") === "%PDF-")
+  );
+}
+
+export async function closeFlyerOverlay(page: Page): Promise<void> {
   for (let round = 0; round < 3; round++) {
     if (round > 0 && !(await overlayVisible(page))) return;
     await page.keyboard.press("Escape").catch(() => undefined);
@@ -1053,18 +1863,65 @@ async function readPlaywrightDownload(
   }
 }
 
+type PopupHarvest = {
+  urls: string[];
+  buffers: NonNullable<DiscoveredCandidate["pageBuffers"]>;
+};
+
 async function harvestPopupUrls(
   popup: Page,
   say?: (line: string) => void,
-): Promise<string[]> {
+): Promise<PopupHarvest> {
+  const urls: string[] = [];
+  const buffers: NonNullable<DiscoveredCandidate["pageBuffers"]> = [];
   try {
     await popup.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => undefined);
     await popup.waitForTimeout(800);
-    const urls: string[] = [];
     const u = popup.url();
-    if (u && !u.startsWith("about:") && isPersistableMedia(u, true)) {
-      urls.push(u);
-      say?.(`[FLYER] popup url=${u.slice(0, 120)}`);
+    const meta = await popup
+      .evaluate(() => ({
+        contentType: document.contentType || "",
+        embed:
+          (document.querySelector("embed, object") as HTMLEmbedElement | null)
+            ?.src ||
+          document.querySelector("embed, object")?.getAttribute("data") ||
+          "",
+      }))
+      .catch(() => ({ contentType: "", embed: "" }));
+    const fileTab =
+      /pdf/i.test(meta.contentType) || /^image\//i.test(meta.contentType);
+    if (u && !u.startsWith("about:")) {
+      if (isPersistableMedia(u, true) || fileTab) {
+        if (!u.startsWith("blob:")) urls.push(u);
+        say?.(`[FLYER] popup url=${u.slice(0, 120)}`);
+      }
+    }
+    if (meta.embed && isPersistableMedia(meta.embed, true)) {
+      urls.push(meta.embed);
+    }
+    // Capture bytes before close — blob/chrome PDF viewer die with the tab
+    if (fileTab || u.startsWith("blob:") || /\.pdf(\?|$)/i.test(u)) {
+      try {
+        const bytes = await popup.evaluate(async () => {
+          const r = await fetch(location.href);
+          const ab = await r.arrayBuffer();
+          return Array.from(new Uint8Array(ab));
+        });
+        if (bytes?.length) {
+          const buffer = Buffer.from(bytes);
+          const contentType =
+            detectContentType(buffer) ??
+            (meta.contentType || "application/octet-stream");
+          buffers.push({
+            buffer,
+            contentType,
+            url: u.startsWith("blob:") ? `capture://popup.bin` : u,
+          });
+          say?.(`[FLYER] popup bytes=${buffer.length}`);
+        }
+      } catch {
+        /* not fetchable from tab */
+      }
     }
     const imgs = await scanDomImageCandidates(popup);
     for (const img of imgs) urls.push(img.url);
@@ -1072,9 +1929,9 @@ async function harvestPopupUrls(
     for (const c of classic) urls.push(c.url);
     const light = await harvestLightboxUrls(popup);
     urls.push(...light);
-    return [...new Set(urls)];
+    return { urls: [...new Set(urls)], buffers };
   } catch {
-    return [];
+    return { urls, buffers };
   } finally {
     await popup.close().catch(() => undefined);
   }
@@ -1129,6 +1986,7 @@ async function clickDownloadOnce(
 
       const pageBuffers: NonNullable<DiscoveredCandidate["pageBuffers"]> = [];
       const urls: string[] = [];
+      let overlayUrls: string[] = [];
 
       // 1) real browser download → saveAs (blob/opaque ok)
       if (download) {
@@ -1149,18 +2007,36 @@ async function clickDownloadOnce(
       // 2) popup / new tab
       if (popup) {
         const fromPopup = await harvestPopupUrls(popup, say);
-        urls.push(...fromPopup);
-        if (fromPopup.length) say?.(`[FLYER] popup media ×${fromPopup.length}`);
+        urls.push(...fromPopup.urls);
+        pageBuffers.push(...fromPopup.buffers);
+        if (fromPopup.urls.length || fromPopup.buffers.length) {
+          say?.(
+            `[FLYER] popup media ×${fromPopup.urls.length} buf ×${fromPopup.buffers.length}`,
+          );
+        }
       }
 
       // 3) lightbox / modal / viewer on same page
-      const light = await harvestLightboxUrls(page);
-      urls.push(...light);
-      if (light.length) say?.(`[FLYER] lightbox/viewer ×${light.length}`);
       if (!pageBuffers.length) {
-        const canvases = await harvestCanvasPages(page);
-        pageBuffers.push(...canvases);
-        if (canvases.length) say?.(`[FLYER] canvas ×${canvases.length}`);
+        const pdfUrls = [
+          ...(await collectViewerPdfUrls(page)),
+          ...network.slice(before).filter((n) => n.pdf || isPdfDocumentUrl(n.url)).map((n) => n.url),
+        ];
+        const pdfBufs = await fetchPdfBuffers(page, [...new Set(pdfUrls)]);
+        if (pdfBufs.length) {
+          pageBuffers.push(...pdfBufs);
+          say?.(`[FLYER] pdf file ×${pdfBufs.length}`);
+        }
+      }
+      if (!pageBuffers.some((b) => isPdfCapBuf(b))) {
+        const overlay = await harvestScrolledViewer(page, source.viewerMode);
+        overlayUrls = overlay.urls;
+        urls.push(...overlay.urls);
+        if (overlay.urls.length) say?.(`[FLYER] lightbox/viewer ×${overlay.urls.length}`);
+        if (!pageBuffers.length) {
+          pageBuffers.push(...overlay.buffers);
+          if (overlay.buffers.length) say?.(`[FLYER] canvas ×${overlay.buffers.length}`);
+        }
       }
 
       // 4) new DOM images vs pre-click
@@ -1199,7 +2075,7 @@ async function clickDownloadOnce(
       const preferExt = unique.filter((u) =>
         /\.(jpe?g|png|webp|pdf)(\?|$)/i.test(u),
       );
-      const fromViewer = unique.filter((u) => light.includes(u));
+      const fromViewer = unique.filter((u) => overlayUrls.includes(u));
       // Viewer/lightbox first. Never persist listing HTML just because /oferta/ matches.
       const pageUrls = (
         pageBuffers.length
@@ -1278,7 +2154,8 @@ async function discoverClickDownload(
         )
           .replace(/\s+/g, " ")
           .trim()
-          .slice(0, 80);
+          .slice(0, 150);
+        if (skipStaleFlyerTitle(title)) continue;
         const externalId =
           ofertaIdx != null && ofertaIdx !== ""
             ? `oferta-${ofertaIdx}`
@@ -1326,8 +2203,8 @@ async function discoverClickDownload(
   }
 
   if (!out.length) {
-    say?.("[FLYER] click-download vazio — fallback open-each-item");
-    return discoverOpenEachItem(page, scopeSel, network, source, say);
+    say?.("[FLYER] click-download vazio");
+    return out;
   }
   say?.(`[FLYER] click-download done ×${out.length} flyer(s)`);
   return out;
@@ -1340,6 +2217,7 @@ async function discoverHarvest(
   source: FlyerSource,
 ): Promise<DiscoveredCandidate[]> {
   await page.waitForTimeout(1500);
+  await clickFirstPager(page, source.pagerSelectors);
   await page.evaluate(() => window.scrollBy(0, 400)).catch(() => undefined);
   await page.waitForTimeout(1000);
   return discoverDirect(page, scopeSel, network, source);
@@ -1352,87 +2230,67 @@ export async function discoverWithFlyerSource(args: {
   source: FlyerSource;
   onLog?: (line: string) => void;
 }): Promise<DiscoveredCandidate[]> {
-  const { page, scopeSelector, network, source, onLog } = args;
+  const { page, scopeSelector, onLog } = args;
+  const networkSnap = pruneBarePageImageDocs(args.network);
+  const source = args.source;
   onLog?.(
     `[FLYER] source kind=${source.kind} strategy=${source.downloadStrategy}` +
-      (source.evidence ? ` — ${source.evidence}` : ""),
+      (source.evidence ? ` — ${source.evidence}` : "") +
+      ` net=${networkSnap.length}/${args.network.length}`,
   );
 
+  const keep = (cands: DiscoveredCandidate[]) =>
+    dropSkipped(cands, source.skipKeys, onLog) as DiscoveredCandidate[];
+
   switch (source.downloadStrategy) {
-    case "collect-images":
-      return discoverCollectImages(page, scopeSelector, network, source);
-    case "open-each-item": {
-      const open = await discoverOpenEachItem(
-        page,
-        scopeSelector,
-        network,
-        source,
-        onLog,
-      );
-      const hasDoc = open.some(
-        (c) =>
-          Boolean(c.pageBuffers?.length) ||
-          c.pageUrls.some(
-            (u) =>
-              /\.pdf(\?|$)/i.test(u) ||
-              /\/Flyer\//i.test(u) ||
-              /flipbook/i.test(u),
-          ),
-      );
-      if (hasDoc || !source.downloadSelectors?.length) return open;
-      onLog?.(
-        "[FLYER] open-each-item sem PDF/arquivo — try click-download",
-      );
-      const dl = await discoverClickDownload(
-        page,
-        scopeSelector,
-        network,
-        source,
-        onLog,
-      );
-      return dl.length ? dl : open;
-    }
-    case "click-download":
-      return discoverClickDownload(
-        page,
-        scopeSelector,
-        network,
-        source,
-        onLog,
-      );
-    case "harvest-after-activate": {
-      const harvested = await discoverHarvest(
-        page,
-        scopeSelector,
-        network,
-        source,
-      );
-      if (harvested.length || !source.downloadSelectors?.length) {
-        return harvested;
+    case "collect-images": {
+      if (networkDocsAreRich(networkSnap)) {
+        let fromNet = candidatesFromNetwork(networkSnap, source);
+        if (!fromNet.length && source.networkHints) {
+          fromNet = candidatesFromNetwork(networkSnap, {
+            ...source,
+            networkHints: undefined,
+          });
+        }
+        if (fromNet.length) {
+          onLog?.(
+            `[FLYER] network ×${fromNet.length} (${fromNet.reduce((n, c) => n + c.pageUrls.length, 0)} págs)`,
+          );
+          return keep(fromNet);
+        }
       }
-      onLog?.(
-        "[FLYER] harvest vazio + downloadSelectors — try click-download",
-      );
-      return discoverClickDownload(
-        page,
-        scopeSelector,
-        network,
-        source,
-        onLog,
+      return keep(
+        await discoverCollectImages(page, scopeSelector, networkSnap, source),
       );
     }
+    case "open-each-item":
+      return keep(
+        await discoverOpenEachItem(
+          page,
+          scopeSelector,
+          args.network,
+          source,
+          onLog,
+        ),
+      );
+    case "click-download":
+      return keep(
+        await discoverClickDownload(
+          page,
+          scopeSelector,
+          args.network,
+          source,
+          onLog,
+        ),
+      );
+    case "harvest-after-activate":
+      return keep(
+        await discoverHarvest(page, scopeSelector, networkSnap, source),
+      );
     case "direct-url":
-    default: {
-      const direct = await discoverDirect(page, scopeSelector, network, source);
-      if (direct.length) return direct;
-      onLog?.(
-        "[FLYER] direct-url vazio — fallback collect-images",
+    default:
+      return keep(
+        await discoverDirect(page, scopeSelector, networkSnap, source),
       );
-      return discoverCollectImages(page, scopeSelector, network, {
-        ...source,
-        kind: source.kind === "pdf-links" ? "image-grid" : source.kind,
-        downloadStrategy: "collect-images",
-      });
-    }
   }
 }

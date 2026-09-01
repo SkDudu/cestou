@@ -69,7 +69,11 @@ async function waitDown(ms: number) {
 }
 
 async function start(): Promise<{ ok: boolean; already?: boolean; error?: string }> {
-  if (await workerUp()) return { ok: true, already: true };
+  // ponytail: worker is `tsc && node dist` — already-up skip = stale JS (duplicata still failed)
+  if (await workerUp()) {
+    const stopped = await stop();
+    if (!stopped.ok) return stopped;
+  }
   const cwd = scraperDir();
   if (!cwd) {
     return { ok: false, error: "Pasta back/scraper não encontrada a partir do Next." };

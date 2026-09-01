@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -10,6 +10,7 @@ const flyerStatus = v.union(
   v.literal("partially_processed"),
   v.literal("processed"),
   v.literal("expired"),
+  v.literal("duplicate"),
   v.literal("failed"),
 );
 
@@ -159,6 +160,129 @@ export const setStatus = mutation({
       status: args.status,
       updatedAt: Date.now(),
     });
+  },
+});
+
+/** Hard-delete flyer + pages + offers + extractions + storage (review discard). */
+async function wipeOffers(
+  ctx: MutationCtx,
+  offers: Array<{ _id: Id<"offers"> }>,
+) {
+  for (const o of offers) {
+    const hist = await ctx.db
+      .query("offerEligibilityHistory")
+      .withIndex("by_offer", (q) => q.eq("offerId", o._id))
+      .collect();
+    for (const h of hist) await ctx.db.delete(h._id);
+    await ctx.db.delete(o._id);
+  }
+}
+
+async function wipeFlyer(ctx: MutationCtx, id: Id<"flyers">) {
+  const flyer = await ctx.db.get(id);
+  if (!flyer) throw new Error("Flyer not found");
+
+  const offers = await ctx.db
+    .query("offers")
+    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .collect();
+  await wipeOffers(ctx, offers);
+
+  const extractions = await ctx.db
+    .query("flyerExtractions")
+    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .collect();
+  for (const e of extractions) await ctx.db.delete(e._id);
+
+  const errors = await ctx.db
+    .query("flyerErrors")
+    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .collect();
+  for (const e of errors) await ctx.db.delete(e._id);
+
+  const pages = await ctx.db
+    .query("flyerPages")
+    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .collect();
+  for (const p of pages) {
+    try {
+      await ctx.storage.delete(p.storageId);
+    } catch {
+      /* already gone */
+    }
+    await ctx.db.delete(p._id);
+  }
+
+  if (flyer.storageId) {
+    try {
+      await ctx.storage.delete(flyer.storageId);
+    } catch {
+      /* already gone */
+    }
+  }
+  await ctx.db.delete(id);
+
+  return {
+    scope: "flyer" as const,
+    offers: offers.length,
+    pages: pages.length,
+  };
+}
+
+export const discardFlyer = mutation({
+  args: { id: v.id("flyers") },
+  handler: async (ctx, args) => wipeFlyer(ctx, args.id),
+});
+
+/** Hard-delete one page + its offers. Last page → wipe whole flyer. */
+export const discardPage = mutation({
+  args: {
+    flyerId: v.id("flyers"),
+    pageNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const flyer = await ctx.db.get(args.flyerId);
+    if (!flyer) throw new Error("Flyer not found");
+
+    const pages = await ctx.db
+      .query("flyerPages")
+      .withIndex("by_flyer", (q) => q.eq("flyerId", args.flyerId))
+      .collect();
+    if (pages.length <= 1) return wipeFlyer(ctx, args.flyerId);
+
+    const page = pages.find((p) => p.pageNumber === args.pageNumber);
+    if (!page) throw new Error("Página não encontrada");
+
+    const offers = (
+      await ctx.db
+        .query("offers")
+        .withIndex("by_flyer", (q) => q.eq("flyerId", args.flyerId))
+        .collect()
+    ).filter((o) => o.pageNumber === args.pageNumber);
+    await wipeOffers(ctx, offers);
+
+    const extractions = await ctx.db
+      .query("flyerExtractions")
+      .withIndex("by_flyer_page", (q) =>
+        q.eq("flyerId", args.flyerId).eq("pageNumber", args.pageNumber),
+      )
+      .collect();
+    for (const e of extractions) await ctx.db.delete(e._id);
+
+    try {
+      await ctx.storage.delete(page.storageId);
+    } catch {
+      /* already gone */
+    }
+    await ctx.db.delete(page._id);
+    await ctx.db.patch(args.flyerId, { updatedAt: Date.now() });
+
+    return {
+      scope: "page" as const,
+      offers: offers.length,
+      pages: 1,
+      pageNumber: args.pageNumber,
+    };
   },
 });
 

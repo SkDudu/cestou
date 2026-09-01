@@ -53,6 +53,17 @@ async function appendPage(
   return buffer.length;
 }
 
+function isPdfCap(c: CapturedPage): boolean {
+  return (
+    c.contentType.includes("pdf") ||
+    (c.buffer.length >= 5 && c.buffer.subarray(0, 5).toString("latin1") === "%PDF-")
+  );
+}
+
+function looksPdfUrl(u: string): boolean {
+  return /\.pdf(\?|#|$)/i.test(u);
+}
+
 /** Download pages from buffers and/or URLs. PDFs → JPEG pages. */
 export async function downloadFromPageUrls(
   source: FlyerSourceRef,
@@ -65,9 +76,34 @@ export async function downloadFromPageUrls(
   const hashParts: Buffer[] = [];
   let totalSize = 0;
 
-  if (opts?.capturedPages?.length) {
-    for (let i = 0; i < opts.capturedPages.length; i++) {
-      const cap = opts.capturedPages[i]!;
+  const captured = opts?.capturedPages ?? [];
+  const pdfCaps = captured.filter(isPdfCap);
+  const pdfUrls = (source.pageUrls ?? []).filter(
+    (u) => looksPdfUrl(u) && !u.startsWith("capture://") && !u.startsWith("blob:"),
+  );
+
+  // ponytail: real PDF file beats a 1-page canvas screenshot of the viewer
+  if (pdfCaps.length) {
+    for (let i = 0; i < pdfCaps.length; i++) {
+      const cap = pdfCaps[i]!;
+      totalSize += await appendPage(
+        pages,
+        hashParts,
+        cap.buffer,
+        cap.contentType,
+        cap.url ?? `capture://pdf-${i}`,
+      );
+    }
+  } else if (pdfUrls.length) {
+    for (const url of pdfUrls) {
+      const { buffer, contentType } = opts?.fetchPage
+        ? await opts.fetchPage(url)
+        : await downloadUrl(url, { anyHttps: true });
+      totalSize += await appendPage(pages, hashParts, buffer, contentType, url);
+    }
+  } else if (captured.length) {
+    for (let i = 0; i < captured.length; i++) {
+      const cap = captured[i]!;
       const url = cap.url ?? `capture://${i}`;
       totalSize += await appendPage(
         pages,

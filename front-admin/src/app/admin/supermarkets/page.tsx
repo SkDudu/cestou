@@ -1,30 +1,54 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "convex/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
+import { StoreCreateModal } from "@/components/admin/StoreCreateModal";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { formatNumber } from "@/lib/format";
 
+function redeOf(name: string) {
+  return name.trim().split(/\s+/)[0] || name;
+}
+
 export default function SupermarketsPage() {
+  return (
+    <Suspense fallback={<p className="ds-meta">Carregando…</p>}>
+      <StoresPage />
+    </Suspense>
+  );
+}
+
+function StoresPage() {
+  const searchParams = useSearchParams();
   const list = useQuery(api.supermarkets.list);
   const overview = useQuery(api.dashboard.overview);
-  const create = useMutation(api.supermarkets.create);
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const preset = searchParams.get("q");
+    if (preset) setQ(preset);
+  }, [searchParams]);
+
   const stores = list ?? [];
+  const workers = overview?.workers ?? [];
   const withoutFlyer = stores.filter((s) => s.flyerCount === 0);
   const workerFail = new Set(
-    (overview?.workers ?? [])
-      .filter((w) => w.status === "fail")
-      .map((w) => w.supermarketId),
+    workers.filter((w) => w.status === "fail").map((w) => w.supermarketId),
   );
+  const workersByStore = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const w of workers) {
+      map.set(w.supermarketId, (map.get(w.supermarketId) ?? 0) + 1);
+    }
+    return map;
+  }, [workers]);
   const failStores = stores.filter((s) => workerFail.has(s._id));
   const active = stores.filter((s) => s.active);
 
@@ -38,7 +62,8 @@ export default function SupermarketsPage() {
       return (
         s.name.toLowerCase().includes(needle) ||
         s.city.toLowerCase().includes(needle) ||
-        s.slug.includes(needle)
+        s.slug.includes(needle) ||
+        redeOf(s.name).toLowerCase().includes(needle)
       );
     });
   }, [stores, tab, q, workerFail]);
@@ -46,81 +71,55 @@ export default function SupermarketsPage() {
   const groups = useMemo(() => {
     const map = new Map<string, typeof rows>();
     for (const s of rows) {
-      const key = s.name.split(/\s+/)[0] || "Rede";
+      const key = redeOf(s.name);
       const arr = map.get(key) ?? [];
       arr.push(s);
       map.set(key, arr);
     }
-    return [...map.entries()];
+    return [...map.entries()].sort((a, b) =>
+      a[0].localeCompare(b[0], "pt-BR"),
+    );
   }, [rows]);
-
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const fd = new FormData(e.currentTarget);
-    try {
-      const id = await create({
-        name: String(fd.get("name") ?? ""),
-        city: String(fd.get("city") ?? "Fortaleza"),
-        state: String(fd.get("state") ?? "CE"),
-        country: String(fd.get("country") ?? "BR"),
-        websiteUrl: String(fd.get("websiteUrl") ?? "") || undefined,
-        active: true,
-      });
-      window.location.href = `/admin/supermarkets/${id}`;
-    } catch (err) {
-      setError(String(err));
-    }
-  }
 
   if (list === undefined) return <p className="ds-meta">Carregando…</p>;
 
-  const redes = new Set(stores.map((s) => s.name.split(/\s+/)[0])).size;
+  const redes = new Set(stores.map((s) => redeOf(s.name))).size;
 
   return (
     <div>
       <OpsHeader
         title="Lojas"
-        subtitle={`${stores.length} filiais · ${redes} redes`}
+        stamp={`${stores.length} filiais · ${redes} redes`}
         filterTarget={() => searchRef.current?.focus()}
         primary={
           <button
             type="button"
             className="ds-btn ds-btn--primary"
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => setCreateOpen(true)}
           >
-            {open ? "Fechar" : "Nova filial"}
+            Novo supermercado
           </button>
         }
       />
 
-      {open ? (
-        <form onSubmit={onSubmit} className="ds-form ds-form-2">
-          <input name="name" required placeholder="Nome" className="ds-input" />
-          <input name="city" defaultValue="Fortaleza" className="ds-input" />
-          <input name="state" defaultValue="CE" className="ds-input" />
-          <input name="country" defaultValue="BR" className="ds-input" />
-          <input
-            name="websiteUrl"
-            placeholder="Website"
-            className="ds-input"
-            style={{ gridColumn: "1 / -1" }}
-          />
-          {error ? (
-            <p className="text-sm text-[var(--ds-color-danger)]">{error}</p>
-          ) : null}
-          <button type="submit" className="ds-btn ds-btn--primary ds-btn--lg">
-            Criar
-          </button>
-        </form>
-      ) : null}
+      <StoreCreateModal
+        open={createOpen}
+        storeNames={stores.map((s) => s.name)}
+        onClose={() => setCreateOpen(false)}
+      />
 
       <section className="flex gap-4 pb-4">
         <OpsKpi label="Redes" value={redes} foot="grupos" />
-        <OpsKpi label="Filiais" value={stores.length} foot="operando sob as redes" />
+        <OpsKpi
+          label="Filiais"
+          value={stores.length}
+          foot="operando sob as redes"
+        />
         <OpsKpi
           label="Encartes vigentes"
-          value={formatNumber(stores.reduce((n, s) => n + (s.activeFlyer ? 1 : 0), 0))}
+          value={formatNumber(
+            stores.reduce((n, s) => n + (s.activeFlyer ? 1 : 0), 0),
+          )}
           foot="ciclos publicados agora"
         />
         <OpsKpi
@@ -162,54 +161,85 @@ export default function SupermarketsPage() {
           <span className="ds-label-caps w-[228px] shrink-0">Filial</span>
           <span className="ds-label-caps w-[160px] shrink-0">Cidade</span>
           <span className="ds-label-caps w-[92px] shrink-0">Status</span>
+          <span className="ds-label-caps w-[80px] shrink-0">Workers</span>
           <span className="ds-label-caps w-[80px] shrink-0">Encartes</span>
           <span className="ds-label-caps w-[80px] shrink-0">Ofertas</span>
           <span className="ds-label-caps min-w-0 flex-1">Último ciclo</span>
         </div>
         {groups.map(([rede, items]) => (
           <div key={rede}>
-            <div className="ds-group-row">
-              <span>{rede} rede</span>
+            <button
+              type="button"
+              className="ds-group-row w-full text-left"
+              onClick={() => setQ(rede)}
+            >
+              <span className="flex items-center gap-2">
+                <span
+                  className="ds-dot"
+                  style={{ background: statusDot("queue") }}
+                />
+                {rede}{" "}
+                <span className="font-normal text-[var(--ds-color-muted-foreground)]">
+                  rede
+                </span>
+              </span>
               <span className="font-normal text-[var(--ds-color-muted-foreground)]">
                 {items.length} {items.length === 1 ? "filial" : "filiais"}
               </span>
-            </div>
-            {items.map((s) => (
-              <Link
-                key={s._id}
-                href={`/admin/supermarkets/${s._id}`}
-                className="ds-table-row"
-                style={{ height: 64 }}
-              >
-                <span className="flex w-[228px] shrink-0 items-center gap-2">
-                  <span
-                    className="ds-dot"
-                    style={{
-                      background: workerFail.has(s._id)
-                        ? statusDot("fail")
-                        : statusDot("ok"),
-                    }}
-                  />
-                  <span>
-                    <span className="block font-medium">{s.name}</span>
-                    <span className="font-mono text-xs text-[var(--ds-color-muted-foreground)]">
-                      {s.slug}
+            </button>
+            {items.map((s) => {
+              const wrk = workersByStore.get(s._id) ?? 0;
+              return (
+                <Link
+                  key={s._id}
+                  href={`/admin/supermarkets/${s._id}`}
+                  className="ds-table-row"
+                  style={{ height: 64 }}
+                >
+                  <span className="flex w-[228px] shrink-0 items-center gap-2">
+                    <span
+                      className="ds-dot"
+                      style={{
+                        background: workerFail.has(s._id)
+                          ? statusDot("fail")
+                          : statusDot("ok"),
+                      }}
+                    />
+                    <span>
+                      <span className="block font-medium">{s.name}</span>
+                      <span className="font-mono text-xs text-[var(--ds-color-muted-foreground)]">
+                        {s.slug}
+                      </span>
                     </span>
                   </span>
-                </span>
-                <span className="w-[160px] shrink-0">
-                  {s.city} · {s.state}
-                </span>
-                <span className="w-[92px] shrink-0">
-                  <StatusBadge status={s.active ? "active" : "disabled"} />
-                </span>
-                <span className="w-[80px] shrink-0 font-mono">{s.flyerCount}</span>
-                <span className="w-[80px] shrink-0 font-mono">{s.offerCount}</span>
-                <span className="min-w-0 flex-1 truncate text-[var(--ds-color-muted-foreground)]">
-                  {s.activeFlyer?.title ?? "—"}
-                </span>
-              </Link>
-            ))}
+                  <span className="w-[160px] shrink-0">
+                    {s.city} · {s.state}
+                  </span>
+                  <span className="w-[92px] shrink-0">
+                    <StatusBadge status={s.active ? "active" : "disabled"} />
+                  </span>
+                  <span
+                    className="w-[80px] shrink-0 font-mono"
+                    style={
+                      workerFail.has(s._id)
+                        ? { color: "var(--ds-color-danger)" }
+                        : undefined
+                    }
+                  >
+                    {wrk}
+                  </span>
+                  <span className="w-[80px] shrink-0 font-mono">
+                    {s.flyerCount}
+                  </span>
+                  <span className="w-[80px] shrink-0 font-mono">
+                    {s.offerCount}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[var(--ds-color-muted-foreground)]">
+                    {s.activeFlyer?.title ?? "—"}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         ))}
         {!rows.length ? (
