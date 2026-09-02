@@ -1,4 +1,5 @@
 import type { Download, Locator, Page } from "playwright";
+import { resolveDiscoverItemSelectors } from "../session/journal-tabs.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -527,6 +528,26 @@ export async function scanDomImageCandidates(
         if (out.length >= 40) break;
       }
     }
+    // Inline fancybox / slick page assets (Centerbox, Assaí tab panel)
+    if (out.length < 40) {
+      for (const a of Array.from(
+        root.querySelectorAll(
+          'a[data-fancybox][href], .slick-slide a[href], .slick-track a[href]',
+        ),
+      )) {
+        push(a.getAttribute("href"));
+        if (out.length >= 40) break;
+      }
+      for (const img of Array.from(
+        root.querySelectorAll("img[data-fancybox][src]"),
+      )) {
+        push(
+          img.getAttribute("src"),
+          img.getAttribute("alt") ?? img.getAttribute("title") ?? "",
+        );
+        if (out.length >= 40) break;
+      }
+    }
     return out;
   }, scopeSelector ?? null);
 }
@@ -637,12 +658,153 @@ async function discoverCollectImages(
   network: NetworkFlyerDoc[],
   source: FlyerSource,
 ): Promise<DiscoveredCandidate[]> {
+  const carousel = await harvestCarouselPagesInScope(
+    page,
+    scopeSel,
+    source.pagerSelectors,
+  );
+  if (carousel.length >= 1) {
+    return [
+      {
+        originalUrl: carousel[0]!,
+        title: "Encarte",
+        pageUrls: carousel.slice(0, 24),
+        externalId: carousel[0]!,
+      },
+    ];
+  }
+  const itemSels = await resolveDiscoverItemSelectors(
+    page,
+    source.itemSelectors,
+    scopeSel,
+  );
+  const root = () =>
+    scopeSel ? page.locator(scopeSel).first() : page.locator("body");
+  const grouped: DiscoveredCandidate[] = [];
+  for (const sel of itemSels) {
+    try {
+      const n = await root().locator(sel).count();
+      if (n < 2) continue;
+      for (let i = 0; i < Math.min(n, 12); i++) {
+        const item = root().locator(sel).nth(i);
+        const title = (
+          (await item.innerText().catch(() => "")) ||
+          (await item.getAttribute("alt").catch(() => "")) ||
+          `item-${i + 1}`
+        )
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 150);
+        const urls = await item
+          .evaluate((el) => {
+            const out: string[] = [];
+            const seen = new Set<string>();
+            const push = (raw: string | null | undefined) => {
+              if (!raw) return;
+              try {
+                const abs = new URL(raw, location.href).href;
+                if (seen.has(abs)) return;
+                if (!/\.(jpe?g|png|webp)(\?|$)/i.test(abs)) return;
+                seen.add(abs);
+                out.push(abs);
+              } catch {
+                /* */
+              }
+            };
+            for (const a of Array.from(
+              el.querySelectorAll('a[data-fancybox][href], a[href]'),
+            )) {
+              push(a.getAttribute("href"));
+            }
+            for (const img of Array.from(el.querySelectorAll("img[src]"))) {
+              push(img.getAttribute("src"));
+            }
+            return out;
+          })
+          .catch(() => [] as string[]);
+        if (!urls.length) continue;
+        grouped.push({
+          originalUrl: urls[0]!,
+          title: title || `item-${i + 1}`,
+          pageUrls: urls.slice(0, 24),
+          externalId: `item-${i}-${(title || "encarte").slice(0, 40)}`,
+        });
+      }
+      if (grouped.length) return grouped;
+    } catch {
+      /* bad sel */
+    }
+  }
   for (let i = 0; i < 4; i++) {
     if (!(await loadMoreListing(page, source, scopeSel, "img[src]"))) break;
   }
   const imgs = await scanDomImageCandidates(page, scopeSel);
   const net = groupedNetworkDocs(filterNet(network, source, true));
   return buildLooseCandidates(imgs, net, true);
+}
+
+/** All slick/fancybox page JPEGs currently in scope (visible + hidden slides). */
+async function harvestInlineCarouselPageUrls(
+  page: Page,
+  scopeSel?: string,
+): Promise<string[]> {
+  return page.evaluate((rootSel) => {
+    const root = rootSel ? document.querySelector(rootSel) : document.body;
+    if (!root) return [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (raw: string | null | undefined) => {
+      if (!raw) return;
+      try {
+        const abs = new URL(raw, location.href).href;
+        if (seen.has(abs)) return;
+        if (!/\.(jpe?g|png|webp)(\?|$)/i.test(abs)) return;
+        seen.add(abs);
+        out.push(abs);
+      } catch {
+        /* */
+      }
+    };
+    for (const a of Array.from(
+      root.querySelectorAll(
+        'a[data-fancybox][href], .slick-slide a[href], .slick-track a[href]',
+      ),
+    )) {
+      push(a.getAttribute("href"));
+    }
+    for (const img of Array.from(
+      root.querySelectorAll("img[data-fancybox][src], .slick-slide img[src]"),
+    )) {
+      push(img.getAttribute("src"));
+    }
+    return out;
+  }, scopeSel ?? null);
+}
+
+/** Click carousel pager inside listing scope (Assaí tab panels). */
+async function harvestCarouselPagesInScope(
+  page: Page,
+  scopeSel: string | undefined,
+  pagerSels?: string[],
+): Promise<string[]> {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const ingest = async () => {
+    for (const u of await harvestInlineCarouselPageUrls(page, scopeSel)) {
+      if (seen.has(u)) continue;
+      seen.add(u);
+      urls.push(u);
+    }
+  };
+  await ingest();
+  for (let i = 0; i < 16; i++) {
+    const n = urls.length;
+    if (!(await clickFirstPager(page, pagerSels))) break;
+    await page.waitForTimeout(420);
+    await ingest();
+    if (urls.length === n) break;
+  }
+  return urls.slice(0, 24);
 }
 
 export function listingKey(url: string): string {
@@ -655,8 +817,177 @@ export function listingKey(url: string): string {
   }
 }
 
+/**
+ * Dedup key for discovered flyers. Same-page modal cards use #item-N / #tab-N —
+ * stripping the hash collapses São Luiz / Mercadapp flip-cards into one encarte.
+ */
+export function encarteDedupKey(originalUrl: string): string {
+  const m = originalUrl.match(/#(item|tab)-\d+/i);
+  if (m) {
+    const base = listingKey(originalUrl);
+    return `${base}${m[0]!.toLowerCase()}`;
+  }
+  return listingKey(originalUrl);
+}
+
 const GENERIC_ITEM_CTA =
   /^(ver\s+(o\s+)?(encarte|folheto|jornal)(\s+completo)?|baixar|download)$/i;
+
+/** Temporary fallback while DOM title isn't resolved yet — still click the card. */
+export function isPlaceholderListingTitle(title: string): boolean {
+  return /^item-\d+$/i.test(title.replace(/\s+/g, " ").trim());
+}
+
+/** Listing card title noise — CTAs / date-only labels (not placeholders). */
+export function isJunkListingTitle(title: string): boolean {
+  const t = title.replace(/\s+/g, " ").trim();
+  if (!t) return true;
+  if (isPlaceholderListingTitle(t)) return false;
+  if (GENERIC_ITEM_CTA.test(t)) return true;
+  if (/^ver\s+encarte/i.test(t)) return true;
+  if (/^de\s+\d{1,2}\b/i.test(t) && DATE_RANGE_RE.test(t)) return true;
+  if (/^de\s+\d{1,2}\s+a\s+\d/i.test(t)) return true;
+  const letters = t.replace(/[^a-záàâãéêíóôõúç]/gi, "");
+  if (
+    DATE_RANGE_RE.test(t) &&
+    letters.length < 8 &&
+    /^\s*de\s+/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Fallback title from /encarte/slug/ path. */
+export function titleFromEncarteUrl(url: string): string {
+  try {
+    const parts = new URL(url).pathname.split("/").filter(Boolean);
+    const slug = parts[parts.length - 1] ?? "";
+    if (!slug || slug === "encarte" || slug === "encartes") return "";
+    return decodeURIComponent(slug)
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return "";
+  }
+}
+
+async function resolveListingItemTitle(
+  item: import("playwright").Locator,
+  fallbackIndex: number,
+): Promise<string> {
+  const fromDom = await item
+    .evaluate((el) => {
+      const junk = (raw: string) => {
+        const t = raw.replace(/\s+/g, " ").trim();
+        if (!t || /^item-\d+$/i.test(t)) return true;
+        if (/^ver\s+encarte/i.test(t)) return true;
+        if (/^clique\s*p\/?\s*visualizar/i.test(t)) return true;
+        // Date-only labels (Frangolândia fragment) — keep "Name - 02 a 03/09"
+        if (/^de\s+\d{1,2}\b/i.test(t) && /\d{1,2}\s*[./-]/.test(t)) {
+          return true;
+        }
+        return false;
+      };
+      const pick = (raw: string | null | undefined) => {
+        const t = (raw ?? "").replace(/\s+/g, " ").trim();
+        return t && !junk(t) ? t : "";
+      };
+      // Tab / journal buttons (Assaí): the item IS the titled control
+      if (
+        el.matches(
+          "button, [role=tab], [data-oferta-index], .ofertas-tab button",
+        )
+      ) {
+        const self = pick(el.textContent);
+        if (self) return self.slice(0, 150);
+      }
+      for (const sel of [
+        ".detalhes .titulo",
+        "span.titulo",
+        ".titulo",
+        '[class*="titulo"]',
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        ".jet-listing-dynamic-field__content",
+        '[class*="listing-dynamic-field"]',
+        ".entry-title",
+        ".card-title",
+      ]) {
+        for (const node of Array.from(el.querySelectorAll(sel))) {
+          const t = pick(node.textContent);
+          if (t) return t.slice(0, 150);
+        }
+      }
+      const overlay =
+        el.querySelector("[data-url]") ??
+        el.querySelector("a.jet-engine-listing-overlay-link");
+      const href =
+        overlay?.getAttribute("data-url") ??
+        (overlay as HTMLAnchorElement | null)?.href ??
+        el.querySelector("a[href]")?.getAttribute("href") ??
+        "";
+      if (href) {
+        try {
+          const slug = new URL(href, location.href).pathname
+            .split("/")
+            .filter(Boolean)
+            .pop();
+          if (slug && slug !== "encarte" && slug !== "encartes") {
+            const t = decodeURIComponent(slug)
+              .replace(/[-_]+/g, " ")
+              .replace(/\b\w/g, (c) => c.toUpperCase());
+            if (!junk(t)) return t.slice(0, 150);
+          }
+        } catch {
+          /* */
+        }
+      }
+      const img = el.querySelector("img[alt]");
+      const alt = pick(img?.getAttribute("alt") ?? "");
+      if (alt) return alt.slice(0, 150);
+      return "";
+    })
+    .catch(() => "");
+  if (fromDom && !isJunkListingTitle(fromDom)) return fromDom;
+  return `item-${fallbackIndex + 1}`;
+}
+
+async function resolveDetailPageTitle(page: Page): Promise<string> {
+  const t = await page
+    .evaluate(() => {
+      const junk = (raw: string) => {
+        const s = raw.replace(/\s+/g, " ").trim();
+        if (!s || /^de\s+\d{1,2}\b/i.test(s)) return true;
+        return false;
+      };
+      for (const sel of [
+        ".titulo-folheto .titulo",
+        ".detalhes .titulo",
+        "span.titulo",
+        ".titulo",
+        "h1.entry-title",
+        "h1",
+        ".entry-title",
+        "title",
+      ]) {
+        const el = document.querySelector(sel);
+        const text =
+          sel === "title"
+            ? document.title
+            : (el?.textContent ?? "").replace(/\s+/g, " ").trim();
+        if (text && !junk(text)) return text.slice(0, 150);
+      }
+      return "";
+    })
+    .catch(() => "");
+  if (t && !isJunkListingTitle(t)) return t;
+  return titleFromEncarteUrl(page.url());
+}
 
 async function returnToListing(
   page: Page,
@@ -696,6 +1027,8 @@ async function waitForSamePageViewerReady(
       const light = await harvestLightboxUrls(page);
       if (light.some((u) => !before.has(u))) return true;
       if ((await harvestCanvasPages(page)).length) return true;
+      const flip = await harvestFlipbookBackgroundUrls(page);
+      if (flip.some((u) => !before.has(u)) || flip.length > 0) return true;
     }
     await page.waitForTimeout(250);
   }
@@ -709,13 +1042,16 @@ async function discoverOpenEachItem(
   source: FlyerSource,
   say?: (line: string) => void,
 ): Promise<DiscoveredCandidate[]> {
-  const itemSels = source.itemSelectors?.length
-    ? source.itemSelectors
-    : ['[role="tab"]', "[data-oferta-index]", ".swiper-slide"];
+  const itemSels = await resolveDiscoverItemSelectors(
+    page,
+    source.itemSelectors,
+    scopeSel,
+  );
   const listingUrl = page.url();
   const out: DiscoveredCandidate[] = [];
   const seenTitles = new Set<string>();
   const seenUrls = new Set<string>();
+  const seenEncartes = new Set<string>();
 
   const root = () =>
     scopeSel ? page.locator(scopeSel).first() : page.locator("body");
@@ -746,6 +1082,26 @@ async function discoverOpenEachItem(
         return viaDl;
       }
     }
+    if (
+      source.kind === "tabs" &&
+      !itemSels.some((s) =>
+        /flip-card|jet-listing-grid__item|card-folheto|offers__item/i.test(s),
+      )
+    ) {
+      const carousel = await harvestCarouselPagesInScope(
+        page,
+        harvestScope ?? scopeSel,
+        source.pagerSelectors,
+      );
+      if (carousel.length) {
+        return {
+          originalUrl: `${page.url().split("#")[0]}#tab-${i}`,
+          title,
+          pageUrls: carousel,
+          externalId: `tab-${i}-${title.slice(0, 40)}`,
+        };
+      }
+    }
     // ponytail: file PDF (dom/net/embed) → raster all pages. Canvas only if no file.
     const pdfs = [
       ...(await scanDomFlyerCandidates(page, harvestScope))
@@ -761,23 +1117,37 @@ async function discoverOpenEachItem(
     const pdfBufs = uniquePdfs.length
       ? await fetchPdfBuffers(page, uniquePdfs)
       : [];
-    const overlay = await harvestScrolledViewer(page, source.viewerMode);
-    const overlayUrls =
-      !leftListing && imgsBefore.size
-        ? overlay.urls.filter((u) => !imgsBefore.has(u))
-        : overlay.urls;
+    const overlay = await harvestScrolledViewer(
+      page,
+      source.viewerMode,
+      source.pagerSelectors,
+    );
+    // Listing covers share CDN URLs with flipbook page-1 — don't drop the only page.
+    let overlayUrls = overlay.urls;
+    if (!leftListing && imgsBefore.size) {
+      const delta = overlay.urls.filter((u) => !imgsBefore.has(u));
+      if (delta.length) {
+        overlayUrls = delta;
+      } else if (await overlayVisible(page)) {
+        overlayUrls = overlay.urls;
+      } else {
+        overlayUrls = [];
+      }
+    }
     // ponytail: canvas modal has no img URL delta — never drop buffers on imgsBefore filter
     const overlayN = overlayUrls.length + overlay.buffers.length;
     const itemAnchor = `${page.url().split("#")[0]}#item-${i}`;
+    const encarteBase = listingKey(page.url().split("#")[0] ?? page.url());
     const overlayGot = (): DiscoveredCandidate => {
       const pageUrls = overlayUrls.length
         ? overlayUrls.slice(0, 24)
         : overlay.buffers.map((b, k) => b.url ?? `capture://canvas-${k}`);
+      const base = leftListing ? encarteBase : itemAnchor;
       return {
-        originalUrl: itemAnchor,
+        originalUrl: base,
         title,
         pageUrls,
-        externalId: `item-${i}-${title.slice(0, 40)}`,
+        externalId: base,
         pageBuffers: overlay.buffers.length ? overlay.buffers : undefined,
       };
     };
@@ -826,19 +1196,39 @@ async function discoverOpenEachItem(
       .slice(0, 24);
     if (!pageUrls.length) return null;
     if (pageUrls.every((u) => seenUrls.has(u))) return null;
+    const baseUrl = leftListing ? encarteBase : itemAnchor;
+    if (seenEncartes.has(encarteDedupKey(baseUrl))) return null;
     return {
-      originalUrl: itemAnchor,
+      originalUrl: baseUrl,
       title,
       pageUrls,
-      externalId: `item-${i}-${title.slice(0, 40)}`,
+      externalId: baseUrl,
     };
   };
 
   const clickTargets = async (item: Locator): Promise<Locator[]> => {
     const targets: Locator[] = [];
     const wrap = item.locator(
-      "xpath=ancestor::*[self::article or contains(@class,'elementor')][1]",
+      "xpath=ancestor::*[self::article or contains(@class,'elementor') or contains(@class,'col-')][1]",
     );
+    // Mercadapp flip-card: user clicks the cover img — try that first
+    const coverImg = item.locator(".card-body img, img").first();
+    if ((await coverImg.count()) > 0) targets.push(coverImg);
+    const flipBody = item.locator(".card-body").first();
+    if ((await flipBody.count()) > 0) targets.push(flipBody);
+    targets.push(item);
+    for (const sub of [
+      "a.jet-engine-listing-overlay-link",
+      '[data-url*="/encarte/"]',
+      'a[href*="/folheto/"]',
+      'a[href*="/encarte/"]',
+      'a[target="_blank"]',
+    ]) {
+      const link = item.locator(sub).first();
+      if ((await link.count()) > 0) targets.push(link);
+      const wrapLink = wrap.locator(sub).first();
+      if ((await wrapLink.count()) > 0) targets.push(wrapLink);
+    }
     for (const needle of hasTextNeedles(itemSels)) {
       const esc = needle.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
       const q = `a:has-text("${esc}"), button:has-text("${esc}")`;
@@ -869,29 +1259,49 @@ async function discoverOpenEachItem(
           break;
         }
         say?.(`[FLYER] items "${sel}" count=${n} round=${round}`);
-        const limit = Math.min(n, 12);
+        const limit = Math.min(n, 48);
         const moreNav = limit > 1 || Boolean(source.pagerSelectors?.length);
-        for (let i = 0; i < limit && out.length < 12; i++) {
-        if (moreNav) await closeFlyerOverlay(page);
+        for (let i = 0; i < limit && out.length < 48; i++) {
+        if (moreNav) {
+          await closeFlyerOverlay(page);
+          await page.waitForTimeout(200);
+        }
         await returnToListing(page, listingUrl, sel);
         const item0 = root().locator(sel).nth(i);
-        const title = (
-          (await item0.innerText().catch(() => "")) ||
-          (await item0.getAttribute("alt").catch(() => "")) ||
-          (await item0.getAttribute("aria-label").catch(() => "")) ||
-          `item-${i + 1}`
-        )
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 150);
+        await item0.scrollIntoViewIfNeeded().catch(() => undefined);
+        await page.waitForTimeout(150);
+        let title = await resolveListingItemTitle(item0, i);
+        if (isJunkListingTitle(title) || isPlaceholderListingTitle(title)) {
+          const href = await item0
+            .evaluate((el) => {
+              const a =
+                el.querySelector("a.jet-engine-listing-overlay-link") ??
+                el.querySelector("a[href*='/encarte/']") ??
+                el.querySelector("[data-url]") ??
+                el.querySelector("a[href]");
+              return (
+                a?.getAttribute("data-url") ??
+                (a as HTMLAnchorElement | null)?.href ??
+                ""
+              );
+            })
+            .catch(() => "");
+          if (href) title = titleFromEncarteUrl(href) || title;
+        }
         if (/^(ir para o conteúdo|pular para|skip to content|encartes?)$/i.test(title)) {
+          continue;
+        }
+        // Skip only real noise (VER ENCARTE / date-only). Keep item-N and click.
+        if (isJunkListingTitle(title) && !isPlaceholderListingTitle(title)) {
+          say?.(`[FLYER] skip junk title "${title.slice(0, 40)}"`);
           continue;
         }
         if (skipStaleFlyerTitle(title)) {
           say?.(`[FLYER] skip stale "${title.slice(0, 40)}"`);
           continue;
         }
-        const genericCta = GENERIC_ITEM_CTA.test(title);
+        const genericCta =
+          GENERIC_ITEM_CTA.test(title) || isPlaceholderListingTitle(title);
         if (title && seenTitles.has(title) && !genericCta) continue;
         if (title && !genericCta) seenTitles.add(title);
 
@@ -906,6 +1316,20 @@ async function discoverOpenEachItem(
             (await scanDomImageCandidates(page, scopeSel)).map((x) => x.url),
           );
           const netBefore = network.length;
+          const hrefBefore = await loc
+            .evaluate((el) => {
+              const a =
+                (el as HTMLAnchorElement).href ||
+                el.getAttribute("href") ||
+                el.closest("a")?.getAttribute("href") ||
+                el
+                  .closest("[data-url]")
+                  ?.getAttribute("data-url") ||
+                "";
+              return a;
+            })
+            .catch(() => "");
+          const looksNavEncarte = /\/encarte\//i.test(hrefBefore);
           const looksNewTab = await loc
             .evaluate((el) => {
               const t = (
@@ -924,6 +1348,7 @@ async function discoverOpenEachItem(
                 a?.getAttribute("target") === "_blank";
               return (
                 blank ||
+                /\/folhet[oós]?\//i.test(href) ||
                 /baixar|download|\bpdf\b/.test(t) ||
                 /\.(pdf|jpe?g|png|webp)(\?|$)/i.test(href)
               );
@@ -935,6 +1360,13 @@ async function discoverOpenEachItem(
                 .waitForEvent("page", { timeout: 5000 })
                 .catch(() => null)
             : Promise.resolve(null);
+          const navPromise = looksNavEncarte
+            ? page
+                .waitForURL((u) => /\/encarte\//i.test(String(u)), {
+                  timeout: 10_000,
+                })
+                .catch(() => null)
+            : Promise.resolve(null);
           if (!(await clickMaybeForce(loc))) {
             say?.(`[FLYER] click item ${i} try ${t} falhou`);
             await popupPromise;
@@ -942,23 +1374,40 @@ async function discoverOpenEachItem(
           }
           say?.(`[FLYER] item ${i} try ${t} click`);
           const popup = await popupPromise;
+          await navPromise;
           await Promise.race([
             page.waitForLoadState("domcontentloaded"),
             page.waitForTimeout(2500),
           ]).catch(() => undefined);
           if (popup) {
             await page.waitForTimeout(800);
-          } else if (imgsBefore.size) {
-            const ready = await waitForSamePageViewerReady(
-              page,
-              scopeSel,
-              imgsBefore,
-            );
-            if (!ready) {
-              say?.(`[FLYER] item ${i} try ${t} no viewer ready`);
-            }
+          } else if (looksNavEncarte) {
+            await page.waitForTimeout(600);
           } else {
-            await page.waitForTimeout(800);
+            // Wait for modal/flipbook even when listing thumbs already filled imgsBefore
+            const modalReady = await page
+              .locator(
+                '.modal.show, .flipbook-modal.show, .modal.fade.show, [role="dialog"]:visible, [class*="flipbook"]',
+              )
+              .first()
+              .waitFor({ state: "visible", timeout: 7000 })
+              .then(() => true)
+              .catch(() => false);
+            if (!modalReady && imgsBefore.size) {
+              const ready = await waitForSamePageViewerReady(
+                page,
+                scopeSel,
+                imgsBefore,
+                3000,
+              );
+              if (!ready && !(await overlayVisible(page))) {
+                say?.(`[FLYER] item ${i} try ${t} no viewer ready`);
+              }
+            } else if (modalReady) {
+              await page.waitForTimeout(500);
+            } else {
+              await page.waitForTimeout(800);
+            }
           }
           if (popup) {
             const harvested = await harvestPopupUrls(popup, say);
@@ -982,6 +1431,12 @@ async function discoverOpenEachItem(
           }
           const leftListing =
             listingKey(page.url()) !== listingKey(listingUrl);
+          if (leftListing) {
+            const detailTitle = await resolveDetailPageTitle(page);
+            if (detailTitle && !isJunkListingTitle(detailTitle)) {
+              title = detailTitle;
+            }
+          }
           if (!got) {
             got = await harvestOnce(
               title,
@@ -992,6 +1447,15 @@ async function discoverOpenEachItem(
             );
           }
           if (got) got = await paginateViewer(page, got, source);
+          if (got) {
+            const key = encarteDedupKey(got.originalUrl);
+            if (seenEncartes.has(key)) {
+              say?.(`[FLYER] skip dup encarte ${key.slice(-48)}`);
+              got = null;
+            } else {
+              seenEncartes.add(key);
+            }
+          }
           if (leftListing) await returnToListing(page, listingUrl, sel);
           else if (moreNav) await closeFlyerOverlay(page);
         }
@@ -1185,6 +1649,47 @@ const OVERLAY_IMG_EVAL = () => {
   walkPageGallery();
   return out;
 };
+
+/** Flipbook modal pages via CSS background-image (Mercadapp etc.). */
+async function harvestFlipbookBackgroundUrls(page: Page): Promise<string[]> {
+  const out: string[] = [];
+  for (const frame of page.frames()) {
+    const part = await frame
+      .evaluate(() => {
+        const urls: string[] = [];
+        const seen = new Set<string>();
+        const push = (raw: string) => {
+          if (!raw || seen.has(raw)) return;
+          if (!/\.(jpe?g|png|webp)(\?|$)/i.test(raw)) return;
+          seen.add(raw);
+          urls.push(raw);
+        };
+        for (const el of Array.from(
+          document.querySelectorAll(
+            '[class*="flipbook"], [class*="modal"] [style*="background-image"], .modal-body *',
+          ),
+        )) {
+          const inline = (el as HTMLElement).style?.backgroundImage ?? "";
+          const computed = window.getComputedStyle(el).backgroundImage;
+          for (const css of [inline, computed]) {
+            const re = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(css))) {
+              try {
+                push(new URL(m[1]!, location.href).href);
+              } catch {
+                /* */
+              }
+            }
+          }
+        }
+        return urls;
+      })
+      .catch(() => [] as string[]);
+    out.push(...part);
+  }
+  return [...new Set(out)];
+}
 
 /** Overlay imgs + page gallery tiles (e-gallery data-thumbnail / bg) — all frames. */
 export async function harvestLightboxUrls(page: Page): Promise<string[]> {
@@ -1499,6 +2004,16 @@ async function resolveViewerMode(
   page: Page,
   hinted?: FlyerViewerMode,
 ): Promise<FlyerViewerMode> {
+  const elementor = await page
+    .evaluate(() =>
+      Boolean(
+        document.querySelector(
+          ".elementor-gallery__container, .e-gallery-item, .elementor-lightbox",
+        ),
+      ),
+    )
+    .catch(() => false);
+  if (elementor) return "img-stack";
   const urls = await harvestLightboxUrls(page);
   if (hinted && hinted !== "pdf") return hinted;
   if (urls.length >= 2) return "img-stack";
@@ -1511,6 +2026,7 @@ async function resolveViewerMode(
 async function harvestScrolledViewer(
   page: Page,
   modeHint?: FlyerViewerMode,
+  pagerSels?: string[],
 ): Promise<{
   urls: string[];
   buffers: NonNullable<DiscoveredCandidate["pageBuffers"]>;
@@ -1534,25 +2050,54 @@ async function harvestScrolledViewer(
         url: `capture://canvas-${buffers.length}.jpg`,
       });
     }
+    for (const u of await harvestFlipbookBackgroundUrls(page)) {
+      if (!isPersistableMedia(u, true) || seenUrl.has(u)) continue;
+      seenUrl.add(u);
+      urls.push(u);
+    }
   };
   await ingest();
   const mode = await resolveViewerMode(page, modeHint);
+  const paginateWithButtons = async () => {
+    for (let i = 0; i < 16 && urls.length + buffers.length < 24; i++) {
+      const n = urls.length + buffers.length;
+      if (!(await clickFirstPager(page, pagerSels))) break;
+      await page.waitForTimeout(420);
+      await ingest();
+      if (urls.length + buffers.length === n) break;
+    }
+  };
+  // Canvas / flipbook modals: pager buttons beat scroll
+  if (
+    (mode === "one-page" || mode === "pdf") &&
+    (buffers.length || pagerSels?.length)
+  ) {
+    await paginateWithButtons();
+    return { urls: urls.slice(0, 24), buffers: buffers.slice(0, 24) };
+  }
   // ponytail: one-page / pdf → no scroll harvest (tall 1-img ≠ N pages)
   if (mode === "one-page" || mode === "pdf") {
     return { urls: urls.slice(0, 24), buffers: buffers.slice(0, 24) };
   }
   let stale = 0;
-  // img-stack / lazy-scroll: only new img/canvas URLs — never viewport screenshots
+  // img-stack / lazy-scroll: pager first, then scroll
   for (let i = 0; i < 24 && urls.length + buffers.length < 24; i++) {
+    const n = urls.length + buffers.length;
+    const paged = await clickFirstPager(page, pagerSels);
+    if (paged) {
+      await page.waitForTimeout(400);
+      await ingest();
+      if (urls.length + buffers.length > n) continue;
+    }
     const moved = await scrollViewer(page);
     if (!moved) {
       if (mode === "lazy-scroll") await nudgeViewer(page);
       else break;
     }
     await page.waitForTimeout(moved ? 400 : 650);
-    const n = urls.length + buffers.length;
+    const prev = urls.length + buffers.length;
     await ingest();
-    if (urls.length + buffers.length > n) {
+    if (urls.length + buffers.length > prev) {
       stale = 0;
       continue;
     }
@@ -1729,7 +2274,11 @@ async function paginateViewer(
   got: DiscoveredCandidate,
   source: FlyerSource,
 ): Promise<DiscoveredCandidate> {
-  if (!(await overlayVisible(page))) return got;
+  const canPaginate =
+    (await overlayVisible(page)) ||
+    (await flyerViewerOpen(page)) ||
+    Boolean(source.pagerSelectors?.length);
+  if (!canPaginate) return got;
   const urls = [...got.pageUrls];
   const bufs = [...(got.pageBuffers ?? [])];
   if (bufs.some((b) => isPdfCapBuf(b))) return got;
@@ -1742,6 +2291,9 @@ async function paginateViewer(
     await page.waitForTimeout(paged || scrolled ? 280 : 550);
     const light = await harvestLightboxUrls(page);
     for (const u of light) {
+      if (!urls.includes(u)) urls.push(u);
+    }
+    for (const u of await harvestFlipbookBackgroundUrls(page)) {
       if (!urls.includes(u)) urls.push(u);
     }
     const canvases = await harvestCanvasPages(page);
@@ -1774,7 +2326,10 @@ function isPdfCapBuf(b: { buffer: Buffer; contentType: string }): boolean {
 
 export async function closeFlyerOverlay(page: Page): Promise<void> {
   for (let round = 0; round < 3; round++) {
-    if (round > 0 && !(await overlayVisible(page))) return;
+    if (round > 0 && !(await overlayVisible(page))) {
+      await scrubBootstrapModalResidue(page);
+      return;
+    }
     await page.keyboard.press("Escape").catch(() => undefined);
     await page
       .evaluate(() => {
@@ -1815,6 +2370,7 @@ export async function closeFlyerOverlay(page: Page): Promise<void> {
       ".lightbox .close",
       ".btn-close",
       '[data-dismiss="modal"]',
+      '[data-bs-dismiss="modal"]',
       '[class*="close-button"]',
       '[class*="CloseButton"]',
     ];
@@ -1829,8 +2385,31 @@ export async function closeFlyerOverlay(page: Page): Promise<void> {
         /* try next */
       }
     }
+    await scrubBootstrapModalResidue(page);
     await page.waitForTimeout(280);
   }
+  await scrubBootstrapModalResidue(page);
+}
+
+/** Bootstrap leave .modal-backdrop after Esc — blocks side cards, middle still clickable. */
+async function scrubBootstrapModalResidue(page: Page): Promise<void> {
+  await page
+    .evaluate(() => {
+      document
+        .querySelectorAll(".modal-backdrop, .offcanvas-backdrop")
+        .forEach((e) => e.remove());
+      document.body.classList.remove("modal-open");
+      document.body.style.removeProperty("overflow");
+      document.body.style.removeProperty("padding-right");
+      for (const m of Array.from(
+        document.querySelectorAll(".modal.show, .modal"),
+      )) {
+        (m as HTMLElement).classList.remove("show");
+        (m as HTMLElement).style.display = "none";
+        m.setAttribute("aria-hidden", "true");
+      }
+    })
+    .catch(() => undefined);
 }
 
 async function readPlaywrightDownload(
@@ -2029,7 +2608,11 @@ async function clickDownloadOnce(
         }
       }
       if (!pageBuffers.some((b) => isPdfCapBuf(b))) {
-        const overlay = await harvestScrolledViewer(page, source.viewerMode);
+        const overlay = await harvestScrolledViewer(
+          page,
+          source.viewerMode,
+          source.pagerSelectors,
+        );
         overlayUrls = overlay.urls;
         urls.push(...overlay.urls);
         if (overlay.urls.length) say?.(`[FLYER] lightbox/viewer ×${overlay.urls.length}`);
@@ -2232,7 +2815,29 @@ export async function discoverWithFlyerSource(args: {
 }): Promise<DiscoveredCandidate[]> {
   const { page, scopeSelector, onLog } = args;
   const networkSnap = pruneBarePageImageDocs(args.network);
-  const source = args.source;
+  let source = args.source;
+  // Stale teach may save Assaí-style tabs; DOM cover cards win at runtime
+  const resolvedItems = await resolveDiscoverItemSelectors(
+    page,
+    source.itemSelectors,
+    scopeSelector,
+  );
+  if (
+    resolvedItems.some((s) =>
+      /flip-card|jet-listing-grid__item|card-folheto/i.test(s),
+    )
+  ) {
+    source = {
+      ...source,
+      kind: "image-grid",
+      downloadStrategy: "open-each-item",
+      urlFrom: "click-then-network",
+      itemSelectors: resolvedItems.filter(
+        (s) => !/data-oferta-index|role=["']?tab/i.test(s),
+      ),
+      viewerMode: source.viewerMode ?? "img-stack",
+    };
+  }
   onLog?.(
     `[FLYER] source kind=${source.kind} strategy=${source.downloadStrategy}` +
       (source.evidence ? ` — ${source.evidence}` : "") +

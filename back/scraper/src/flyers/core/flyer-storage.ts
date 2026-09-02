@@ -326,6 +326,22 @@ export async function replaceScraperSteps(
   });
 }
 
+export async function appendSetupEvent(args: {
+  flowId: string;
+  sessionId?: string;
+  kind: string;
+  label: string;
+  payload?: string;
+}) {
+  return await getClient().mutation(api.scraperSetupEvents.append, {
+    flowId: args.flowId as never,
+    sessionId: args.sessionId,
+    kind: args.kind as never,
+    label: args.label,
+    payload: args.payload,
+  });
+}
+
 export async function startScraperRun(flowId: string) {
   return await getClient().mutation(api.scraperRuns.start, {
     flowId: flowId as never,

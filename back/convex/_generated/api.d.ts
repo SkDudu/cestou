@@ -27,6 +27,7 @@ import type * as offerEligibility from "../offerEligibility.js";
 import type * as offers from "../offers.js";
 import type * as scraperFlows from "../scraperFlows.js";
 import type * as scraperRuns from "../scraperRuns.js";
+import type * as scraperSetupEvents from "../scraperSetupEvents.js";
 import type * as scraperSteps from "../scraperSteps.js";
 import type * as supermarkets from "../supermarkets.js";
 
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   offers: typeof offers;
   scraperFlows: typeof scraperFlows;
   scraperRuns: typeof scraperRuns;
+  scraperSetupEvents: typeof scraperSetupEvents;
   scraperSteps: typeof scraperSteps;
   supermarkets: typeof supermarkets;
 }>;

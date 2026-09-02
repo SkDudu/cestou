@@ -143,5 +143,20 @@ export const replaceAll = mutation({
         status: flow.status === "active" ? "testing" : flow.status,
       });
     }
+    const last = await ctx.db
+      .query("scraperSetupEvents")
+      .withIndex("by_flow_order", (q) => q.eq("flowId", args.flowId))
+      .order("desc")
+      .first();
+    await ctx.db.insert("scraperSetupEvents", {
+      flowId: args.flowId,
+      order: (last?.order ?? -1) + 1,
+      at: now,
+      kind: "save",
+      label: `${args.steps.length} steps (replaceAll)`,
+      payload: JSON.stringify({
+        steps: args.steps.map((s) => ({ type: s.type, order: s.order })),
+      }),
+    });
   },
 });

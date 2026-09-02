@@ -57,6 +57,14 @@ import {
   type ScopePick,
 } from "./scope-pick.js";
 import {
+  augmentListingLinkSelectors,
+  countJournalItems,
+  countJournalTabs,
+  normalizeJournalItemSelectors,
+  refineOpenKindFromHtml,
+  resolveTeachItemSelectors,
+} from "./journal-tabs.js";
+import {
   type AnalyzedFlow,
   applyFlyerSource,
   buildTeachSteps,
@@ -72,6 +80,7 @@ import {
   type LiveSession,
   type SessionEvent,
 } from "./types.js";
+import { traceSetup } from "./setup-trace.js";
 
 const sessions = new Map<string, LiveSession>();
 const byFlow = new Map<string, string>();
@@ -225,6 +234,10 @@ export async function destroySession(sessionId: string) {
   }
   session.status = "closed";
   emit(session, { type: "status", status: "closed" });
+  traceSetup(session, "session_close", "Sessão de ensino encerrada", {
+    actions: session.actions.length,
+    url: session.currentUrl,
+  });
   sessions.delete(sessionId);
   if (byFlow.get(session.flowId) === sessionId) byFlow.delete(session.flowId);
   flyerLog.info("SESSION", `closed ${sessionId}`);
@@ -335,6 +348,10 @@ export async function createSession(args: {
     session.status = "recording";
     emit(session, { type: "status", status: "recording" });
     emit(session, { type: "url", url: session.currentUrl });
+    traceSetup(session, "session_start", `Sessão ${sessionId} iniciada`, {
+      startUrl: args.startUrl,
+      url: session.currentUrl,
+    });
     startScreenshotLoop(session);
     void takeFrame(session);
     // SPA/modals often mount 0.5–2s after shell — wait + re-frame so preview has them.
@@ -446,6 +463,15 @@ async function applyViewerHarvest(session: LiveSession): Promise<
       canvas: false,
     };
   }
+  const open = session.sectionOpen;
+  const scopeForHarvest = session.actions.find((a) => a.kind === "scope")
+    ?.selectors?.[0];
+  let journalTabCount = 0;
+  try {
+    journalTabCount = await countJournalTabs(session.page, scopeForHarvest);
+  } catch {
+    /* */
+  }
   const src = mergeDetailHarvest({
     listing: session.listingTeach,
     imageUrls,
@@ -453,6 +479,9 @@ async function applyViewerHarvest(session: LiveSession): Promise<
     detailUrl: sample.url,
     clickSelectors: lastClick?.selectors,
     hasCanvas: sample.hasCanvas,
+    journalTabCount,
+    openKind: open?.openKind,
+    htmlSnippet: session.sectionOpen?.htmlSnippet,
   });
   session.flyerSource = keepSkip(session, src);
   const analyzed = finishAnalyze(session, {
@@ -472,6 +501,15 @@ async function applyViewerHarvest(session: LiveSession): Promise<
     "SESSION",
     `viewer dump mode=${src.viewerMode} imgs=${imageUrls.length} pdf=${pdfUrls.length} canvas=${sample.hasCanvas}`,
   );
+  traceSetup(session, "locate", `Pass 2 — viewer (${src.kind ?? "?"})`, {
+    teachPass: 2,
+    viewerMode: src.viewerMode,
+    flyerSource: src,
+    images: imageUrls.length,
+    pdfs: pdfUrls.length,
+    canvas: sample.hasCanvas,
+    evidence: src.evidence,
+  });
   return {
     viewerMode: src.viewerMode,
     notes: analyzed.notes ?? src.evidence ?? "Viewer ok",
@@ -637,6 +675,7 @@ export function removeAction(sessionId: string, index: number) {
   session.actions.splice(index, 1);
   session.proposed = undefined;
   touch(session);
+  traceSetup(session, "remove_action", `Ação #${index} removida`, { index });
   emit(session, {
     type: "actions",
     actions: session.actions.map(slimAction),
@@ -1032,6 +1071,8 @@ async function teachWithDump(
     clearTimeout(timer);
   }
 
+  sec = { ...sec, openKind: refineOpenKindFromHtml(sec.openKind, html) };
+
   const parsed = parseFromSection(sec);
   if (sec.status === "not_found" && !revisit) {
     session.proposed = undefined;
@@ -1049,11 +1090,34 @@ async function teachWithDump(
     };
   }
 
-  const items = sec.itemSelectors.length
+  const scopeSel = sec.sectionSelectors[0];
+  let items = sec.itemSelectors.length
     ? sec.itemSelectors
     : sec.sectionSelectors;
+  const resolved = await resolveTeachItemSelectors(
+    session.page,
+    scopeSel,
+    items,
+  );
+  items = resolved.selectors;
+  const journalTabCount =
+    resolved.journalTabCount ||
+    (await countJournalTabs(session.page, scopeSel));
+  items = normalizeJournalItemSelectors(items, { journalTabCount });
+  if (sec.openKind === "need_click") {
+    items = await augmentListingLinkSelectors(
+      session.page,
+      items,
+      scopeSel,
+    );
+  }
   const countCards = Math.min(
-    Math.max(await countListingCards(session.page, items), 1),
+    Math.max(
+      journalTabCount >= 2
+        ? journalTabCount
+        : await countJournalItems(session.page, items, scopeSel),
+      1,
+    ),
     48,
   );
   // ponytail: 2nd locate (viewer) must not replace listing cards with lightbox slides
@@ -1073,6 +1137,7 @@ async function teachWithDump(
     openKind,
     downloadSelectors: sec.downloadSelectors,
     clickTargetSelectors: sec.clickTargetSelectors,
+    htmlSnippet: sec.htmlSnippet,
   };
   if (openKind === "need_click") {
     session.flyerSource = undefined;
@@ -1165,6 +1230,20 @@ export async function locateFlyersWithMimo(
       "SESSION",
       `locate-section mimo status=${parsed.status} cands=${candidates.length} sel=${pick?.selectors[0] ?? "-"} n=${analyzed.listingCount ?? 0}`,
     );
+    traceSetup(session, "locate", analyzed.notes?.split("\n")[0] ?? "Detectar encartes", {
+      status: parsed.status,
+      openKind,
+      itemSelectors,
+      listingCount: analyzed.listingCount,
+      teachPass: analyzed.teachPass ?? 1,
+      awaitDetail: analyzed.awaitDetail,
+      candidates: candidates.map((c) => ({
+        label: c.label,
+        selectors: c.selectors,
+      })),
+      notes: analyzed.notes,
+      flyerSource: session.flyerSource,
+    });
     return {
       pick,
       probe,
@@ -1211,6 +1290,11 @@ export function skipPreviewFlyer(
   }
   const next = sanitizeFlyerSource({ ...src, skipKeys: keys });
   session.flyerSource = next;
+  traceSetup(session, "skip_flyer", `Ignorar encarte(s): ${(args.add ?? []).join(", ")}`, {
+    add: args.add,
+    remove: args.remove,
+    skipKeys: next.skipKeys,
+  });
   if (session.proposed?.steps.length) {
     session.proposed = {
       ...session.proposed,
@@ -1311,6 +1395,11 @@ export async function previewDiscover(
     }
     const flyers = [...byUrl.values()];
     onLog(`[TESTE] ${flyers.length} encarte(s)`);
+    traceSetup(session, "preview", `Teste: ${flyers.length} encarte(s)`, {
+      flyers,
+      flyerSource: source,
+      scopeSel,
+    });
     return { flyers };
   } finally {
     harvest.dispose();
@@ -1337,25 +1426,36 @@ export async function confirmScope(
       listingKey(session.listingTeach.listingUrl) !==
         listingKey(session.page.url()),
   );
-  // ponytail: SPA viewer same URL — keep listing scope (modal sels ≠ cards)
+  // ponytail: SPA viewer same URL — don't replace listing cards with modal sels
   const keepListingScope = Boolean(
     session.listingTeach?.itemSelectors?.length &&
       (leftListingUrl ||
         open?.openKind === "viewer" ||
         args.selectors.some((s) => isViewerNoise(s))),
   );
-  if (!keepListingScope) {
+  const scopeSels = keepListingScope
+    ? (session.actions.find((a) => a.kind === "scope")?.selectors?.length
+        ? (session.actions.find((a) => a.kind === "scope")!.selectors as string[])
+        : args.selectors.filter((s) => !isViewerNoise(s)))
+    : args.selectors;
+  // Always persist select-scope — Assaí viewer tabs used to skip this and save only navigate
+  if (
+    !session.actions.some((a) => a.kind === "scope") ||
+    !keepListingScope
+  ) {
     session.actions = session.actions.filter(
       (a) => a.kind !== "scope" && a.value !== "discover-flyer",
     );
     forcePush(session, {
       kind: "scope",
-      selectors: args.selectors,
+      selectors: scopeSels.length ? scopeSels : args.selectors,
       description: args.label,
       semantic: "SELECT_SCOPE",
       value: args.purpose ?? "flyer-discovery",
       metadata: args.metadata,
     });
+  }
+  if (!keepListingScope || !session.listingTeach) {
     const itemSels =
       session.listingTeach?.itemSelectors?.length
         ? session.listingTeach.itemSelectors
@@ -1369,28 +1469,84 @@ export async function confirmScope(
     };
   }
   const itemSels = session.listingTeach!.itemSelectors;
+  const scopeSel =
+    session.actions.find((a) => a.kind === "scope")?.selectors?.[0] ??
+    scopeSels[0];
+  const resolved = await resolveTeachItemSelectors(
+    session.page,
+    scopeSel,
+    itemSels,
+  );
+  const journalTabCount =
+    resolved.journalTabCount ||
+    (await countJournalTabs(session.page, scopeSel));
+  let resolvedSels = normalizeJournalItemSelectors(resolved.selectors, {
+    journalTabCount,
+  });
+  if ((open?.openKind ?? "need_click") === "need_click") {
+    resolvedSels = await augmentListingLinkSelectors(
+      session.page,
+      resolvedSels,
+      scopeSel,
+    );
+  }
+  session.listingTeach!.itemSelectors = resolvedSels;
+  const listingCount = Math.min(
+    Math.max(
+      journalTabCount >= 2
+        ? journalTabCount
+        : await countJournalItems(session.page, resolvedSels, scopeSel),
+      1,
+    ),
+    48,
+  );
+  session.listingTeach!.count = listingCount;
+
+  // Always rebuild from openKind + DOM tab count — stale image-grid overwrote Assaí tabs
+  const rebuilt = flyerSourceFromOpenKind({
+    openKind: open?.openKind ?? "need_click",
+    itemSelectors: resolvedSels,
+    downloadSelectors: open?.downloadSelectors,
+    clickTargetSelectors: open?.clickTargetSelectors,
+    itemCount: session.listingTeach?.count,
+    journalTabCount,
+    htmlSnippet: open?.htmlSnippet,
+  });
+  const prevKind = session.flyerSource?.kind;
+  const preferRebuilt =
+    journalTabCount >= 2 ||
+    rebuilt.kind === "tabs" ||
+    !session.flyerSource ||
+    prevKind !== rebuilt.kind;
   session.flyerSource = keepSkip(
     session,
-    keepListingScope
-      ? (session.flyerSource ??
-          args.flyerSource ??
-          flyerSourceFromOpenKind({
-            openKind: "need_click",
-            itemSelectors: itemSels,
-            downloadSelectors: open?.downloadSelectors,
-            clickTargetSelectors: open?.clickTargetSelectors,
-            itemCount: session.listingTeach?.count,
-          }))
-      : (args.flyerSource ??
-          session.flyerSource ??
-          flyerSourceFromOpenKind({
-            openKind: open?.openKind ?? "need_click",
-            itemSelectors: itemSels,
-            downloadSelectors: open?.downloadSelectors,
-            clickTargetSelectors: open?.clickTargetSelectors,
-            itemCount: session.listingTeach?.count,
-          })),
+    preferRebuilt
+      ? rebuilt
+      : (args.flyerSource ?? session.flyerSource ?? rebuilt),
   );
+
+  session.proposed = {
+    startUrl: session.startUrl,
+    notes: args.label,
+    steps: buildTeachSteps({
+      startUrl: session.startUrl,
+      actions: session.actions,
+      flyerSource: session.flyerSource,
+      scopeSelectors:
+        session.actions.find((a) => a.kind === "scope")?.selectors ?? scopeSels,
+    }),
+    awaitDetail: false,
+  };
+
+  traceSetup(session, "confirm_scope", args.label ?? "Listagem aprovada", {
+    selectors: scopeSels,
+    purpose: args.purpose,
+    flyerSource: session.flyerSource,
+    listingTeach: session.listingTeach,
+    openKind: open?.openKind,
+    keepListingScope,
+    journalTabCount,
+  });
   return saveSession(sessionId);
 }
 
@@ -1417,17 +1573,9 @@ export async function addSemantic(
 async function countListingCards(
   page: LiveSession["page"],
   sels: string[],
+  scopeSelector?: string,
 ): Promise<number> {
-  let cardCount = 0;
-  for (const sel of sels) {
-    try {
-      const n = await page.locator(sel).count();
-      if (n > cardCount) cardCount = n;
-    } catch {
-      /* bad sel */
-    }
-  }
-  return cardCount;
+  return countJournalItems(page, sels, scopeSelector);
 }
 
 function listingSourceFromSelectors(sels: string[]): FlyerSource {
@@ -1475,6 +1623,13 @@ export async function analyzeSession(sessionId: string) {
   if (parsed.status === "not_found" && !session.listingTeach) {
     throw new Error(analyzed.notes || parsed.humanHint || "not_found");
   }
+  traceSetup(session, "analyze", analyzed.notes?.split("\n")[0] ?? "Re-análise", {
+    status: parsed.status,
+    teachPass: analyzed.teachPass,
+    listingCount: analyzed.listingCount,
+    steps: analyzed.steps.length,
+    notes: analyzed.notes,
+  });
   return analyzed;
 }
 
@@ -1493,6 +1648,10 @@ export async function saveSession(sessionId: string): Promise<{ steps: number }>
       order: i,
     }));
     await replaceScraperSteps(session.flowId, rows);
+    traceSetup(session, "save", `${rows.length} steps salvos (proposed)`, {
+      steps: rows.map((s) => ({ type: s.type, order: s.order })),
+      flyerSource: session.flyerSource,
+    });
     flyerLog.info(
       "SESSION",
       `saved proposed ${rows.length} steps → ${session.flowId}`,
@@ -1585,6 +1744,11 @@ export async function saveSession(sessionId: string): Promise<{ steps: number }>
   }
 
   await replaceScraperSteps(session.flowId, steps);
+  traceSetup(session, "save", `${steps.length} steps salvos`, {
+    steps: steps.map((s) => ({ type: s.type, order: s.order })),
+    flyerSource: session.flyerSource,
+    actions: session.actions.map(slimAction),
+  });
   flyerLog.info("SESSION", `saved ${steps.length} steps → ${session.flowId}`);
   return { steps: steps.length };
 }

@@ -10,7 +10,7 @@ export const flyerConfig = {
   concurrency: Number(process.env.FLYER_CONCURRENCY ?? 2),
   allowedHosts: (
     process.env.FLYER_ALLOWED_HOSTS ??
-    "mercadapp.com.br,merconnect.mercadapp.com.br,cdn.mercadapp.services,mercadinhossaoluiz.com.br,atacadao.com.br,vtexassets.com,carrefour.com.br,apigw.cloud.carrefour.com.br,assai.com.br,www.assai.com.br"
+    "mercadapp.com.br,merconnect.mercadapp.com.br,cdn.mercadapp.services,mercadinhossaoluiz.com.br,atacadao.com.br,vtexassets.com,carrefour.com.br,apigw.cloud.carrefour.com.br,assai.com.br,www.assai.com.br,cloudfront.net,grupocenterbox.com.br,adminx.cometasupermercados.com.br,regexsolutions.com.br"
   )
     .split(",")
     .map((h) => h.trim().toLowerCase())

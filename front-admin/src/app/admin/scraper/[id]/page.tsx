@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -12,6 +12,7 @@ import { SetupFlowNav } from "@/components/admin/SetupFlowNav";
 import { BrowserSessionPanel } from "@/components/admin/BrowserSessionPanel";
 import { TeachPanel } from "@/components/admin/TeachPanel";
 import { WorkerEditStepsModal } from "@/components/admin/WorkerEditStepsModal";
+import { WorkerSetupTracePanel } from "@/components/admin/WorkerSetupTracePanel";
 import { formatOpsStamp, isRunCancelled, isRunDuplicate } from "@/lib/format";
 
 const inputClass = "rounded-md border ds-input";
@@ -59,6 +60,12 @@ export default function ScraperFlowDetailPage() {
   const [editStepsOpen, setEditStepsOpen] = useState(false);
   const [q, setQ] = useState("");
   const router = useRouter();
+
+  const closeEditSteps = useCallback(() => setEditStepsOpen(false), []);
+  const onEditStepsSaved = useCallback(() => {
+    setEditStepsOpen(false);
+    window.location.reload();
+  }, []);
 
   async function onSaveMeta(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -206,11 +213,8 @@ export default function ScraperFlowDetailPage() {
         startUrl={data.startUrl}
         flowVersion={data.version}
         flowSlug={slug}
-        onClose={() => setEditStepsOpen(false)}
-        onSaved={() => {
-          setEditStepsOpen(false);
-          window.location.reload();
-        }}
+        onClose={closeEditSteps}
+        onSaved={onEditStepsSaved}
       />
 
       {scopeLost ? (
@@ -268,6 +272,10 @@ export default function ScraperFlowDetailPage() {
       <JobFlow
         run={activeRun}
         runningNow={activeRun?.status === "running"}
+      />
+
+      <WorkerSetupTracePanel
+        events={(data.setupEvents ?? []) as import("@/components/admin/WorkerSetupTracePanel").SetupTraceEvent[]}
       />
 
       <section className="ds-table-card">

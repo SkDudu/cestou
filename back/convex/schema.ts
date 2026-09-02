@@ -277,6 +277,33 @@ export default defineSchema({
     .index("by_flow", ["flowId"])
     .index("by_startedAt", ["startedAt"]),
 
+  scraperSetupEvents: defineTable({
+    flowId: v.id("scraperFlows"),
+    sessionId: v.optional(v.string()),
+    order: v.number(),
+    at: v.number(),
+    kind: v.union(
+      v.literal("flow_created"),
+      v.literal("session_start"),
+      v.literal("session_close"),
+      v.literal("navigation"),
+      v.literal("click"),
+      v.literal("input"),
+      v.literal("scroll"),
+      v.literal("scope"),
+      v.literal("locate"),
+      v.literal("analyze"),
+      v.literal("confirm_scope"),
+      v.literal("preview"),
+      v.literal("save"),
+      v.literal("skip_flyer"),
+      v.literal("remove_action"),
+      v.literal("status"),
+    ),
+    label: v.string(),
+    payload: v.optional(v.string()),
+  }).index("by_flow_order", ["flowId", "order"]),
+
   // --- App cliente (docs/cliente-mvp.md) ---
   // ponytail: sessionToken = auth anônimo; email/senha depois
   users: defineTable({

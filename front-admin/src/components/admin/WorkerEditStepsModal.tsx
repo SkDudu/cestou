@@ -60,14 +60,24 @@ export function WorkerEditStepsModal({
     onClose();
   }, [onClose]);
 
+  const openRef = useRef(false);
   useEffect(() => {
-    if (!open) return;
-    setReady(true);
-    setError(null);
-    setBusy(false);
-    setPhase("record");
-    setPreviewSid(null);
-    previewAuto.current = "";
+    if (!open) {
+      openRef.current = false;
+      return;
+    }
+    // Only reset when the modal opens — not when onClose/cancelEdit identity churns
+    // (Convex setupEvents during Teste re-renders parent and used to kick back to record).
+    const justOpened = !openRef.current;
+    openRef.current = true;
+    if (justOpened) {
+      setReady(true);
+      setError(null);
+      setBusy(false);
+      setPhase("record");
+      setPreviewSid(null);
+      previewAuto.current = "";
+    }
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const trap = (e: KeyboardEvent) => {

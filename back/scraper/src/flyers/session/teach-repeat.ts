@@ -16,6 +16,13 @@ import {
   sanitizeItemSelectors,
 } from "../runner/flyer-discover.js";
 import type { GalleryHit, GalleryScopeDump } from "./click-snapshot.js";
+import {
+  DEFAULT_CAROUSEL_PAGER,
+  htmlHasInlineFancyboxGrid,
+  itemSelsLookLikeJournalTabs,
+  normalizeJournalItemSelectors,
+} from "./journal-tabs.js";
+import type { SectionOpenKind } from "../extraction/mimo/section-locate.js";
 
 export type ListingTeach = {
   listingUrl: string;
@@ -140,12 +147,16 @@ export function mergeDetailHarvest(args: {
   clickSelectors?: string[];
   hasCanvas?: boolean;
   viewerMode?: FlyerViewerMode;
+  journalTabCount?: number;
+  openKind?: SectionOpenKind;
+  htmlSnippet?: string;
 }): FlyerSource {
   const pageImgs = args.imageUrls.filter((u) =>
     /\.(jpe?g|png|webp)(\?|$)/i.test(u),
   );
   const hasImg = Boolean(args.hasCanvas) || pageImgs.length > 0;
   const hasPdf = args.pdfUrls.some((u) => /\.pdf(\?|$)/i.test(u));
+  const journalTabs = (args.journalTabCount ?? 0) >= 2;
   // ponytail: listing cards stay listing cards — lightbox last-click ≠ itemSelectors
   const clickSels = (args.clickSelectors ?? []).filter(
     (s) => !isViewerNoise(s),
@@ -161,7 +172,46 @@ export function mergeDetailHarvest(args: {
   if (!viewerMode) {
     if (hasPdf && !hasImg) viewerMode = "pdf";
     else if (pageImgs.length >= 2) viewerMode = "img-stack";
+    else if (args.hasCanvas) viewerMode = undefined;
     else viewerMode = "one-page";
+  }
+  if (args.hasCanvas && viewerMode === "one-page") {
+    viewerMode = undefined;
+  }
+  if (
+    args.htmlSnippet &&
+    /elementor-gallery|e-gallery-item/i.test(args.htmlSnippet) &&
+    hasImg
+  ) {
+    viewerMode = "img-stack";
+  }
+
+  if (journalTabs) {
+    return sanitizeFlyerSource({
+      kind: "tabs",
+      downloadStrategy: "open-each-item",
+      urlFrom: "click-then-network",
+      itemSelectors: normalizeJournalItemSelectors(itemSelectors, {
+        journalTabCount: args.journalTabCount,
+      }),
+      pagerSelectors: DEFAULT_CAROUSEL_PAGER,
+      viewerMode: pageImgs.length >= 2 ? "img-stack" : viewerMode,
+      evidence: `teach 2-pass: ${args.listing.count} tabs; viewer=${viewerMode ?? "pager"}; detalhe ${args.hasCanvas ? "canvas" : "imgs"}`,
+    });
+  }
+
+  const inlineGrid =
+    args.openKind === "viewer" &&
+    !args.hasCanvas &&
+    htmlHasInlineFancyboxGrid(args.htmlSnippet ?? "");
+  if (inlineGrid) {
+    return sanitizeFlyerSource({
+      kind: "image-grid",
+      downloadStrategy: "collect-images",
+      urlFrom: "href",
+      itemSelectors,
+      evidence: `teach 2-pass: ${args.listing.count} inline fancybox tiles`,
+    });
   }
 
   return sanitizeFlyerSource({
@@ -170,12 +220,32 @@ export function mergeDetailHarvest(args: {
     urlFrom: "click-then-network",
     itemSelectors,
     viewerMode,
-    evidence: `teach 2-pass: ${args.listing.count} cards; viewer=${viewerMode}; detalhe ${args.hasCanvas ? "canvas" : hasImg ? "imgs" : hasPdf ? "pdf" : "?"} (sample, not page count)`,
+    pagerSelectors: args.hasCanvas ? DEFAULT_CAROUSEL_PAGER : undefined,
+    evidence: `teach 2-pass: ${args.listing.count} cards; viewer=${viewerMode ?? "pager"}; detalhe ${args.hasCanvas ? "canvas" : hasImg ? "imgs" : hasPdf ? "pdf" : "?"}`,
   });
 }
 
 function itemSelsAreOfertaTabs(sels: string[]): boolean {
-  return sels.some((s) => /data-oferta-index/.test(s));
+  if (
+    sels.some((s) =>
+      /flip-card|jet-listing|card-folheto|offers__item|article\.rounded/i.test(s),
+    )
+  ) {
+    return false;
+  }
+  return sels.some(
+    (s) =>
+      /\.ofertas-tab\b/i.test(s) ||
+      /ofertas-tab\s+button/i.test(s) ||
+      /button\[data-oferta-index\]/i.test(s),
+  );
+}
+
+function itemSelsAreCoverCards(sels: string[]): boolean {
+  // flip/jet/card-folheto open a modal; offers__item often inline fancybox (Centerbox)
+  return sels.some((s) =>
+    /flip-card|jet-listing-grid__item|card-folheto/i.test(s),
+  );
 }
 
 /** flyerSource on Aprovar from MiMo openKind (not always open-each-item). */
@@ -185,9 +255,17 @@ export function flyerSourceFromOpenKind(args: {
   downloadSelectors?: string[];
   clickTargetSelectors?: string[];
   itemCount?: number;
+  /** DOM count of [data-oferta-index] — beats slick slide miscount. */
+  journalTabCount?: number;
+  htmlSnippet?: string;
 }): FlyerSource {
-  const itemSels = args.itemSelectors.filter(Boolean);
+  const journalTabs = args.journalTabCount ?? 0;
+  const itemSels = normalizeJournalItemSelectors(args.itemSelectors.filter(Boolean), {
+    journalTabCount: journalTabs,
+  });
   const dl = (args.downloadSelectors ?? []).filter(Boolean);
+  const effectiveCount =
+    journalTabs >= 2 ? journalTabs : args.itemCount;
   if (args.openKind === "download" && dl.length) {
     const pdf = dl.some((s) => /\.pdf/i.test(s));
     return sanitizeFlyerSource({
@@ -200,16 +278,42 @@ export function flyerSourceFromOpenKind(args: {
     });
   }
   if (args.openKind === "viewer") {
+    // DOM journalTabCount≥2 (countJournalTabs) beats selector string heuristics —
+    // bare [data-oferta-index] is valid Assaí tabs; flip-cards already excluded upstream.
     const manyTabs =
-      itemSelsAreOfertaTabs(itemSels) &&
-      (args.itemCount === undefined || args.itemCount >= 2);
+      journalTabs >= 2 ||
+      ((itemSelsAreOfertaTabs(itemSels) ||
+        itemSelsLookLikeJournalTabs(itemSels)) &&
+        (effectiveCount === undefined || effectiveCount >= 2));
     if (manyTabs) {
       return sanitizeFlyerSource({
         kind: "tabs",
         downloadStrategy: "open-each-item",
         urlFrom: "click-then-network",
         itemSelectors: itemSels,
+        pagerSelectors: DEFAULT_CAROUSEL_PAGER,
+        viewerMode: "img-stack",
         evidence: "section teach — viewer tabs in HTML",
+      });
+    }
+    if (htmlHasInlineFancyboxGrid(args.htmlSnippet ?? "")) {
+      return sanitizeFlyerSource({
+        kind: "image-grid",
+        downloadStrategy: "collect-images",
+        urlFrom: "href",
+        itemSelectors: itemSels,
+        evidence: "section teach — inline fancybox grid",
+      });
+    }
+    // Cover cards that open a modal/detail (São Luiz flipbook, Guará, Jet)
+    if (itemSelsAreCoverCards(itemSels)) {
+      return sanitizeFlyerSource({
+        kind: "image-grid",
+        downloadStrategy: "open-each-item",
+        urlFrom: "click-then-network",
+        itemSelectors: itemSels.filter((s) => !/data-oferta-index/i.test(s)),
+        viewerMode: "img-stack",
+        evidence: "section teach — cover cards open viewer",
       });
     }
     return sanitizeFlyerSource({
@@ -234,6 +338,15 @@ export function flyerSourceFromOpenKind(args: {
 
 const SKIP_REPLAY_CLICK =
   /ver\s+\S{3,}|baixar|download/i;
+
+/** Teach sample: opening one listing card to harvest viewer — not part of run. */
+function isTeachSampleCardClick(blob: string): boolean {
+  return (
+    /flip-card|img\[alt=|Costume Saudável|Encarte São Luiz|card-folheto|jet-listing|VER ENCARTE/i.test(
+      blob,
+    ) || /\d{1,2}\s*[./-]\s*\d{1,2}.*\d{2,4}/.test(blob)
+  );
+}
 
 /** Replayable steps from recorded clicks + known flyerSource. No MiMo. */
 export function buildTeachSteps(args: {
@@ -270,7 +383,13 @@ export function buildTeachSteps(args: {
       ]
         .filter(Boolean)
         .join(" ");
-      if (SKIP_REPLAY_CLICK.test(blob) || isViewerNoise(blob)) continue;
+      if (
+        SKIP_REPLAY_CLICK.test(blob) ||
+        isViewerNoise(blob) ||
+        isTeachSampleCardClick(blob)
+      ) {
+        continue;
+      }
     }
     if (n.type === "select-scope") hasScope = true;
     steps.push({ ...n, order: order++ });

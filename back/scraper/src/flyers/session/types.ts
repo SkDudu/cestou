@@ -64,6 +64,7 @@ export type LiveSession = {
     openKind: "download" | "viewer" | "need_click";
     downloadSelectors: string[];
     clickTargetSelectors: string[];
+    htmlSnippet?: string;
   };
 };
 
@@ -120,5 +121,8 @@ export function pushAction(session: LiveSession, action: RecordedAction) {
   emit(session, {
     type: "actions",
     actions: session.actions.map(slimAction),
+  });
+  void import("./setup-trace.js").then(({ traceRecordedAction }) => {
+    traceRecordedAction(session, action);
   });
 }

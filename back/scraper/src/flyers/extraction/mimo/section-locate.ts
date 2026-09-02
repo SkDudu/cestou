@@ -18,6 +18,9 @@ href/src/data-src/data-lazy/srcset, a[data-fancybox], slick/swiper slide,
 OR CSS background-image:url(...), pointing to .pdf / .jpg / .jpeg / .png / .webp
 (CDN ok: cloudfront, s3, etc). Hidden/cloned slick slides still count — they are in the HTML.
 
+NOT a page asset: API listing thumbnails only (/Flyer/thumbnail, small cover in a card grid).
+Those need need_click — user opens /folheto/ or /encarte/ link for full pages.
+
 openKind — pick ONE from THIS html. First match wins:
 1) OPEN overlay (.modal/.flipbook-modal/.fancybox-container, role=dialog with pages) → viewer. Point sectionSelectors at that overlay.
 2) download — real file control for a flyer file: a[href*=.pdf], [download], "Baixar PDF" / "Baixar página" / "Download" even if the file is jpeg/png. Fill downloadSelectors.

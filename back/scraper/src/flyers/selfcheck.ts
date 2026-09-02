@@ -39,6 +39,10 @@ import {
   dropSkipped,
   pruneBarePageImageDocs,
   urlsFromBackgroundImageCss,
+  isJunkListingTitle,
+  titleFromEncarteUrl,
+  encarteDedupKey,
+  listingKey,
 } from "./runner/flyer-discover.js";
 import { packTeachPayload } from "./session/click-snapshot.js";
 import {
@@ -51,6 +55,13 @@ import {
   listingFromDump,
   flyerSourceFromOpenKind,
 } from "./session/teach-repeat.js";
+import {
+  htmlHasInlineFancyboxGrid,
+  itemSelsLookLikeJournalTabs,
+  listingSelectorScore,
+  normalizeJournalItemSelectors,
+  refineOpenKindFromHtml,
+} from "./session/journal-tabs.js";
 import { SCOPE_NOT_FOUND } from "./runner/flow-pipeline.js";
 import {
   parseValidity,
@@ -402,6 +413,27 @@ assert(
   isFlyerHref("https://frangolandia.com/encarte/4299/"),
   "singular /encarte/id is flyer href",
 );
+assert(isJunkListingTitle("VER ENCARTE"), "junk CTA");
+assert(isJunkListingTitle("De 01 a 20.09 de 2026"), "junk date title");
+assert(!isJunkListingTitle("Festival Casa & Limpeza"), "real title ok");
+assert(
+  !isJunkListingTitle("Encarte Carnes + Mercearia - 02 a 03/09"),
+  "guara named+date title ok",
+);
+assert(!isJunkListingTitle("item-3"), "placeholder item-N not junk");
+assert(
+  titleFromEncarteUrl(
+    "https://frangolandia.com/encarte/ofertasdelimpezaemfortaleza/",
+  )
+    .toLowerCase()
+    .includes("ofertas"),
+  "title from slug",
+);
+assert(
+  listingSelectorScore(".jet-listing-grid__item", 25) >
+    listingSelectorScore('a[href*="/encarte/"]', 25),
+  "jet grid beats encarte href",
+);
 assert(
   isFlyerHref(
     "https://frangolandia.com/wp-content/uploads/2026/07/Encarte-FDS-Pra-Torar-28-a-30.08.pdf",
@@ -614,6 +646,144 @@ const srcViewerGrid = flyerSourceFromOpenKind({
   itemSelectors: [".offers__item"],
 });
 assert(srcViewerGrid.downloadStrategy === "collect-images", "viewer grid → collect-images");
+assert(
+  htmlHasInlineFancyboxGrid(
+    '<div class="offers__item"><img data-fancybox="gallery" src="https://x/a.jpeg"></div>',
+  ),
+  "inline fancybox grid detect",
+);
+assert(
+  flyerSourceFromOpenKind({
+    openKind: "viewer",
+    itemSelectors: [".offers__item"],
+    htmlSnippet:
+      '<div class="offers__item"><img data-fancybox="gallery" src="https://x/a.jpeg"></div>',
+  }).downloadStrategy === "collect-images",
+  "fancybox grid teach → collect-images",
+);
+assert(
+  mergeDetailHarvest({
+    listing: {
+      listingUrl: "https://assai.com/",
+      itemSelectors: ["[data-oferta-index]"],
+      count: 3,
+    },
+    imageUrls: ["https://cdn/p1.jpg"],
+    pdfUrls: [],
+    detailUrl: "https://assai.com/",
+    journalTabCount: 3,
+  }).kind === "tabs",
+  "2-pass keeps tabs when journalTabCount≥2",
+);
+{
+  const assaiTabs = flyerSourceFromOpenKind({
+    openKind: "viewer",
+    itemSelectors: [".ofertas-tab button"],
+    journalTabCount: 3,
+    itemCount: 4,
+  });
+  assert(assaiTabs.kind === "tabs", "journal tab count beats slick miscount");
+  assert(
+    assaiTabs.itemSelectors?.includes("[data-oferta-index]"),
+    "normalize adds data-oferta-index",
+  );
+  assert(
+    assaiTabs.downloadStrategy === "open-each-item",
+    "journal tabs → open-each-item",
+  );
+  assert(
+    assaiTabs.pagerSelectors?.some((s) => /slick-next/.test(s)),
+    "journal tabs get carousel pager",
+  );
+}
+assert(
+  refineOpenKindFromHtml(
+    "viewer",
+    '<article><a href="/folheto/abc"><img src="Flyer/thumbnail?id=1"></a></article>',
+  ) === "need_click",
+  "thumb folheto listing → need_click",
+);
+assert(
+  refineOpenKindFromHtml(
+    "viewer",
+    '<a data-fancybox="ofertas" href="https://cdn.example/pagina-1.jpeg">',
+  ) === "viewer",
+  "fancybox full jpeg stays viewer",
+);
+assert(
+  itemSelsLookLikeJournalTabs([".ofertas-tab button"]),
+  "ofertas-tab looks like journal tabs",
+);
+assert(
+  !itemSelsLookLikeJournalTabs([".flip-card.card", "[data-oferta-index]"]),
+  "flip-card listing is not journal tabs",
+);
+assert(
+  flyerSourceFromOpenKind({
+    openKind: "viewer",
+    itemSelectors: ["[data-oferta-index]"],
+    journalTabCount: 3,
+    itemCount: 3,
+  }).kind === "tabs" &&
+    flyerSourceFromOpenKind({
+      openKind: "viewer",
+      itemSelectors: ["[data-oferta-index]"],
+      journalTabCount: 3,
+    }).downloadStrategy === "open-each-item" &&
+    flyerSourceFromOpenKind({
+      openKind: "viewer",
+      itemSelectors: ["[data-oferta-index]"],
+      journalTabCount: 3,
+    }).itemSelectors?.includes("[data-oferta-index]"),
+  "Assaí bare oferta-index + journalTabCount≥2 → tabs open-each-item",
+);
+assert(
+  flyerSourceFromOpenKind({
+    openKind: "viewer",
+    itemSelectors: ["[data-oferta-index]"],
+    itemCount: 3,
+  }).downloadStrategy === "collect-images",
+  "bare oferta-index without DOM tab count stays collect-images",
+);
+assert(
+  flyerSourceFromOpenKind({
+    openKind: "viewer",
+    itemSelectors: [".flip-card.card", "[data-oferta-index]"],
+    itemCount: 3,
+  }).downloadStrategy === "open-each-item" &&
+    flyerSourceFromOpenKind({
+      openKind: "viewer",
+      itemSelectors: [".flip-card.card"],
+      itemCount: 3,
+    }).kind === "image-grid" &&
+    !flyerSourceFromOpenKind({
+      openKind: "viewer",
+      itemSelectors: [".flip-card.card"],
+      itemCount: 3,
+    }).itemSelectors?.includes("[data-oferta-index]"),
+  "São Luiz flip-cards → image-grid open-each-item (not tabs)",
+);
+{
+  const base = "https://mercadinhossaoluiz.com.br/loja/355/encartes";
+  assert(
+    encarteDedupKey(`${base}#item-0`) !== encarteDedupKey(`${base}#item-1`),
+    "modal #item-N stay distinct",
+  );
+  assert(
+    encarteDedupKey(`${base}#item-0`) === `${listingKey(base)}#item-0`,
+    "modal dedup keeps #item-N",
+  );
+  assert(
+    encarteDedupKey(`${base}/a`) === encarteDedupKey(`${base}/a#junk`),
+    "nav URLs still collapse without item/tab hash",
+  );
+}
+assert(
+  normalizeJournalItemSelectors([".ofertas-tab button", ".slick-slide"], {
+    journalTabCount: 3,
+  }).includes("[data-oferta-index]"),
+  "normalize strips slick slides",
+);
 const srcDl = flyerSourceFromOpenKind({
   openKind: "download",
   itemSelectors: [".item"],

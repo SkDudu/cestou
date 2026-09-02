@@ -40,11 +40,17 @@ export const get = query({
       .withIndex("by_flow", (q) => q.eq("flowId", args.id))
       .collect();
     runs.sort((a, b) => b.startedAt - a.startedAt);
+    const setupEvents = await ctx.db
+      .query("scraperSetupEvents")
+      .withIndex("by_flow_order", (q) => q.eq("flowId", args.id))
+      .collect();
+    setupEvents.sort((a, b) => a.order - b.order);
     return {
       ...flow,
       steps,
       supermarket,
       recentRuns: runs.slice(0, 20),
+      setupEvents: setupEvents.slice(-200),
     };
   },
 });
@@ -64,7 +70,7 @@ export const create = mutation({
       throw new Error("Supermarket has no website URL — set it on the market first");
     }
     const now = Date.now();
-    return ctx.db.insert("scraperFlows", {
+    const flowId = await ctx.db.insert("scraperFlows", {
       supermarketId: args.supermarketId,
       name: args.name,
       startUrl,
@@ -74,6 +80,18 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await ctx.db.insert("scraperSetupEvents", {
+      flowId,
+      order: 0,
+      at: now,
+      kind: "flow_created",
+      label: `Worker criado: ${args.name}`,
+      payload: JSON.stringify({
+        startUrl,
+        supermarketId: args.supermarketId,
+      }),
+    });
+    return flowId;
   },
 });
 
@@ -119,6 +137,11 @@ export const remove = mutation({
       .withIndex("by_flow", (q) => q.eq("flowId", args.id))
       .collect();
     for (const r of runs) await ctx.db.delete(r._id);
+    const traces = await ctx.db
+      .query("scraperSetupEvents")
+      .withIndex("by_flow_order", (q) => q.eq("flowId", args.id))
+      .collect();
+    for (const t of traces) await ctx.db.delete(t._id);
     await ctx.db.delete(args.id);
   },
 });
