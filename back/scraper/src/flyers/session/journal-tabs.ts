@@ -160,8 +160,26 @@ export const DEFAULT_CAROUSEL_PAGER = [
   'button[aria-label*="próxima" i]',
   'button[aria-label*="proxima" i]',
   'button[aria-label*="Next" i]',
-  '[class*="slider"] button:not([aria-label*="Fechar" i]):not([aria-label*="Close" i])',
+  '[aria-label*="próxima" i]',
+  '[aria-label*="proxima" i]',
+  // Narrow next controls only — never bare [class*=slider] button (hits header chrome)
+  ".slider-next",
+  '[class*="slider-next"]',
+  '[class*="SliderNext"]',
 ];
+
+/** Drop catch-alls that click page chrome (Cometa YouTube header, etc.). */
+export function sanitizePagerSelectors(
+  sels: string[] | undefined,
+): string[] | undefined {
+  if (!sels?.length) return undefined;
+  const cleaned = sels.filter(
+    (s) =>
+      !/\[class\*=["']?slider["']?\]\s*button/i.test(s) &&
+      !/youtube|instagram|facebook|linkedin|tiktok|whatsapp/i.test(s),
+  );
+  return cleaned.length ? [...new Set(cleaned)] : undefined;
+}
 
 /** Listing thumbs / folheto links only — not inline full pages (fancybox/slick hrefs). */
 export function refineOpenKindFromHtml(

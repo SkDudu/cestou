@@ -1,5 +1,8 @@
 import type { Download, Locator, Page } from "playwright";
-import { resolveDiscoverItemSelectors } from "../session/journal-tabs.js";
+import {
+  resolveDiscoverItemSelectors,
+  sanitizePagerSelectors,
+} from "../session/journal-tabs.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -255,7 +258,7 @@ export function sanitizeFlyerSource(source: FlyerSource): FlyerSource {
       kind: source.kind,
     }),
     downloadSelectors: sanitizeDownloadSelectors(source.downloadSelectors),
-    pagerSelectors: sanitizeDownloadSelectors(source.pagerSelectors),
+    pagerSelectors: sanitizePagerSelectors(source.pagerSelectors),
     evidence: source.evidence?.slice(0, 160),
     skipKeys: cleanSkipKeys(source.skipKeys),
   };
@@ -1026,7 +1029,8 @@ async function waitForSamePageViewerReady(
     if (await overlayVisible(page)) {
       const light = await harvestLightboxUrls(page);
       if (light.some((u) => !before.has(u))) return true;
-      if ((await harvestCanvasPages(page)).length) return true;
+      // Presence only — full harvestCanvasPages waits for stable paint
+      if ((await canvasPaintFingerprint(page)) !== null) return true;
       const flip = await harvestFlipbookBackgroundUrls(page);
       if (flip.some((u) => !before.has(u)) || flip.length > 0) return true;
     }
@@ -1062,6 +1066,7 @@ async function discoverOpenEachItem(
     imgsBefore: Set<string>,
     netBefore: number,
     leftListing: boolean,
+    flipbookId?: string,
   ): Promise<DiscoveredCandidate | null> => {
     const harvestScope = leftListing ? undefined : scopeSel;
     const provenDl = (source.downloadSelectors ?? []).length > 0;
@@ -1117,6 +1122,8 @@ async function discoverOpenEachItem(
     const pdfBufs = uniquePdfs.length
       ? await fetchPdfBuffers(page, uniquePdfs)
       : [];
+    const modalFlipId =
+      flipbookId ?? (await flipbookIdFromVisibleModal(page));
     const overlay = await harvestScrolledViewer(
       page,
       source.viewerMode,
@@ -1129,11 +1136,14 @@ async function discoverOpenEachItem(
       if (delta.length) {
         overlayUrls = delta;
       } else if (await overlayVisible(page)) {
-        overlayUrls = overlay.urls;
+        overlayUrls = preferSameFlipbookUrls(overlay.urls, modalFlipId);
       } else {
         overlayUrls = [];
       }
     }
+    overlayUrls = preferSameFlipbookUrls(overlayUrls, modalFlipId).filter(
+      (u) => !seenUrls.has(u),
+    );
     // ponytail: canvas modal has no img URL delta — never drop buffers on imgsBefore filter
     const overlayN = overlayUrls.length + overlay.buffers.length;
     const itemAnchor = `${page.url().split("#")[0]}#item-${i}`;
@@ -1183,17 +1193,20 @@ async function discoverOpenEachItem(
       : newImgs;
     const htmlHere =
       leftListing && isPersistableMedia(here, true) ? [here] : [];
-    const pageUrls = [
-      ...new Set([
-        ...pdfs,
-        ...light,
-        ...useImgs.map((x) => x.url),
-        ...netDelta.map((n) => n.url),
-        ...htmlHere,
-      ]),
-    ]
-      .filter((u) => !isJunkNavHref(u) && isPersistableMedia(u, true))
-      .slice(0, 24);
+    const pageUrls = preferSameFlipbookUrls(
+      [
+        ...new Set([
+          ...pdfs,
+          ...light,
+          ...useImgs.map((x) => x.url),
+          ...netDelta.map((n) => n.url),
+          ...htmlHere,
+        ]),
+      ]
+        .filter((u) => !isJunkNavHref(u) && isPersistableMedia(u, true))
+        .filter((u) => !seenUrls.has(u)),
+      modalFlipId,
+    ).slice(0, 24);
     if (!pageUrls.length) return null;
     if (pageUrls.every((u) => seenUrls.has(u))) return null;
     const baseUrl = leftListing ? encarteBase : itemAnchor;
@@ -1225,9 +1238,16 @@ async function discoverOpenEachItem(
       'a[target="_blank"]',
     ]) {
       const link = item.locator(sub).first();
-      if ((await link.count()) > 0) targets.push(link);
+      if ((await link.count()) > 0 && !(await isSocialOrExternalJunk(link))) {
+        targets.push(link);
+      }
       const wrapLink = wrap.locator(sub).first();
-      if ((await wrapLink.count()) > 0) targets.push(wrapLink);
+      if (
+        (await wrapLink.count()) > 0 &&
+        !(await isSocialOrExternalJunk(wrapLink))
+      ) {
+        targets.push(wrapLink);
+      }
     }
     for (const needle of hasTextNeedles(itemSels)) {
       const esc = needle.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -1306,6 +1326,7 @@ async function discoverOpenEachItem(
         if (title && !genericCta) seenTitles.add(title);
 
         const targets = await clickTargets(item0);
+        const cardFlipId = await flipbookIdFromLocator(item0);
         let got: DiscoveredCandidate | null = null;
         for (let t = 0; t < targets.length && !got; t++) {
           await returnToListing(page, listingUrl, sel);
@@ -1444,9 +1465,32 @@ async function discoverOpenEachItem(
               imgsBefore,
               netBefore,
               leftListing,
+              cardFlipId,
             );
           }
           if (got) got = await paginateViewer(page, got, source);
+          if (got) {
+            const flipId =
+              cardFlipId ??
+              (await flipbookIdFromVisibleModal(page)) ??
+              flipbookIdFromUrl(
+                preferSameFlipbookUrls(got.pageUrls)[0] ?? "",
+              );
+            const cleaned = preferSameFlipbookUrls(
+              got.pageUrls.filter((u) => !seenUrls.has(u)),
+              flipId,
+            );
+            if (!cleaned.length && !(got.pageBuffers?.length)) {
+              got = null;
+            } else if (cleaned.length) {
+              got = { ...got, pageUrls: cleaned };
+              if (cardFlipId) {
+                say?.(
+                  `[FLYER] item ${i} flipbook=${cardFlipId} págs=${cleaned.length}`,
+                );
+              }
+            }
+          }
           if (got) {
             const key = encarteDedupKey(got.originalUrl);
             if (seenEncartes.has(key)) {
@@ -1650,7 +1694,107 @@ const OVERLAY_IMG_EVAL = () => {
   return out;
 };
 
-/** Flipbook modal pages via CSS background-image (Mercadapp etc.). */
+/** Mercadapp CDN: Flipbook_70649_images_processed_….jpg */
+export function flipbookIdFromUrl(url: string): string | undefined {
+  const m = url.match(/Flipbook_(\d+)/i);
+  return m?.[1];
+}
+
+/**
+ * Keep URLs of one flipbook when Mercadapp listing covers + modal leak together.
+ * preferId from the clicked card cover; else majority Flipbook_ID in the set.
+ */
+export function preferSameFlipbookUrls(
+  urls: string[],
+  preferId?: string,
+): string[] {
+  if (urls.length <= 1) return urls;
+  if (preferId) {
+    const matched = urls.filter((u) => flipbookIdFromUrl(u) === preferId);
+    if (matched.length) return matched;
+  }
+  const counts = new Map<string, number>();
+  for (const u of urls) {
+    const fid = flipbookIdFromUrl(u);
+    if (!fid) continue;
+    counts.set(fid, (counts.get(fid) ?? 0) + 1);
+  }
+  if (counts.size <= 1) return urls;
+  let best = "";
+  let bestN = 0;
+  for (const [fid, n] of counts) {
+    if (n > bestN) {
+      bestN = n;
+      best = fid;
+    }
+  }
+  const matched = urls.filter((u) => flipbookIdFromUrl(u) === best);
+  return matched.length ? matched : urls;
+}
+
+async function flipbookIdFromLocator(
+  item: Locator,
+): Promise<string | undefined> {
+  const id = await item
+    .evaluate((el) => {
+      const urls: string[] = [];
+      for (const img of Array.from(el.querySelectorAll("img"))) {
+        const i = img as HTMLImageElement;
+        urls.push(i.currentSrc || i.src || i.getAttribute("src") || "");
+      }
+      for (const n of [el, ...Array.from(el.querySelectorAll("*"))]) {
+        const inline = (n as HTMLElement).style?.backgroundImage ?? "";
+        const re = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(inline))) urls.push(m[1]!);
+      }
+      for (const u of urls) {
+        const m = /Flipbook_(\d+)/i.exec(u);
+        if (m) return m[1]!;
+      }
+      return null;
+    })
+    .catch(() => null);
+  return id ?? undefined;
+}
+
+async function flipbookIdFromVisibleModal(
+  page: Page,
+): Promise<string | undefined> {
+  for (const frame of page.frames()) {
+    const id = await frame
+      .evaluate(() => {
+        const roots = Array.from(
+          document.querySelectorAll(
+            ".modal.show, .flipbook-modal.show, .modal.fade.show, [role='dialog']",
+          ),
+        ).filter((el) => {
+          const st = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return (
+            st.display !== "none" &&
+            st.visibility !== "hidden" &&
+            r.width > 80 &&
+            r.height > 80
+          );
+        });
+        const root = roots.sort(
+          (a, b) =>
+            b.getBoundingClientRect().width * b.getBoundingClientRect().height -
+            a.getBoundingClientRect().width * a.getBoundingClientRect().height,
+        )[0];
+        if (!root) return null;
+        const blob = root.innerHTML;
+        const m = /Flipbook_(\d+)/i.exec(blob);
+        return m?.[1] ?? null;
+      })
+      .catch(() => null);
+    if (id) return id;
+  }
+  return undefined;
+}
+
+/** Flipbook pages via CSS background-image — visible modal only (not listing covers). */
 async function harvestFlipbookBackgroundUrls(page: Page): Promise<string[]> {
   const out: string[] = [];
   for (const frame of page.frames()) {
@@ -1662,27 +1806,54 @@ async function harvestFlipbookBackgroundUrls(page: Page): Promise<string[]> {
           if (!raw || seen.has(raw)) return;
           if (!/\.(jpe?g|png|webp)(\?|$)/i.test(raw)) return;
           seen.add(raw);
-          urls.push(raw);
+          try {
+            urls.push(new URL(raw, location.href).href);
+          } catch {
+            urls.push(raw);
+          }
         };
-        for (const el of Array.from(
+        const visible = (el: Element) => {
+          const st = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return (
+            st.display !== "none" &&
+            st.visibility !== "hidden" &&
+            r.width > 80 &&
+            r.height > 80
+          );
+        };
+        const roots = Array.from(
           document.querySelectorAll(
-            '[class*="flipbook"], [class*="modal"] [style*="background-image"], .modal-body *',
+            ".modal.show, .flipbook-modal.show, .modal.fade.show, .modal.in, [role='dialog'][aria-modal='true'], [aria-modal='true']",
           ),
-        )) {
-          const inline = (el as HTMLElement).style?.backgroundImage ?? "";
-          const computed = window.getComputedStyle(el).backgroundImage;
-          for (const css of [inline, computed]) {
-            const re = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
-            let m: RegExpExecArray | null;
-            while ((m = re.exec(css))) {
-              try {
-                push(new URL(m[1]!, location.href).href);
-              } catch {
-                /* */
-              }
-            }
+        ).filter(visible);
+        // Fallback: largest visible flipbook shell (not listing .flip-card)
+        if (!roots.length) {
+          for (const el of Array.from(
+            document.querySelectorAll(
+              '.flipbook-modal, [class*="flipbook-modal"], [class*="FlyerViewer"]',
+            ),
+          )) {
+            if (visible(el)) roots.push(el);
           }
         }
+        const walk = (root: Element) => {
+          const nodes = [root, ...Array.from(root.querySelectorAll("*"))];
+          for (const el of nodes) {
+            const inline = (el as HTMLElement).style?.backgroundImage ?? "";
+            const computed = window.getComputedStyle(el).backgroundImage;
+            for (const css of [inline, computed]) {
+              const re = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+              let m: RegExpExecArray | null;
+              while ((m = re.exec(css))) push(m[1]!);
+            }
+            if (el.tagName === "IMG") {
+              const img = el as HTMLImageElement;
+              push(img.currentSrc || img.src || "");
+            }
+          }
+        };
+        for (const root of roots) walk(root);
         return urls;
       })
       .catch(() => [] as string[]);
@@ -1789,9 +1960,108 @@ export async function flyerViewerOpen(page: Page): Promise<boolean> {
   });
 }
 
+/** Fingerprint of largest canvas — dims + sampled pixel sum (detects load/blur). */
+async function canvasPaintFingerprint(page: Page): Promise<string | null> {
+  for (const frame of page.frames()) {
+    const fp = await frame
+      .evaluate(() => {
+        let best: HTMLCanvasElement | null = null;
+        let bestArea = 0;
+        for (const c of Array.from(document.querySelectorAll("canvas"))) {
+          const r = c.getBoundingClientRect();
+          const w = c.width || Math.round(r.width);
+          const h = c.height || Math.round(r.height);
+          if (w < 200 || h < 200) continue;
+          const area = w * h;
+          if (area > bestArea) {
+            best = c;
+            bestArea = area;
+          }
+        }
+        if (!best) return null;
+        const w = best.width || Math.round(best.getBoundingClientRect().width);
+        const h = best.height || Math.round(best.getBoundingClientRect().height);
+        try {
+          const ctx = best.getContext("2d", { willReadFrequently: true });
+          if (!ctx) return `${w}x${h}:nctx`;
+          const step = Math.max(8, Math.floor(Math.min(w, h) / 10));
+          let sum = 0;
+          let n = 0;
+          let min = 765;
+          let max = 0;
+          for (let y = step; y < h - step; y += step) {
+            for (let x = step; x < w - step; x += step) {
+              const d = ctx.getImageData(x, y, 1, 1).data;
+              const t = d[0]! + d[1]! + d[2]!;
+              sum += t;
+              n++;
+              if (t < min) min = t;
+              if (t > max) max = t;
+            }
+          }
+          return `${w}x${h}:${sum}:${n}:${max - min}`;
+        } catch {
+          try {
+            const len = best.toDataURL("image/jpeg", 0.5).length;
+            return `${w}x${h}:t:${len}`;
+          } catch {
+            return `${w}x${h}:tainted`;
+          }
+        }
+      })
+      .catch(() => null);
+    if (fp) return fp;
+  }
+  return null;
+}
+
+/**
+ * Wait until largest canvas paint stops changing (Cometa PDF.js / flipbook).
+ * Skips flat empty frames (solid grey mid page-turn).
+ */
+async function waitForCanvasStable(
+  page: Page,
+  opts?: { timeoutMs?: number; settleMs?: number },
+): Promise<boolean> {
+  const timeoutMs = opts?.timeoutMs ?? 6000;
+  const settleMs = opts?.settleMs ?? 700;
+  const deadline = Date.now() + timeoutMs;
+  let last: string | null = null;
+  let stableSince = 0;
+  while (Date.now() < deadline) {
+    const fp = await canvasPaintFingerprint(page);
+    if (!fp) {
+      last = null;
+      stableSince = 0;
+      await page.waitForTimeout(250);
+      continue;
+    }
+    const range = Number(fp.split(":")[3] ?? "1");
+    const flat = Number.isFinite(range) && range < 8 && !fp.includes(":t:");
+    if (flat) {
+      last = null;
+      stableSince = 0;
+      await page.waitForTimeout(300);
+      continue;
+    }
+    if (fp === last) {
+      if (!stableSince) stableSince = Date.now();
+      if (Date.now() - stableSince >= settleMs) return true;
+    } else {
+      last = fp;
+      stableSince = 0;
+    }
+    await page.waitForTimeout(280);
+  }
+  return last !== null;
+}
+
+const MIN_CANVAS_JPEG_BYTES = 12_000;
+
 export async function harvestCanvasPages(
   page: Page,
 ): Promise<NonNullable<DiscoveredCandidate["pageBuffers"]>> {
+  await waitForCanvasStable(page);
   const pages: NonNullable<DiscoveredCandidate["pageBuffers"]> = [];
   let idx = 0;
   for (const frame of page.frames()) {
@@ -1804,7 +2074,7 @@ export async function harvestCanvasPages(
           const h = c.height || r.height;
           if (w < 200 || h < 200) continue;
           try {
-            out.push(c.toDataURL("image/jpeg", 0.82));
+            out.push(c.toDataURL("image/jpeg", 0.92));
           } catch {
             /* tainted */
           }
@@ -1816,7 +2086,8 @@ export async function harvestCanvasPages(
       const b64 = dataUrl.split(",")[1];
       if (!b64) continue;
       const buffer = Buffer.from(b64, "base64");
-      if (!buffer.length) continue;
+      // ~4KB = empty/blurry mid-load capture (Cometa)
+      if (buffer.length < MIN_CANVAS_JPEG_BYTES) continue;
       pages.push({
         buffer,
         contentType: "image/jpeg",
@@ -1829,8 +2100,9 @@ export async function harvestCanvasPages(
   if ((await loc.count()) === 0) return [];
   if (!(await loc.isVisible().catch(() => false))) return [];
   try {
-    const buffer = await loc.screenshot({ type: "jpeg", quality: 82 });
-    if (!buffer.length) return [];
+    await waitForCanvasStable(page, { timeoutMs: 3000, settleMs: 500 });
+    const buffer = await loc.screenshot({ type: "jpeg", quality: 92 });
+    if (buffer.length < MIN_CANVAS_JPEG_BYTES) return [];
     return [
       { buffer, contentType: "image/jpeg", url: "capture://canvas-0.jpg" },
     ];
@@ -2062,7 +2334,8 @@ async function harvestScrolledViewer(
     for (let i = 0; i < 16 && urls.length + buffers.length < 24; i++) {
       const n = urls.length + buffers.length;
       if (!(await clickFirstPager(page, pagerSels))) break;
-      await page.waitForTimeout(420);
+      // Cometa canvas needs paint settle after page-turn (was 420 → blur/grey)
+      await page.waitForTimeout(900);
       await ingest();
       if (urls.length + buffers.length === n) break;
     }
@@ -2085,7 +2358,7 @@ async function harvestScrolledViewer(
     const n = urls.length + buffers.length;
     const paged = await clickFirstPager(page, pagerSels);
     if (paged) {
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(900);
       await ingest();
       if (urls.length + buffers.length > n) continue;
     }
@@ -2216,32 +2489,101 @@ async function clickMaybeForce(loc: Locator): Promise<boolean> {
 const DEFAULT_PAGER = [
   ".swiper-button-next:not(.swiper-button-disabled)",
   ".slick-next:not(.slick-disabled)",
-  '[aria-label*="próximo" i]',
-  '[aria-label*="proximo" i]',
-  '[aria-label*="Next" i]',
+  'button[aria-label*="próximo" i]',
+  'button[aria-label*="proximo" i]',
+  'button[aria-label*="próxima" i]',
+  'button[aria-label*="proxima" i]',
+  'button[aria-label*="Next" i]',
+  '[aria-label*="próxima" i]',
+  '[aria-label*="proxima" i]',
+  ".slider-next",
+  '[class*="slider-next"]',
   'button:has-text("Ver mais")',
   'button:has-text("Mostrar mais")',
   'a:has-text("Ver mais")',
 ];
+
+const SOCIAL_CLICK_RE =
+  /youtube\.com|youtu\.be|instagram\.com|facebook\.com|fb\.com|linkedin\.com|tiktok\.com|twitter\.com|x\.com|whatsapp|aria-label=["']?(youtube|instagram|facebook|linkedin)/i;
+
+const PAGER_OVERLAY_ROOTS = [
+  '[role="dialog"]',
+  '[aria-modal="true"]',
+  ".modal.show",
+  ".modal.in",
+  ".fancybox-container",
+  ".pswp--open",
+  ".elementor-lightbox",
+  '[class*="lightbox"]',
+  '[class*="Lightbox"]',
+  '[class*="flipbook"]',
+  '[class*="flyer-viewer"]',
+  '[class*="FlyerViewer"]',
+];
+
+async function isSocialOrExternalJunk(loc: Locator): Promise<boolean> {
+  return loc
+    .evaluate((el) => {
+      const a =
+        el.closest("a") ??
+        (el.tagName === "A" ? (el as HTMLAnchorElement) : null);
+      const href =
+        (a as HTMLAnchorElement | null)?.href ??
+        el.getAttribute("href") ??
+        "";
+      const label = `${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""} ${(el as HTMLElement).innerText ?? ""}`;
+      return /youtube|youtu\.be|instagram|facebook|linkedin|tiktok|whatsapp|twitter|\bx\b\.com/i.test(
+        `${href} ${label}`,
+      );
+    })
+    .catch(() => false);
+}
+
+/** Prefer modal/viewer shell when open — avoid header social icons (Cometa YouTube). */
+async function pagerSearchRoots(page: Page): Promise<Locator[]> {
+  if (await overlayVisible(page)) {
+    const roots: Locator[] = [];
+    for (const sel of PAGER_OVERLAY_ROOTS) {
+      try {
+        const loc = page.locator(sel).first();
+        if ((await loc.count()) === 0) continue;
+        if (!(await loc.isVisible().catch(() => false))) continue;
+        roots.push(loc);
+      } catch {
+        /* */
+      }
+    }
+    if (roots.length) return roots;
+  }
+  return [page.locator("body")];
+}
 
 async function clickFirstPager(
   page: Page,
   extra?: string[],
 ): Promise<boolean> {
   const skipPrev = /prev|anterior|slick-prev|button-prev/i;
-  for (const sel of [...(extra ?? []), ...DEFAULT_PAGER]) {
+  const sels = [
+    ...(sanitizePagerSelectors(extra) ?? []),
+    ...DEFAULT_PAGER,
+  ].filter((s) => !SOCIAL_CLICK_RE.test(s));
+  const roots = await pagerSearchRoots(page);
+  for (const sel of sels) {
     if (skipPrev.test(sel) && !/next|pr[oó]ximo|mais/i.test(sel)) continue;
-    try {
-      const loc = page.locator(sel).first();
-      if ((await loc.count()) === 0) continue;
-      if (!(await loc.isVisible().catch(() => false))) continue;
-      const dis = await loc.getAttribute("aria-disabled").catch(() => null);
-      if (dis === "true") continue;
-      if (!(await clickMaybeForce(loc))) continue;
-      await page.waitForTimeout(450);
-      return true;
-    } catch {
-      /* bad sel */
+    for (const root of roots) {
+      try {
+        const loc = root.locator(sel).first();
+        if ((await loc.count()) === 0) continue;
+        if (!(await loc.isVisible().catch(() => false))) continue;
+        const dis = await loc.getAttribute("aria-disabled").catch(() => null);
+        if (dis === "true") continue;
+        if (await isSocialOrExternalJunk(loc)) continue;
+        if (!(await clickMaybeForce(loc))) continue;
+        await page.waitForTimeout(450);
+        return true;
+      } catch {
+        /* bad sel / root */
+      }
     }
   }
   return false;
@@ -2288,7 +2630,8 @@ async function paginateViewer(
     const paged = await clickFirstPager(page, source.pagerSelectors);
     const scrolled = paged ? false : await scrollViewer(page);
     if (!paged && !scrolled) await nudgeViewer(page);
-    await page.waitForTimeout(paged || scrolled ? 280 : 550);
+    // Extra settle after canvas pager (Cometa mid-turn = grey/blur capture)
+    await page.waitForTimeout(paged || scrolled ? 900 : 700);
     const light = await harvestLightboxUrls(page);
     for (const u of light) {
       if (!urls.includes(u)) urls.push(u);
@@ -2457,6 +2800,16 @@ async function harvestPopupUrls(
     await popup.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => undefined);
     await popup.waitForTimeout(800);
     const u = popup.url();
+    // Header social misfires (Cometa YouTube) — close and ignore
+    if (
+      /youtube\.com|youtu\.be|instagram\.com|facebook\.com|linkedin\.com|tiktok\.com|whatsapp/i.test(
+        u,
+      )
+    ) {
+      say?.(`[FLYER] popup social ignorado ${u.slice(0, 80)}`);
+      await popup.close().catch(() => undefined);
+      return { urls: [], buffers: [] };
+    }
     const meta = await popup
       .evaluate(() => ({
         contentType: document.contentType || "",

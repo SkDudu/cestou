@@ -342,7 +342,7 @@ const SKIP_REPLAY_CLICK =
 /** Teach sample: opening one listing card to harvest viewer — not part of run. */
 function isTeachSampleCardClick(blob: string): boolean {
   return (
-    /flip-card|img\[alt=|Costume Saudável|Encarte São Luiz|card-folheto|jet-listing|VER ENCARTE/i.test(
+    /flip-card|img\[alt=|Costume Saudável|Encarte São Luiz|card-folheto|jet-listing|VER ENCARTE|Download em PDF|ofertasdelimpeza|\/encarte\//i.test(
       blob,
     ) || /\d{1,2}\s*[./-]\s*\d{1,2}.*\d{2,4}/.test(blob)
   );
@@ -391,7 +391,11 @@ export function buildTeachSteps(args: {
         continue;
       }
     }
-    if (n.type === "select-scope") hasScope = true;
+    // select-scope from actions — prefer listing scopeSelectors when provided
+    if (n.type === "select-scope") {
+      if (args.scopeSelectors?.length) continue;
+      hasScope = true;
+    }
     steps.push({ ...n, order: order++ });
   }
   if (args.scopeSelectors?.length && !steps.some((s) => s.type === "select-scope")) {

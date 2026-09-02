@@ -1140,8 +1140,11 @@ async function teachWithDump(
     htmlSnippet: sec.htmlSnippet,
   };
   if (openKind === "need_click") {
-    session.flyerSource = undefined;
-    session.proposed = undefined;
+    // Pass-1: wait for sample click. Do NOT wipe a finished flyerSource if a
+    // later Detectar on the detail page re-classifies as need_click (Frangolândia).
+    if (!session.flyerSource) {
+      session.proposed = undefined;
+    }
   }
   const count = session.listingTeach.count;
   const listingSels = session.listingTeach.itemSelectors;
@@ -1641,6 +1644,63 @@ export async function saveSession(sessionId: string): Promise<{ steps: number }>
     throw new Error("Aprova a listagem antes de salvar.");
   }
 
+  const scopeSelectors =
+    (session.actions.find((a) => a.kind === "scope")?.selectors as
+      | string[]
+      | undefined) ??
+    (
+      session.proposed?.steps.find((s) => s.type === "select-scope")?.config as
+        | { selectors?: string[] }
+        | undefined
+    )?.selectors;
+
+  const flyerFromProposed = (
+    session.proposed?.steps.find((s) => s.type === "discover-flyer")?.config as
+      | { flyerSource?: import("../types/flows.js").FlyerSource }
+      | undefined
+  )?.flyerSource;
+
+  const flyerSource = session.flyerSource ?? flyerFromProposed;
+
+  // Always rebuild via buildTeachSteps when we have teach context — never persist
+  // sample clicks (VER ENCARTE / Download PDF) that leave the listing page.
+  if (flyerSource || session.listingTeach?.itemSelectors?.length) {
+    const src =
+      flyerSource ??
+      flyerSourceFromOpenKind({
+        openKind: "need_click",
+        itemSelectors: session.listingTeach!.itemSelectors,
+        itemCount: session.listingTeach!.count,
+      });
+    session.flyerSource = keepSkip(session, src);
+    const built = buildTeachSteps({
+      startUrl: session.startUrl,
+      actions: session.actions,
+      flyerSource: session.flyerSource,
+      scopeSelectors,
+    });
+    const rows = built.map((s, i) => ({
+      type: s.type,
+      config: JSON.stringify(s.config),
+      order: i,
+    }));
+    await replaceScraperSteps(session.flowId, rows);
+    session.proposed = {
+      startUrl: session.startUrl,
+      steps: built,
+      awaitDetail: false,
+    };
+    traceSetup(session, "save", `${rows.length} steps salvos (proposed)`, {
+      steps: rows.map((s) => ({ type: s.type, order: s.order })),
+      flyerSource: session.flyerSource,
+    });
+    flyerLog.info(
+      "SESSION",
+      `saved proposed ${rows.length} steps → ${session.flowId}`,
+    );
+    return { steps: rows.length };
+  }
+
   if (session.proposed?.steps.length) {
     const rows = session.proposed.steps.map((s, i) => ({
       type: s.type,
@@ -1703,6 +1763,25 @@ export async function saveSession(sessionId: string): Promise<{ steps: number }>
     }
     const n = normalizeAction(a);
     if (!n) continue;
+    if (n.type === "click") {
+      const blob = [
+        n.config.description,
+        n.config.value,
+        n.config.selector,
+        ...(n.config.selectors ?? []),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      // Same filters as buildTeachSteps — teach sample / download noise
+      if (
+        /ver\s+\S{3,}|baixar|download/i.test(blob) ||
+        /flip-card|jet-listing|VER ENCARTE|Download em PDF|card-folheto/i.test(
+          blob,
+        )
+      ) {
+        continue;
+      }
+    }
     if (n.type === "select-scope") hasScope = true;
     steps.push({
       type: n.type,

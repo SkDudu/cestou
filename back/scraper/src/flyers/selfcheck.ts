@@ -43,6 +43,8 @@ import {
   titleFromEncarteUrl,
   encarteDedupKey,
   listingKey,
+  flipbookIdFromUrl,
+  preferSameFlipbookUrls,
 } from "./runner/flyer-discover.js";
 import { packTeachPayload } from "./session/click-snapshot.js";
 import {
@@ -61,6 +63,7 @@ import {
   listingSelectorScore,
   normalizeJournalItemSelectors,
   refineOpenKindFromHtml,
+  sanitizePagerSelectors,
 } from "./session/journal-tabs.js";
 import { SCOPE_NOT_FOUND } from "./runner/flow-pipeline.js";
 import {
@@ -695,6 +698,20 @@ assert(
     assaiTabs.pagerSelectors?.some((s) => /slick-next/.test(s)),
     "journal tabs get carousel pager",
   );
+  assert(
+    !sanitizePagerSelectors([
+      ".slick-next",
+      '[class*="slider"] button:not([aria-label*="Fechar" i])',
+      'a[href*="youtube.com"]',
+    ])?.some((s) => /\[class\*=["']?slider["']?\].*button|youtube/i.test(s)),
+    "sanitize drops broad slider button + social pager sels",
+  );
+  assert(
+    sanitizePagerSelectors([".slick-next", ".slider-next"])?.includes(
+      ".slider-next",
+    ),
+    "sanitize keeps narrow slider-next",
+  );
 }
 assert(
   refineOpenKindFromHtml(
@@ -776,6 +793,27 @@ assert(
   assert(
     encarteDedupKey(`${base}/a`) === encarteDedupKey(`${base}/a#junk`),
     "nav URLs still collapse without item/tab hash",
+  );
+  const mixed = [
+    "https://cdn.mercadapp.services/uploads/flipbooks/images/Flipbook_70649_a.jpg",
+    "https://cdn.mercadapp.services/uploads/flipbooks/images/Flipbook_70661_b.jpg",
+    "https://cdn.mercadapp.services/uploads/flipbooks/images/Flipbook_70649_c.jpg",
+    "https://cdn.mercadapp.services/uploads/flipbooks/images/Flipbook_70702_d.jpg",
+  ];
+  assert(flipbookIdFromUrl(mixed[0]!) === "70649", "parse Flipbook_ID");
+  assert(
+    preferSameFlipbookUrls(mixed, "70649").every(
+      (u) => flipbookIdFromUrl(u) === "70649",
+    ) && preferSameFlipbookUrls(mixed, "70649").length === 2,
+    "preferSameFlipbookUrls keeps only card Flipbook_ID",
+  );
+  assert(
+    preferSameFlipbookUrls([
+      ...mixed,
+      "https://cdn.mercadapp.services/uploads/flipbooks/images/Flipbook_70661_e.jpg",
+      "https://cdn.mercadapp.services/uploads/flipbooks/images/Flipbook_70661_f.jpg",
+    ]).every((u) => flipbookIdFromUrl(u) === "70661"),
+    "majority Flipbook_ID when no preferId",
   );
 }
 assert(
@@ -1286,6 +1324,43 @@ assert(
         s.type === "click" && /ver encarte/i.test(s.config.description ?? ""),
     ),
     "teach drops Ver Encarte click",
+  );
+  const frangoNoise = buildTeachSteps({
+    startUrl: "https://frangolandia.com/encartes/",
+    actions: [
+      {
+        kind: "scope",
+        selectors: [".jet-listing-grid.jet-listing"],
+        description: "Encartes",
+        semantic: "SELECT_SCOPE",
+        value: "flyer-discovery",
+      },
+      {
+        kind: "click",
+        selectors: ['span:has-text("VER ENCARTE")'],
+        description: "VER ENCARTE",
+        value: "VER ENCARTE",
+        semantic: "OPEN_FLYERS",
+      },
+      {
+        kind: "click",
+        selectors: ['div:has-text("Download em PDF")'],
+        description: "Download em PDF",
+        value: "Download em PDF",
+      },
+    ],
+    flyerSource: {
+      kind: "image-grid",
+      downloadStrategy: "open-each-item",
+      urlFrom: "click-then-network",
+      itemSelectors: [".jet-listing-grid__item"],
+    },
+    scopeSelectors: [".jet-listing-grid.jet-listing"],
+  });
+  assert(
+    frangoNoise.map((s) => s.type).join("→") ===
+      "navigate→select-scope→discover-flyer",
+    "Frangolândia teach drops sample VER ENCARTE + PDF clicks",
   );
   const patched = applyFlyerSource(taught, {
     kind: "image-grid",
