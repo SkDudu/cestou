@@ -7,6 +7,7 @@ import { flyerLog } from "../core/flyer-logger.js";
 import { detectContentType } from "../core/flyer-downloader.js";
 import { rasterizePdf } from "../core/pdf-raster.js";
 import {
+  discardFailedFlyer,
   findCompletedExtraction,
   getFlyer,
   insertExtraction,
@@ -376,7 +377,6 @@ export async function extractPending(opts?: {
       const ran = results.filter((r) => !r.skipped);
       const offers = ran.flatMap((r) => r.offers);
       const failedCount = results.filter((r) => r.failed).length;
-      const okCount = results.filter((r) => !r.failed && !r.skipped).length;
 
       const mimoFrom = ran.find((r) => r.validFrom)?.validFrom;
       const mimoUntil = ran.find((r) => r.validUntil)?.validUntil;
@@ -427,12 +427,16 @@ export async function extractPending(opts?: {
       }
 
       const skippedCount = results.filter((r) => r.skipped).length;
+      if (failedCount > 0) {
+        say(
+          "EXTRACT",
+          `${progress} removendo encarte após falha de análise (${failedCount} página(s))`,
+        );
+        await discardFailedFlyer(flyer._id);
+        continue;
+      }
       const nextStatus =
-        failedCount > 0 && (okCount > 0 || skippedCount > 0)
-          ? "partially_processed"
-          : failedCount > 0
-            ? "downloaded"
-            : "processed";
+        skippedCount > 0 ? "partially_processed" : "processed";
       await setFlyerStatus(flyer._id, nextStatus);
       if (offers.length) {
         say(
@@ -442,7 +446,7 @@ export async function extractPending(opts?: {
       }
       say(
         "EXTRACT",
-        `${progress} ✓ terminou — ${label} status=${nextStatus} offers=${offers.length} ok=${okCount} fail=${failedCount} skip=${results.length - ran.length}`,
+        `${progress} ✓ terminou — ${label} status=${nextStatus} offers=${offers.length} ok=${ran.length} fail=${failedCount} skip=${results.length - ran.length}`,
       );
       processed++;
     } catch (err) {
@@ -461,6 +465,7 @@ export async function extractPending(opts?: {
         message: String(err),
         stack: err instanceof Error ? err.stack : undefined,
       });
+      await discardFailedFlyer(flyer._id);
     }
   }
 

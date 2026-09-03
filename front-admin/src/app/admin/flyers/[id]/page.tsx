@@ -1,24 +1,69 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { ReanalyzeModal } from "@/components/admin/ReanalyzeModal";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import {
+  checkWorkerHealth,
+  reanalyzeRemote,
+  startBrowserWorker,
+} from "@/lib/browser-session";
 import { formatCurrency, formatDateTime, formatInstallment } from "@/lib/format";
 
 export default function FlyerDetailPage() {
   const params = useParams();
   const id = params.id as Id<"flyers">;
   const flyer = useQuery(api.flyers.get, { id });
+  const discardFlyer = useMutation(api.flyers.discardFlyer);
+  const setStatus = useMutation(api.flyers.setStatus);
+  const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   if (flyer === undefined) {
     return <p className="ds-meta">Carregando…</p>;
   }
   if (!flyer) {
     return <p className="text-sm text-[var(--ds-color-danger)]">Não encontrado</p>;
+  }
+
+  async function reanalyze(args: {
+    pages?: number[];
+    includeLocked: boolean;
+  }) {
+    setBusy(true);
+    try {
+      if (!(await checkWorkerHealth())) await startBrowserWorker();
+      await reanalyzeRemote({
+        flyerId: flyer._id,
+        pages: args.pages,
+        includeLocked: args.includeLocked,
+      });
+      setReanalyzeOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeFlyer() {
+    if (
+      !window.confirm(
+        "Excluir definitivamente o encarte, suas páginas, extrações e ofertas? Esta ação não pode ser desfeita.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await discardFlyer({ id: flyer._id });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -29,6 +74,35 @@ export default function FlyerDetailPage() {
       >
         <StatusBadge status={flyer.status} />
       </PageHeader>
+
+      <div className="mb-6 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="ds-btn ds-btn--primary"
+          disabled={busy || flyer.pages.length === 0}
+          onClick={() => setReanalyzeOpen(true)}
+        >
+          {busy ? "Processando…" : "Reanalisar"}
+        </button>
+        {flyer.status !== "expired" ? (
+          <button
+            type="button"
+            className="ds-btn ds-btn--outline"
+            disabled={busy}
+            onClick={() => setStatus({ id: flyer._id, status: "expired" })}
+          >
+            Marcar como expirado
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="ds-btn ds-btn--danger"
+          disabled={busy}
+          onClick={() => void removeFlyer()}
+        >
+          Excluir definitivamente
+        </button>
+      </div>
 
       <dl className="mb-6 grid gap-2 text-sm sm:grid-cols-2">
         <div>
@@ -58,6 +132,12 @@ export default function FlyerDetailPage() {
           <dt className="text-[var(--ds-color-muted-foreground)]">Ofertas</dt>
           <dd>{flyer.offerCount}</dd>
         </div>
+        {flyer.retentionAt !== undefined ? (
+          <div>
+            <dt className="text-[var(--ds-color-muted-foreground)]">Limpeza programada</dt>
+            <dd>{formatDateTime(flyer.retentionAt)}</dd>
+          </div>
+        ) : null}
       </dl>
 
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
@@ -130,6 +210,16 @@ export default function FlyerDetailPage() {
           </tbody>
         </table>
       </div>
+
+      <ReanalyzeModal
+        open={reanalyzeOpen}
+        flyerTitle={flyer.title ?? flyer._id}
+        pages={flyer.pages}
+        offers={flyer.offers}
+        busy={busy}
+        onClose={() => setReanalyzeOpen(false)}
+        onConfirm={(args) => void reanalyze(args)}
+      />
     </div>
   );
 }

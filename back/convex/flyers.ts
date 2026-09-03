@@ -169,6 +169,7 @@ export const setStatus = mutation({
     if (!flyer) throw new Error("Flyer not found");
     await ctx.db.patch(args.id, {
       status: args.status,
+      expiredAt: args.status === "expired" ? Date.now() : undefined,
       updatedAt: Date.now(),
     });
   },
@@ -189,39 +190,63 @@ async function wipeOffers(
   }
 }
 
-async function wipeFlyer(ctx: MutationCtx, id: Id<"flyers">) {
-  const flyer = await ctx.db.get(id);
-  if (!flyer) throw new Error("Flyer not found");
-
+/**
+ * Remove only operational evidence. Extracted offers remain available for
+ * historical analysis and receive a source snapshot before the flyer is gone.
+ */
+export async function purgeFlyerEvidence(
+  ctx: MutationCtx,
+  flyer: {
+    _id: Id<"flyers">;
+    title?: string;
+    originalUrl: string;
+    fileHash?: string;
+    storageId?: Id<"_storage">;
+  },
+  preserveOffers: boolean,
+) {
+  const now = Date.now();
   const offers = await ctx.db
     .query("offers")
-    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .withIndex("by_flyer", (q) => q.eq("flyerId", flyer._id))
     .collect();
-  await wipeOffers(ctx, offers);
+  if (preserveOffers) {
+    for (const offer of offers) {
+      await ctx.db.patch(offer._id, {
+        sourceFlyerTitle: flyer.title,
+        sourceFlyerUrl: flyer.originalUrl,
+        sourceFlyerHash: flyer.fileHash,
+        sourceEvidencePurgedAt: now,
+        updatedAt: now,
+      });
+    }
+  } else {
+    await wipeOffers(ctx, offers);
+  }
 
   const extractions = await ctx.db
     .query("flyerExtractions")
-    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .withIndex("by_flyer", (q) => q.eq("flyerId", flyer._id))
     .collect();
-  for (const e of extractions) await ctx.db.delete(e._id);
+  for (const extraction of extractions) await ctx.db.delete(extraction._id);
 
   const errors = await ctx.db
     .query("flyerErrors")
-    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .withIndex("by_flyer", (q) => q.eq("flyerId", flyer._id))
     .collect();
-  for (const e of errors) await ctx.db.delete(e._id);
+  for (const error of errors) await ctx.db.delete(error._id);
 
   const pages = await ctx.db
     .query("flyerPages")
-    .withIndex("by_flyer", (q) => q.eq("flyerId", id))
+    .withIndex("by_flyer", (q) => q.eq("flyerId", flyer._id))
     .collect();
-  for (const p of pages) {
+  for (const page of pages) {
     try {
-      await ctx.storage.delete(p.storageId);
+      await ctx.storage.delete(page.storageId);
     } catch {
       /* already gone */
     }
-    await ctx.db.delete(p._id);
+    await ctx.db.delete(page._id);
   }
 
   if (flyer.storageId) {
@@ -231,12 +256,25 @@ async function wipeFlyer(ctx: MutationCtx, id: Id<"flyers">) {
       /* already gone */
     }
   }
-  await ctx.db.delete(id);
+  await ctx.db.delete(flyer._id);
+
+  return {
+    offers: offers.length,
+    pages: pages.length,
+    extractions: extractions.length,
+    errors: errors.length,
+  };
+}
+
+async function wipeFlyer(ctx: MutationCtx, id: Id<"flyers">) {
+  const flyer = await ctx.db.get(id);
+  if (!flyer) throw new Error("Flyer not found");
+
+  const result = await purgeFlyerEvidence(ctx, flyer, false);
 
   return {
     scope: "flyer" as const,
-    offers: offers.length,
-    pages: pages.length,
+    ...result,
   };
 }
 
@@ -404,6 +442,10 @@ export const list = query({
           supermarketName: supermarket?.name ?? "—",
           offerCount,
           pageCount,
+          retentionAt:
+            f.status === "expired" && f.validUntil !== undefined
+              ? f.validUntil + FLYER_RETENTION_MS
+              : undefined,
         };
       }),
     );
@@ -490,6 +532,10 @@ export const get = query({
       offers: [...offers].sort((a, b) => (a.pageNumber ?? 0) - (b.pageNumber ?? 0)),
       fileUrl,
       offerCount: offers.length,
+      retentionAt:
+        flyer.status === "expired" && flyer.validUntil !== undefined
+          ? flyer.validUntil + FLYER_RETENTION_MS
+          : undefined,
     };
   },
 });
@@ -507,11 +553,45 @@ export const markExpired = mutation({
         f.status !== "expired" &&
         f.status !== "failed"
       ) {
-        await ctx.db.patch(f._id, { status: "expired", updatedAt: now });
+        await ctx.db.patch(f._id, {
+          status: "expired",
+          expiredAt: now,
+          updatedAt: now,
+        });
         count++;
       }
     }
     return { expired: count };
+  },
+});
+
+export const FLYER_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Delete expired flyer evidence older than 30 days, preserving extracted offers. */
+export const purgeExpiredEvidence = mutation({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const cutoff = Date.now() - FLYER_RETENTION_MS;
+    const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
+    const candidates = (await ctx.db
+      .query("flyers")
+      .withIndex("by_status", (q) => q.eq("status", "expired"))
+      .collect())
+      .filter((flyer) => flyer.validUntil !== undefined && flyer.validUntil <= cutoff)
+      .slice(0, limit);
+
+    let offersPreserved = 0;
+    let pagesDeleted = 0;
+    for (const flyer of candidates) {
+      const result = await purgeFlyerEvidence(ctx, flyer, true);
+      offersPreserved += result.offers;
+      pagesDeleted += result.pages;
+    }
+    return {
+      flyersDeleted: candidates.length,
+      offersPreserved,
+      pagesDeleted,
+    };
   },
 });
 

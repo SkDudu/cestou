@@ -1,7 +1,7 @@
 # Roadmap — Cestou
 
 **Status:** MVP técnico em andamento  
-**Última atualização:** 2026-09-02
+**Última atualização:** 2026-09-03
 
 ---
 
@@ -134,6 +134,10 @@ ignora    salva
 
 **Status:** `DISCOVERED` → `DOWNLOADING` → `DOWNLOADED` → `PROCESSING` → `PROCESSED` / `FAILED` / `EXPIRED` (+ `DUPLICATE` já no schema).
 
+**Retenção de arquivos:** o flyer é evidência operacional temporária, não histórico permanente. Um job diário deve remover flyers expirados há mais de **1 mês**, incluindo arquivo original no storage, páginas, extrações e erros técnicos. As **ofertas extraídas** permanecem para análises futuras de preço e catálogo, preservando mercado, vigência, preço, texto extraído e metadados mínimos da origem. A limpeza nunca pode remover um flyer vigente, futuro, sem `validUntil` ou ainda em processamento.
+
+**Falha operacional:** se download pelo worker ou análise falhar, o flyer é descartado integralmente — arquivo, páginas, extrações, erros e ofertas parciais. Retenção de ofertas aplica-se exclusivamente a flyers expirados com extração concluída.
+
 ### 3. Normalização dos produtos
 
 Próxima feature crítica de dados.
@@ -218,6 +222,7 @@ Sinais comportamentais (sem IA no início):
 - [ ] Gestão de flyers (ops completa)  
 - [ ] Ciclo automático de flyers (cron estável)  
 - [ ] Expiração automática  
+- [ ] Retenção mensal: remover flyers expirados e arquivos; preservar ofertas extraídas
 - [ ] Deduplicação robusta  
 
 
@@ -275,7 +280,7 @@ Sinais comportamentais (sem IA no início):
 
 ## Próximo foco sugerido
 
-1. Fechar **ciclo automático de flyers** (scheduler + hash + expiração + dedupe).
+1. Fechar **gestão e ciclo automático de flyers** (ops + scheduler + hash + expiração + dedupe + retenção mensal).
 2. Começar **normalização / produto canônico**.
 3. Completar **membership / clube** na oferta antes de empurrar o cliente.
 4. Só então aprofundar o app cliente (listas + proximidade).

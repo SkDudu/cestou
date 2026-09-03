@@ -106,6 +106,11 @@ export async function setFlyerStatus(
   await getClient().mutation(api.flyers.setStatus, { id, status });
 }
 
+/** Error paths discard the full flyer, including partial offers and evidence. */
+export async function discardFailedFlyer(id: string) {
+  await getClient().mutation(api.flyers.discardFlyer, { id: id as never });
+}
+
 export async function uploadBuffer(
   buffer: Buffer,
   contentType: string,

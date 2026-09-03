@@ -105,9 +105,28 @@ export default function OfferDetailPage() {
         <div>
           <dt className="text-[var(--ds-color-muted-foreground)]">Encarte</dt>
           <dd>
-            <Link href={`/admin/flyers/${offer.flyerId}`} className="hover:underline">
-              {offer.flyer?.title ?? offer.flyerId}
-            </Link>
+            {offer.flyer ? (
+              <Link href={`/admin/flyers/${offer.flyerId}`} className="hover:underline">
+                {offer.flyer.title ?? offer.flyerId}
+              </Link>
+            ) : (
+              <span>
+                {offer.sourceFlyerTitle ?? "Evidência removida pela retenção"}
+                {offer.sourceFlyerUrl ? (
+                  <>
+                    {" · "}
+                    <a
+                      href={offer.sourceFlyerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="hover:underline"
+                    >
+                      origem
+                    </a>
+                  </>
+                ) : null}
+              </span>
+            )}
           </dd>
         </div>
         <div>

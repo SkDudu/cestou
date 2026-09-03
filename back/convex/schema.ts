@@ -151,6 +151,8 @@ export default defineSchema({
     fileHash: v.optional(v.string()),
     validFrom: v.optional(v.number()),
     validUntil: v.optional(v.number()),
+    /** Set when the lifecycle marks the flyer expired; retention uses this. */
+    expiredAt: v.optional(v.number()),
     status: flyerStatus,
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -200,6 +202,11 @@ export default defineSchema({
     eligibilityEvidence: v.optional(eligibilityEvidence),
     eligibilityStatus: v.optional(eligibilityStatus),
     sourceType: v.literal("flyer"),
+    /** Immutable source snapshot retained after the flyer evidence is purged. */
+    sourceFlyerTitle: v.optional(v.string()),
+    sourceFlyerUrl: v.optional(v.string()),
+    sourceFlyerHash: v.optional(v.string()),
+    sourceEvidencePurgedAt: v.optional(v.number()),
     validationStatus: offerValidationStatus,
     validFrom: v.optional(v.number()),
     validUntil: v.optional(v.number()),

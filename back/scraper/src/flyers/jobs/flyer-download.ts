@@ -1,6 +1,7 @@
 import { downloadFromPageUrls } from "../core/download-pages.js";
 import {
   attachFlyerFile,
+  discardFailedFlyer,
   findFlyerByHash,
   getSupermarket,
   insertFlyerError,
@@ -169,6 +170,7 @@ export async function downloadPending(opts?: {
         message: String(err),
         stack: err instanceof Error ? err.stack : undefined,
       });
+      await discardFailedFlyer(flyer._id);
     }
   }
 

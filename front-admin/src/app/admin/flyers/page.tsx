@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import {
   calendarDaysUntil,
+  formatDateTime,
   formatExpiryPill,
   formatNumber,
   formatOpsStamp,
@@ -18,8 +19,10 @@ const DAY = 24 * 60 * 60 * 1000;
 
 export default function FlyersPage() {
   const flyers = useQuery(api.flyers.list, {});
+  const purgeExpiredEvidence = useMutation(api.flyers.purgeExpiredEvidence);
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
+  const [purging, setPurging] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const now = Date.now();
 
@@ -55,6 +58,26 @@ export default function FlyersPage() {
   }, [rowsAll, tab, q, vigente, expiring, noParse]);
 
   if (flyers === undefined) return <p className="ds-meta">Carregando…</p>;
+
+  const eligibleForPurge = rowsAll.filter(
+    (f) => f.retentionAt !== undefined && f.retentionAt <= now,
+  );
+
+  async function purgeExpired() {
+    if (
+      !window.confirm(
+        `Limpar ${eligibleForPurge.length} encarte(s) expirado(s)? PDFs, páginas, extrações e erros serão removidos; as ofertas extraídas serão preservadas.`,
+      )
+    ) {
+      return;
+    }
+    setPurging(true);
+    try {
+      await purgeExpiredEvidence({ limit: 100 });
+    } finally {
+      setPurging(false);
+    }
+  }
 
   return (
     <div>
@@ -98,6 +121,23 @@ export default function FlyersPage() {
         />
       </section>
 
+      {eligibleForPurge.length ? (
+        <section className="mb-4 flex items-center justify-between gap-3 rounded-[8px] border border-[var(--ds-color-border)] bg-[var(--ds-color-muted)] px-4 py-3">
+          <p className="text-sm">
+            <strong>{eligibleForPurge.length}</strong> encarte(s) expirado(s) elegível(is)
+            para limpeza. As ofertas históricas serão preservadas.
+          </p>
+          <button
+            type="button"
+            className="ds-btn ds-btn--outline shrink-0"
+            disabled={purging}
+            onClick={() => void purgeExpired()}
+          >
+            {purging ? "Limpando…" : "Limpar agora"}
+          </button>
+        </section>
+      ) : null}
+
       <OpsTabs
         value={tab}
         onChange={setTab}
@@ -127,6 +167,7 @@ export default function FlyersPage() {
           <span className="ds-label-caps w-[64px] shrink-0">SKUs</span>
           <span className="ds-label-caps w-[88px] shrink-0">Fonte</span>
           <span className="ds-label-caps w-[120px] shrink-0">Status</span>
+          <span className="ds-label-caps w-[110px] shrink-0">Limpeza</span>
         </div>
         {rows.map((f) => {
           const daysLeft =
@@ -175,6 +216,13 @@ export default function FlyersPage() {
                 ) : (
                   <StatusBadge status={f.status} />
                 )}
+              </span>
+              <span className="w-[110px] shrink-0 text-xs text-[var(--ds-color-muted-foreground)]">
+                {f.retentionAt !== undefined
+                  ? f.retentionAt <= now
+                    ? "Disponível"
+                    : formatDateTime(f.retentionAt)
+                  : "—"}
               </span>
             </Link>
           );
