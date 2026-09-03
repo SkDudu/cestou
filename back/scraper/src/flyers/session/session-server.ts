@@ -1,6 +1,7 @@
 import http from "node:http";
 import { flyerLog } from "../core/flyer-logger.js";
 import { runSchedulerLoop } from "../jobs/flow-scheduler.js";
+import { downloadPending } from "../jobs/flyer-download.js";
 import { reanalyzeFlyer } from "../jobs/flyer-reanalyze.js";
 import { executeFlowById } from "../runner/execute-flow.js";
 import {
@@ -232,6 +233,26 @@ export function startSessionServer() {
         } finally {
           extractBusy = false;
           res.end();
+        }
+        return;
+      }
+
+      if (req.method === "POST" && path === "/download") {
+        const body = (await readJson(req)) as { flyerId?: string };
+        if (!body.flyerId) {
+          sendJson(res, 400, { error: "flyerId required" });
+          return;
+        }
+        if (runBusy || extractBusy) {
+          sendJson(res, 409, { error: "Worker is busy" });
+          return;
+        }
+        runBusy = true;
+        try {
+          const result = await downloadPending({ flyerIds: [body.flyerId] });
+          sendJson(res, 200, { ok: result.downloaded > 0, ...result });
+        } finally {
+          runBusy = false;
         }
         return;
       }

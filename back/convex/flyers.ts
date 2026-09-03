@@ -355,6 +355,125 @@ export const patchValidity = mutation({
   },
 });
 
+/** Operator override: update flyer and all retained offers with the new period. */
+export const setValidity = mutation({
+  args: {
+    id: v.id("flyers"),
+    validFrom: v.optional(v.union(v.number(), v.null())),
+    validUntil: v.optional(v.union(v.number(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    const flyer = await ctx.db.get(args.id);
+    if (!flyer) throw new Error("Flyer not found");
+    const validFrom =
+      args.validFrom === undefined
+        ? flyer.validFrom
+        : args.validFrom === null
+          ? undefined
+          : args.validFrom;
+    const validUntil =
+      args.validUntil === undefined
+        ? flyer.validUntil
+        : args.validUntil === null
+          ? undefined
+          : args.validUntil;
+    if (
+      validFrom !== undefined &&
+      validUntil !== undefined &&
+      validFrom > validUntil
+    ) {
+      throw new Error("A data inicial deve ser anterior à data final");
+    }
+    const now = Date.now();
+    const status =
+      flyer.status === "expired"
+        ? flyer.storageId
+          ? "downloaded"
+          : "discovered"
+        : flyer.status;
+    await ctx.db.patch(args.id, {
+      validFrom,
+      validUntil,
+      status,
+      expiredAt: undefined,
+      updatedAt: now,
+    });
+    const offers = await ctx.db
+      .query("offers")
+      .withIndex("by_flyer", (q) => q.eq("flyerId", args.id))
+      .collect();
+    for (const offer of offers) {
+      await ctx.db.patch(offer._id, {
+        validFrom,
+        validUntil,
+        updatedAt: now,
+      });
+    }
+    return { offersUpdated: offers.length };
+  },
+});
+
+/** Delete stale evidence and offers, then put the same flyer back in download queue. */
+export const resetForDownload = mutation({
+  args: { id: v.id("flyers") },
+  handler: async (ctx, args) => {
+    const flyer = await ctx.db.get(args.id);
+    if (!flyer) throw new Error("Flyer not found");
+    if (flyer.status === "downloading" || flyer.status === "processing") {
+      throw new Error("O encarte está em processamento");
+    }
+
+    const offers = await ctx.db
+      .query("offers")
+      .withIndex("by_flyer", (q) => q.eq("flyerId", args.id))
+      .collect();
+    await wipeOffers(ctx, offers);
+    const extractions = await ctx.db
+      .query("flyerExtractions")
+      .withIndex("by_flyer", (q) => q.eq("flyerId", args.id))
+      .collect();
+    for (const extraction of extractions) await ctx.db.delete(extraction._id);
+    const errors = await ctx.db
+      .query("flyerErrors")
+      .withIndex("by_flyer", (q) => q.eq("flyerId", args.id))
+      .collect();
+    for (const error of errors) await ctx.db.delete(error._id);
+    const pages = await ctx.db
+      .query("flyerPages")
+      .withIndex("by_flyer", (q) => q.eq("flyerId", args.id))
+      .collect();
+    for (const page of pages) {
+      try {
+        await ctx.storage.delete(page.storageId);
+      } catch {
+        /* already gone */
+      }
+      await ctx.db.delete(page._id);
+    }
+    if (flyer.storageId) {
+      try {
+        await ctx.storage.delete(flyer.storageId);
+      } catch {
+        /* already gone */
+      }
+    }
+    await ctx.db.patch(args.id, {
+      storageId: undefined,
+      fileType: undefined,
+      fileSize: undefined,
+      fileHash: undefined,
+      status: "discovered",
+      expiredAt: undefined,
+      updatedAt: Date.now(),
+    });
+    return {
+      offersDeleted: offers.length,
+      pagesDeleted: pages.length,
+      extractionsDeleted: extractions.length,
+    };
+  },
+});
+
 export const attachFile = mutation({
   args: {
     id: v.id("flyers"),
@@ -551,7 +670,9 @@ export const markExpired = mutation({
         f.validUntil !== undefined &&
         f.validUntil < now &&
         f.status !== "expired" &&
-        f.status !== "failed"
+        f.status !== "failed" &&
+        f.status !== "downloading" &&
+        f.status !== "processing"
       ) {
         await ctx.db.patch(f._id, {
           status: "expired",

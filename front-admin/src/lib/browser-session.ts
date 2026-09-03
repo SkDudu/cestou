@@ -625,3 +625,12 @@ export async function reanalyzeRemote(
   }
   return doneEv;
 }
+
+export async function downloadFlyerRemote(flyerId: string) {
+  const res = await req("/download", {
+    method: "POST",
+    body: JSON.stringify({ flyerId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as { ok: boolean; downloaded: number };
+}

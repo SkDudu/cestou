@@ -134,9 +134,11 @@ ignora    salva
 
 **Status:** `DISCOVERED` → `DOWNLOADING` → `DOWNLOADED` → `PROCESSING` → `PROCESSED` / `FAILED` / `EXPIRED` (+ `DUPLICATE` já no schema).
 
-**Retenção de arquivos:** o flyer é evidência operacional temporária, não histórico permanente. Um job diário deve remover flyers expirados há mais de **1 mês**, incluindo arquivo original no storage, páginas, extrações e erros técnicos. As **ofertas extraídas** permanecem para análises futuras de preço e catálogo, preservando mercado, vigência, preço, texto extraído e metadados mínimos da origem. A limpeza nunca pode remover um flyer vigente, futuro, sem `validUntil` ou ainda em processamento.
+**Retenção de arquivos:** o flyer é evidência operacional temporária, não histórico permanente. A rotina automática remove flyers expirados há mais de **1 mês**, incluindo arquivo original no storage, páginas, extrações e erros técnicos. As **ofertas extraídas** permanecem para análises futuras de preço e catálogo, preservando mercado, vigência, preço, texto extraído e metadados mínimos da origem. A limpeza nunca pode remover um flyer vigente, futuro, sem `validUntil` ou ainda em processamento.
 
 **Falha operacional:** se download pelo worker ou análise falhar, o flyer é descartado integralmente — arquivo, páginas, extrações, erros e ofertas parciais. Retenção de ofertas aplica-se exclusivamente a flyers expirados com extração concluída.
+
+**Estado atual:** listagem, detalhe, reanálise, correção de validade, novo download, expiração manual, descarte integral, limpeza de evidências após 30 dias e painel de automação estão entregues. O cron também agenda discovery na expiração e na janela de 24h. Ainda faltam filtros/erros no admin, política para flyers sem validade, limpeza de duplicatas e testes de integração.
 
 ### 3. Normalização dos produtos
 

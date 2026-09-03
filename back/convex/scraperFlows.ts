@@ -1,5 +1,6 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 const flowStatus = v.union(
   v.literal("draft"),
@@ -193,6 +194,26 @@ export const listDue = query({
 
 const HOUR = 60 * 60 * 1000;
 const MAX_ATTEMPTS = 4;
+
+/** Arm active flows for a supermarket without replacing an earlier due check. */
+export async function armDiscoveryForSupermarket(
+  ctx: Pick<MutationCtx, "db">,
+  supermarketId: Id<"supermarkets">,
+  nextRunAt: number,
+) {
+  const flows = await ctx.db
+    .query("scraperFlows")
+    .withIndex("by_supermarket", (q) => q.eq("supermarketId", supermarketId))
+    .collect();
+  const now = Date.now();
+  for (const flow of flows) {
+    if (flow.status !== "active") continue;
+    await ctx.db.patch(flow._id, {
+      nextRunAt: Math.min(flow.nextRunAt ?? nextRunAt, nextRunAt),
+      updatedAt: now,
+    });
+  }
+}
 
 export const scheduleNextCheck = mutation({
   args: { flowId: v.id("scraperFlows") },

@@ -23,7 +23,6 @@ export async function runSchedulerTick() {
     name?: string;
   }>;
   flyerLog.info("SCHEDULER", `due flows=${due.length}`);
-  if (!due.length) return;
   const withNew: string[] = [];
   for (const flow of due) {
     try {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -11,19 +11,37 @@ import { ReanalyzeModal } from "@/components/admin/ReanalyzeModal";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import {
   checkWorkerHealth,
+  downloadFlyerRemote,
   reanalyzeRemote,
   startBrowserWorker,
 } from "@/lib/browser-session";
 import { formatCurrency, formatDateTime, formatInstallment } from "@/lib/format";
+
+function toLocalInput(ts?: number) {
+  if (!ts) return "";
+  const date = new Date(ts);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
 
 export default function FlyerDetailPage() {
   const params = useParams();
   const id = params.id as Id<"flyers">;
   const flyer = useQuery(api.flyers.get, { id });
   const discardFlyer = useMutation(api.flyers.discardFlyer);
+  const resetForDownload = useMutation(api.flyers.resetForDownload);
   const setStatus = useMutation(api.flyers.setStatus);
+  const setValidity = useMutation(api.flyers.setValidity);
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [validFrom, setValidFrom] = useState("");
+  const [validUntil, setValidUntil] = useState("");
+
+  useEffect(() => {
+    if (!flyer) return;
+    setValidFrom(toLocalInput(flyer.validFrom));
+    setValidUntil(toLocalInput(flyer.validUntil));
+  }, [flyer]);
 
   if (flyer === undefined) {
     return <p className="ds-meta">Carregando…</p>;
@@ -31,6 +49,7 @@ export default function FlyerDetailPage() {
   if (!flyer) {
     return <p className="text-sm text-[var(--ds-color-danger)]">Não encontrado</p>;
   }
+  const currentFlyer = flyer;
 
   async function reanalyze(args: {
     pages?: number[];
@@ -40,10 +59,10 @@ export default function FlyerDetailPage() {
     try {
       if (!(await checkWorkerHealth())) await startBrowserWorker();
       await reanalyzeRemote({
-        flyerId: flyer._id,
+        flyerId: currentFlyer._id,
         pages: args.pages,
         includeLocked: args.includeLocked,
-      });
+      }, () => {});
       setReanalyzeOpen(false);
     } finally {
       setBusy(false);
@@ -60,7 +79,39 @@ export default function FlyerDetailPage() {
     }
     setBusy(true);
     try {
-      await discardFlyer({ id: flyer._id });
+      await discardFlyer({ id: currentFlyer._id });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveValidity() {
+    const from = validFrom ? new Date(validFrom).getTime() : null;
+    const until = validUntil ? new Date(validUntil).getTime() : null;
+    if ((from !== null && Number.isNaN(from)) || (until !== null && Number.isNaN(until))) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await setValidity({ id: currentFlyer._id, validFrom: from, validUntil: until });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function redownload() {
+    if (
+      !window.confirm(
+        "Baixar novamente apagará as páginas, extrações e ofertas atuais deste encarte. Continuar?",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await resetForDownload({ id: currentFlyer._id });
+      if (!(await checkWorkerHealth())) await startBrowserWorker();
+      await downloadFlyerRemote(currentFlyer._id);
     } finally {
       setBusy(false);
     }
@@ -84,6 +135,14 @@ export default function FlyerDetailPage() {
         >
           {busy ? "Processando…" : "Reanalisar"}
         </button>
+        <button
+          type="button"
+          className="ds-btn ds-btn--outline"
+          disabled={busy || flyer.status === "downloading" || flyer.status === "processing"}
+          onClick={() => void redownload()}
+        >
+          Baixar novamente
+        </button>
         {flyer.status !== "expired" ? (
           <button
             type="button"
@@ -103,6 +162,45 @@ export default function FlyerDetailPage() {
           Excluir definitivamente
         </button>
       </div>
+
+      <section className="mb-6 rounded-[10px] border border-[var(--ds-color-border)] bg-[var(--ds-color-card)] p-4">
+        <h2 className="text-sm font-semibold">Vigência</h2>
+        <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
+          Sobrescreve a validade do encarte e das ofertas extraídas.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="mb-1 block text-xs text-[var(--ds-color-muted-foreground)]">
+              Início
+            </span>
+            <input
+              type="datetime-local"
+              value={validFrom}
+              onChange={(event) => setValidFrom(event.target.value)}
+              className="ds-search w-full"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs text-[var(--ds-color-muted-foreground)]">
+              Fim
+            </span>
+            <input
+              type="datetime-local"
+              value={validUntil}
+              onChange={(event) => setValidUntil(event.target.value)}
+              className="ds-search w-full"
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="ds-btn ds-btn--outline mt-3"
+          disabled={busy}
+          onClick={() => void saveValidity()}
+        >
+          Salvar vigência
+        </button>
+      </section>
 
       <dl className="mb-6 grid gap-2 text-sm sm:grid-cols-2">
         <div>

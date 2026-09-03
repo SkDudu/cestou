@@ -9,12 +9,14 @@ import { OpsStatusPill } from "@/components/admin/OpsStatusPill";
 import { ParseGauge } from "@/components/admin/ParseGauge";
 import {
   formatCompact,
+  formatDateTime,
   formatOpsStamp,
   formatPercent,
 } from "@/lib/format";
 
 export default function AdminOverviewPage() {
   const data = useQuery(api.dashboard.overview);
+  const automation = useQuery(api.dashboard.automation);
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -143,6 +145,56 @@ export default function AdminOverviewPage() {
               : `${formatCompact(data.skusWeek)} nesta semana`}
           </p>
         </article>
+      </section>
+
+      <section className="mb-4 overflow-hidden rounded-[14px] border border-[var(--ds-color-border)] bg-[var(--ds-color-card)]">
+        <div className="flex items-center justify-between px-[18px] py-3.5">
+          <div>
+            <h2 className="text-[15px] font-semibold">Automação de encartes</h2>
+            <p className="text-xs text-[var(--ds-color-muted-foreground)]">
+              {automation
+                ? `${automation.flowsActive} ativos · ${automation.flowsError} com erro · ${automation.pendingDownload} aguardando download`
+                : "Carregando automação…"}
+            </p>
+          </div>
+          <Link href="/admin/scraper" className="ds-btn ds-btn--outline">
+            Ver flows
+          </Link>
+        </div>
+        {automation?.flows.length ? (
+          <div>
+            <div className="flex h-8 items-center border-y border-[var(--ds-color-border)] px-[18px]">
+              <span className="ds-label-caps min-w-0 flex-[1.5]">Supermercado</span>
+              <span className="ds-label-caps w-[170px] shrink-0">Última execução</span>
+              <span className="ds-label-caps w-[170px] shrink-0">Próximo discovery</span>
+              <span className="ds-label-caps min-w-0 flex-1">Erro</span>
+            </div>
+            {automation.flows.slice(0, 6).map((flow) => (
+              <Link
+                key={flow._id}
+                href={`/admin/scraper/${flow._id}`}
+                className="flex min-h-12 items-center border-b border-[var(--ds-color-border)] px-[18px] text-[13px] last:border-b-0"
+              >
+                <span className="min-w-0 flex-[1.5] truncate">
+                  {flow.supermarketName}
+                </span>
+                <span className="w-[170px] shrink-0 text-[var(--ds-color-muted-foreground)]">
+                  {formatDateTime(flow.lastRunAt)}
+                </span>
+                <span className="w-[170px] shrink-0 text-[var(--ds-color-muted-foreground)]">
+                  {formatDateTime(flow.nextRunAt)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[var(--ds-color-danger)]">
+                  {flow.lastError ?? (flow.status === "error" ? "Flow com erro" : "—")}
+                </span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="px-[18px] py-6 text-sm text-[var(--ds-color-muted-foreground)]">
+            Nenhum flow configurado.
+          </p>
+        )}
       </section>
 
       <section className="flex gap-4 pb-4">
