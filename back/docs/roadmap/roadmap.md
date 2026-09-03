@@ -213,6 +213,8 @@ Sinais comportamentais (sem IA no início):
 
 ### Fase 1 — Backend confiável
 
+→ Detalhes: [`roadmap/fase-1-backend.md`](./fase-1-backend.md)
+
 - [x] Discovery  
 - [x] Download  
 - [x] Worker / Flow Builder  
@@ -230,6 +232,8 @@ Sinais comportamentais (sem IA no início):
 
 
 ### Fase 2 — Dados
+
+→ Detalhes: [`roadmap/fase-2-dados.md`](./fase-2-dados.md)
 
 - [ ] Normalização de produtos  
 - [ ] Marcas  
@@ -282,8 +286,10 @@ Sinais comportamentais (sem IA no início):
 
 ## Próximo foco sugerido
 
-1. Fechar **gestão e ciclo automático de flyers** (ops + scheduler + hash + expiração + dedupe + retenção mensal).
-2. Começar **normalização / produto canônico**.
+1. ~~Fechar gestão e ciclo automático de flyers~~ — ver [`fase-1-backend.md`](./fase-1-backend.md).
+2. Começar **Fase 2 — Dados**: normalização + marcas → produto canônico — ver [`fase-2-dados.md`](./fase-2-dados.md).
 3. Completar **membership / clube** na oferta antes de empurrar o cliente.
 4. Só então aprofundar o app cliente (listas + proximidade).
+
+Documentação por fase: [`roadmap/README.md`](./README.md).
 
