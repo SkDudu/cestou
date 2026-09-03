@@ -206,6 +206,15 @@ export async function insertOffers(args: {
   });
 }
 
+/** Fase 2: normalizar ofertas + resolver produtos canônicos após extração */
+export async function normalizeFlyer(flyerId: string) {
+  try {
+    await getClient().mutation(api.normalization.processFlyer, { flyerId });
+  } catch (err) {
+    flyerLog.error("NORMALIZE", `falha ao normalizar ${flyerId}: ${String(err)}`);
+  }
+}
+
 export async function insertFlyerError(args: {
   flyerId?: string;
   supermarketId: string;

@@ -16,6 +16,7 @@ import {
   listForExtract,
   listPendingExtract,
   markExpired,
+  normalizeFlyer,
   patchFlyerValidity,
   setFlyerStatus,
 } from "../core/flyer-storage.js";
@@ -439,6 +440,7 @@ export async function extractPending(opts?: {
         skippedCount > 0 ? "partially_processed" : "processed";
       await setFlyerStatus(flyer._id, nextStatus);
       if (offers.length) {
+        await normalizeFlyer(flyer._id);
         say(
           "EXTRACT",
           `${progress} ofertas salvas: ${offers.length}`,

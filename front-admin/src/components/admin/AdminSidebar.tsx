@@ -15,6 +15,10 @@ const operacao = [
 const catalogo = [
   { href: "/admin/flyers", label: "Encartes", icon: "flyers" },
   { href: "/admin/offers", label: "Ofertas", icon: "offers" },
+  { href: "/admin/products", label: "Produtos", icon: "products" },
+  { href: "/admin/brands", label: "Marcas", icon: "brands" },
+  { href: "/admin/prices", label: "Preços", icon: "prices" },
+  { href: "/admin/catalog/health", label: "Saúde", icon: "health" },
   { href: "/admin/supermarkets", label: "Lojas", icon: "stores" },
 ] as const;
 
@@ -68,6 +72,37 @@ function NavIcon({ name }: { name: string }) {
       <svg {...common}>
         <path d="M3 8.5l5-5 5 5-5 5-5-5z" />
         <circle cx="8" cy="8.5" r="1" />
+      </svg>
+    );
+  }
+  if (name === "products") {
+    return (
+      <svg {...common}>
+        <rect x="3" y="3" width="10" height="10" rx="1" />
+        <path d="M3 7h10M7 3v10" />
+      </svg>
+    );
+  }
+  if (name === "brands") {
+    return (
+      <svg {...common}>
+        <path d="M4 12.5V4.5h5.5L11 6v6.5H4z" />
+        <path d="M6 8h3M6 10h2" />
+      </svg>
+    );
+  }
+  if (name === "prices") {
+    return (
+      <svg {...common}>
+        <path d="M3 11.5L6.5 4.5h3L13 11.5" />
+        <path d="M5.5 9h5" />
+      </svg>
+    );
+  }
+  if (name === "health") {
+    return (
+      <svg {...common}>
+        <path d="M2.5 8.5h3l1.5-3.5 2 7 1.5-3.5h3" />
       </svg>
     );
   }

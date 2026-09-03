@@ -296,6 +296,46 @@ export const overview = query({
     });
     workerRows.sort((a, b) => b.jobs24h - a.jobs24h);
 
+    // Heatmap: runs por dia no último ano (calendário estilo contribuição)
+    const heatmapRangeStart = (() => {
+      const d = new Date(now);
+      d.setHours(0, 0, 0, 0);
+      d.setMonth(d.getMonth() - 11, 1);
+      return d.getTime();
+    })();
+    const flowSlug = new Map(
+      flows.map((f) => [f._id, workerSlug(f.name)] as const),
+    );
+    type DayAgg = {
+      date: number;
+      count: number;
+      running: number;
+      workers: Set<string>;
+    };
+    const byDay = new Map<string, DayAgg>();
+    for (const run of runs) {
+      if (run.startedAt < heatmapRangeStart) continue;
+      const start = dayStart(run.startedAt);
+      const key = String(start);
+      let agg = byDay.get(key);
+      if (!agg) {
+        agg = { date: start, count: 0, running: 0, workers: new Set() };
+        byDay.set(key, agg);
+      }
+      agg.count += 1;
+      if (run.status === "running") agg.running += 1;
+      const slug = flowSlug.get(run.flowId);
+      if (slug) agg.workers.add(slug);
+    }
+    const heatmapDays = [...byDay.values()]
+      .sort((a, b) => a.date - b.date)
+      .map((d) => ({
+        date: d.date,
+        count: d.count,
+        running: d.running,
+        workers: [...d.workers].sort(),
+      }));
+
     return {
       workersActive: flowsActive,
       workersDelta,
@@ -309,6 +349,15 @@ export const overview = query({
       extractionErrors: errors.length,
       chart,
       workers: workerRows,
+      heatmap: {
+        rangeStart: heatmapRangeStart,
+        days: heatmapDays,
+        totals: {
+          runs: heatmapDays.reduce((n, d) => n + d.count, 0),
+          daysActive: heatmapDays.filter((d) => d.count > 0).length,
+          runningNow: extractingNow,
+        },
+      },
     };
   },
 });

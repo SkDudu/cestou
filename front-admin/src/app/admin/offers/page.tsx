@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { usePaginatedQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs } from "@/components/admin/ops";
+import { OffersSkuChart } from "@/components/admin/OffersSkuChart";
 import {
   formatCompact,
   formatCurrency,
@@ -18,6 +19,7 @@ export default function OffersPage() {
   const [elig, setElig] = useState("all");
   const [q, setQ] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const skuTimeseries = useQuery(api.offers.skuTimeseries, { days: 30 });
   const { results, status, loadMore } = usePaginatedQuery(
     api.offers.list,
     {},
@@ -92,6 +94,10 @@ export default function OffersPage() {
         />
       </section>
 
+      <section className="pb-4">
+        <OffersSkuChart data={skuTimeseries} />
+      </section>
+
       <OpsTabs
         value={tab}
         onChange={setTab}
@@ -130,11 +136,12 @@ export default function OffersPage() {
         </div>
         <div className="ds-table-cols">
           <span className="ds-label-caps min-w-0 flex-[2]">Produto</span>
-          <span className="ds-label-caps w-[160px] shrink-0">Loja</span>
+          <span className="ds-label-caps w-[140px] shrink-0">Loja</span>
           <span className="ds-label-caps w-[88px] shrink-0">Preço</span>
           <span className="ds-label-caps w-[88px] shrink-0">Antes</span>
-          <span className="ds-label-caps w-[88px] shrink-0">Δ</span>
-          <span className="ds-label-caps w-[120px] shrink-0">Condição</span>
+          <span className="ds-label-caps w-[72px] shrink-0">Δ</span>
+          <span className="ds-label-caps w-[100px] shrink-0">Condição</span>
+          <span className="ds-label-caps w-[72px] shrink-0">Match</span>
         </div>
         {rows.map((o) => {
           const drop =
@@ -144,7 +151,7 @@ export default function OffersPage() {
           return (
             <Link key={o._id} href={`/admin/offers/${o._id}`} className="ds-table-row">
               <span className="min-w-0 flex-[2] truncate font-medium">{o.name}</span>
-              <span className="w-[160px] shrink-0 truncate">{o.supermarketName}</span>
+              <span className="w-[140px] shrink-0 truncate">{o.supermarketName}</span>
               <span className="w-[88px] shrink-0 font-mono">
                 {formatCurrency(o.price)}
                 {formatInstallment(o) ? (
@@ -156,7 +163,7 @@ export default function OffersPage() {
               <span className="w-[88px] shrink-0 font-mono text-[var(--ds-color-muted-foreground)]">
                 {o.originalPrice != null ? formatCurrency(o.originalPrice) : "—"}
               </span>
-              <span className="w-[88px] shrink-0">
+              <span className="w-[72px] shrink-0">
                 {o.validationStatus === "rejected" ? (
                   <span className="ds-pill ds-pill--fail">Expirada</span>
                 ) : drop == null ? (
@@ -165,7 +172,7 @@ export default function OffersPage() {
                   <span className="ds-pill ds-pill--queue">{formatPercent(drop)}</span>
                 )}
               </span>
-              <span className="w-[120px] shrink-0">
+              <span className="w-[100px] shrink-0">
                 <span
                   title={o.condition?.text}
                   className={
@@ -179,6 +186,31 @@ export default function OffersPage() {
                 >
                   {o.condition?.text ?? "Todos"}
                 </span>
+              </span>
+              <span className="w-[72px] shrink-0">
+                {o.canonicalProductId ? (
+                  <span
+                    role="link"
+                    tabIndex={0}
+                    className="ds-pill ds-pill--review hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      window.location.href = `/admin/products/${o.canonicalProductId}`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.location.href = `/admin/products/${o.canonicalProductId}`;
+                      }
+                    }}
+                  >
+                    hub
+                  </span>
+                ) : (
+                  <span className="ds-pill ds-pill--fail">—</span>
+                )}
               </span>
             </Link>
           );

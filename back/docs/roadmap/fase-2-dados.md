@@ -2,9 +2,10 @@
 
 **Projeto:** Cestou  
 **Frente:** Normalização, catálogo e preços comparáveis  
-**Status:** Planejamento  
+**Status:** Finalizada (backend validado)  
 **Última atualização:** 2026-09-03  
-**Dependências:** Fase 1 concluída (pipeline flyer → ofertas no Convex)
+**Dependências:** Fase 1 concluída (pipeline flyer → ofertas no Convex)  
+**Próxima frente:** [`fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md) — UI de catálogo / comparação / histórico no admin.
 
 Documento detalhado da Fase 2. Checklist resumido: [`roadmap.md`](./roadmap.md#fase-2--dados).
 
@@ -44,26 +45,29 @@ Exemplo alvo:
 | Peça | Status | Onde |
 |------|--------|------|
 | Ofertas extraídas | ✅ | `offers` — nome, marca, qtd, unidade, preço, elegibilidade |
-| Normalização na extração | ⚠️ parcial | `back/scraper/src/flyers/extraction/text-normalizer.ts`, `offer-guards.ts` |
-| Condição de preço (clube, cartão…) | ⚠️ parcial | `eligibility` + revisão humana no admin |
-| Comparação no cliente | ⚠️ provisório | `clientOffers.searchOffers` — agrupa por string normalizada |
-| Marcas / produto canônico / histórico | ❌ | Sem tabelas dedicadas no schema |
-| SPECs legadas (adaptar) | 📄 | `back/docs/enriquecimento-brand.md`, `back/docs/determinisc-data-validation.md` |
+| Normalização pós-extração | ✅ | `normalization.processFlyer` → campos normalizados + `brandId` |
+| Marcas | ✅ | `brands` + `ensureBrand` |
+| Produto canônico + matching | ✅ | `canonicalProducts` + `matchKey` |
+| Histórico de preços | ✅ | `priceHistory` (append-only por oferta) |
+| Membership / clube | ✅ | `publicPrice`, `memberPrice`, `requiresMembership`, `membershipName` |
+| Validação automática | ✅ | `autoValidation` (validated / suspicious / rejected) |
+| Admin catálogo / preços | ❌ → Fase 2.1 | [`fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md) |
+| Comparação no cliente | ⚠️ provisório | `clientOffers.searchOffers` — ainda por string; migrar para `canonicalProductId` |
 
-O app cliente já “compara”, mas por **texto normalizado**, não por produto canônico. Serve para demo; não escala.
+Backend da Fase 2 validado em produção local (extração → normalização → marcas → canônicos → histórico).
 
 ---
 
 ## Checklist da fase
 
-- [ ] Normalização de produtos  
-- [ ] Marcas  
-- [ ] Produtos canônicos  
-- [ ] Matching entre supermercados  
-- [ ] Preços  
-- [ ] Histórico de preços  
-- [ ] Programa de fidelidade / cartão  
-- [ ] Validação (ops + regras de qualidade)  
+- [x] Normalização de produtos  
+- [x] Marcas  
+- [x] Produtos canônicos  
+- [x] Matching entre supermercados  
+- [x] Preços  
+- [x] Histórico de preços  
+- [x] Programa de fidelidade / cartão  
+- [x] Validação (ops + regras de qualidade)  
 
 ---
 
@@ -224,9 +228,16 @@ front-client/convex/clientOffers.ts  # comparar por canonicalProductId
 
 ---
 
+## Admin — catálogo e preços
+
+Escopo movido para **Fase 2.1**: [`fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md).
+
+---
+
 ## Referências
 
 - [`roadmap.md`](./roadmap.md) — visão geral e checklist  
+- [`fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md) — UI admin catálogo / preços  
 - [`../enriquecimento-brand.md`](../enriquecimento-brand.md) — SPEC 007 marcas  
 - [`../determinisc-data-validation.md`](../determinisc-data-validation.md) — SPEC 006 validação  
 - [`../flyer-first-offers-pipeline.md`](../flyer-first-offers-pipeline.md) — pipeline de ofertas  

@@ -201,6 +201,18 @@ export default defineSchema({
     eligibilityConfidence: v.optional(v.number()),
     eligibilityEvidence: v.optional(eligibilityEvidence),
     eligibilityStatus: v.optional(eligibilityStatus),
+    /** Fase 2: normalização + catálogo */
+    normalizedName: v.optional(v.string()),
+    normalizedBrand: v.optional(v.string()),
+    quantityValue: v.optional(v.number()),
+    unitNormalized: v.optional(v.string()),
+    brandId: v.optional(v.id("brands")),
+    canonicalProductId: v.optional(v.id("canonicalProducts")),
+    /** Membership / clube explícito */
+    publicPrice: v.optional(v.number()),
+    memberPrice: v.optional(v.number()),
+    requiresMembership: v.optional(v.boolean()),
+    membershipName: v.optional(v.string()),
     sourceType: v.literal("flyer"),
     /** Immutable source snapshot retained after the flyer evidence is purged. */
     sourceFlyerTitle: v.optional(v.string()),
@@ -219,7 +231,10 @@ export default defineSchema({
     .index("by_confidence", ["extractionConfidence"])
     .index("by_supermarket_status", ["supermarketId", "validationStatus"])
     .index("by_eligibility", ["eligibility"])
-    .index("by_eligibilityStatus", ["eligibilityStatus"]),
+    .index("by_eligibilityStatus", ["eligibilityStatus"])
+    .index("by_canonical", ["canonicalProductId"])
+    .index("by_brand", ["brandId"])
+    .index("by_normalizedName", ["normalizedName"]),
 
   // ponytail: admin has no operator userId yet
   offerEligibilityHistory: defineTable({
@@ -377,6 +392,50 @@ export default defineSchema({
     label: v.string(),
     payload: v.optional(v.string()),
   }).index("by_flow_order", ["flowId", "order"]),
+
+  // --- Fase 2: Catálogo normalizado ---
+
+  brands: defineTable({
+    name: v.string(),
+    slug: v.string(),
+    aliases: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_name", ["name"]),
+
+  canonicalProducts: defineTable({
+    canonicalName: v.string(),
+    slug: v.string(),
+    brandId: v.optional(v.id("brands")),
+    quantity: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    category: v.optional(v.string()),
+    matchKey: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_matchKey", ["matchKey"])
+    .index("by_brand", ["brandId"]),
+
+  priceHistory: defineTable({
+    canonicalProductId: v.id("canonicalProducts"),
+    supermarketId: v.id("supermarkets"),
+    offerId: v.id("offers"),
+    price: v.number(),
+    originalPrice: v.optional(v.number()),
+    memberPrice: v.optional(v.number()),
+    requiresMembership: v.optional(v.boolean()),
+    membershipName: v.optional(v.string()),
+    validFrom: v.optional(v.number()),
+    validUntil: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_canonical_supermarket", ["canonicalProductId", "supermarketId"])
+    .index("by_canonical", ["canonicalProductId"])
+    .index("by_offer", ["offerId"]),
 
   // --- App cliente (docs/cliente-mvp.md) ---
   // ponytail: sessionToken = auth anônimo; email/senha depois

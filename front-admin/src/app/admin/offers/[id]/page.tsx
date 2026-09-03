@@ -137,6 +137,36 @@ export default function OfferDetailPage() {
               : "—"}
           </dd>
         </div>
+        <div>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Canônico</dt>
+          <dd>
+            {offer.canonicalProductId ? (
+              <Link
+                href={`/admin/products/${offer.canonicalProductId}`}
+                className="hover:underline"
+              >
+                Abrir hub do produto
+              </Link>
+            ) : (
+              "—"
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[var(--ds-color-muted-foreground)]">Marca (id)</dt>
+          <dd>
+            {offer.brandId ? (
+              <Link
+                href={`/admin/brands`}
+                className="hover:underline"
+              >
+                {offer.normalizedBrand ?? offer.brand ?? offer.brandId}
+              </Link>
+            ) : (
+              offer.brand ?? "—"
+            )}
+          </dd>
+        </div>
       </dl>
 
       <section className="ds-card mb-6 space-y-4 p-4">

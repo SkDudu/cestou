@@ -142,7 +142,8 @@ ignora    salva
 
 ### 3. Normalização dos produtos
 
-Próxima feature crítica de dados.
+**Estado:** backend da Fase 2 entregue e validado (normalização, marcas, canônicos, matching, `priceHistory`, clube, validação automática).  
+**Próximo:** UI no admin — [`fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md).
 
 Extração A: `Arroz Camil Tipo 1 5kg` · Camil · 5kg · R$ 24,99  
 Extração B: `ARROZ TIPO 1 CAMIL 5KG` · CAMIL · 5 KG · 24,99  
@@ -233,16 +234,32 @@ Sinais comportamentais (sem IA no início):
 
 ### Fase 2 — Dados
 
-→ Detalhes: [`roadmap/fase-2-dados.md`](./fase-2-dados.md)
+→ Detalhes: [`roadmap/fase-2-dados.md`](./fase-2-dados.md)  
+**Status:** finalizada (backend + pipeline pós-extração testados).
 
-- [ ] Normalização de produtos  
-- [ ] Marcas  
-- [ ] Produtos canônicos  
-- [ ] Matching entre supermercados  
-- [ ] Preços  
-- [ ] Histórico de preços  
-- [ ] Programa de fidelidade / cartão  
-- [ ] Validação (ops + regras de qualidade)  
+- [x] Normalização de produtos  
+- [x] Marcas  
+- [x] Produtos canônicos  
+- [x] Matching entre supermercados  
+- [x] Preços  
+- [x] Histórico de preços  
+- [x] Programa de fidelidade / cartão  
+- [x] Validação (ops + regras de qualidade)  
+
+
+
+### Fase 2.1 — Admin: catálogo e preços
+
+→ Detalhes: [`roadmap/fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md)  
+**Status:** entregue (MVP UI + `catalog.*`). Análises 7/30/90 + cesta ficam para segunda leva.
+
+- [x] Hub do produto canônico (preço vigente por mercado + histórico)  
+- [x] Lista de produtos canônicos  
+- [x] CRUD / merge de marcas  
+- [x] Comparador de preços entre supermercados  
+- [x] Saúde do catálogo (KPIs + filas)  
+- [x] Queries Convex de agregação (`catalog.*`)  
+- [x] Links oferta ↔ canônico no fluxo de Ofertas  
 
 
 
@@ -287,9 +304,9 @@ Sinais comportamentais (sem IA no início):
 ## Próximo foco sugerido
 
 1. ~~Fechar gestão e ciclo automático de flyers~~ — ver [`fase-1-backend.md`](./fase-1-backend.md).
-2. Começar **Fase 2 — Dados**: normalização + marcas → produto canônico — ver [`fase-2-dados.md`](./fase-2-dados.md).
-3. Completar **membership / clube** na oferta antes de empurrar o cliente.
-4. Só então aprofundar o app cliente (listas + proximidade).
+2. ~~**Fase 2 — Dados** (backend)~~ — ver [`fase-2-dados.md`](./fase-2-dados.md).
+3. ~~**Fase 2.1 — Admin catálogo / preços**~~ — ver [`fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md).
+4. Aprofundar o app cliente (listas + proximidade) — Fase 3.
 
 Documentação por fase: [`roadmap/README.md`](./README.md).
 

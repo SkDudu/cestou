@@ -457,3 +457,79 @@ export const get = query({
     };
   },
 });
+
+const SERIES_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-line-primary)",
+];
+
+function dayStartMs(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Ofertas criadas por dia · uma série por supermercado. */
+export const skuTimeseries = query({
+  args: { days: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const days = Math.min(Math.max(args.days ?? 30, 7), 90);
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const start = dayStartMs(now - (days - 1) * DAY);
+
+    const [offers, markets] = await Promise.all([
+      ctx.db.query("offers").collect(),
+      ctx.db.query("supermarkets").collect(),
+    ]);
+    const names = new Map(markets.map((m) => [String(m._id), m.name]));
+
+    const totals = new Map<string, number>();
+    const buckets: Array<Record<string, number>> = Array.from(
+      { length: days },
+      (_, i) => ({ date: start + i * DAY }),
+    );
+
+    for (const offer of offers) {
+      if (offer.createdAt < start) continue;
+      const idx = Math.floor((offer.createdAt - start) / DAY);
+      if (idx < 0 || idx >= days) continue;
+      const key = String(offer.supermarketId);
+      buckets[idx]![key] = (buckets[idx]![key] ?? 0) + 1;
+      totals.set(key, (totals.get(key) ?? 0) + 1);
+    }
+
+    const ranked = [...totals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, SERIES_COLORS.length);
+
+    const series = ranked.map(([key], i) => ({
+      key,
+      name: names.get(key) ?? "—",
+      color: SERIES_COLORS[i % SERIES_COLORS.length]!,
+      total: totals.get(key) ?? 0,
+    }));
+
+    const points = buckets.map((b) => {
+      const row: Record<string, number> = { date: b.date as number };
+      for (const m of series) row[m.key] = (b[m.key] as number | undefined) ?? 0;
+      return row;
+    });
+
+    const totalSkus = series.reduce((n, m) => n + m.total, 0);
+
+    return {
+      days,
+      markets: series,
+      points,
+      totals: {
+        skus: totalSkus,
+        markets: series.length,
+      },
+    };
+  },
+});

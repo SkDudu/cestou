@@ -15,6 +15,7 @@ import {
   matchWorkerFilter,
 } from "@/components/admin/WorkerFilterModal";
 import { WorkerSetupModal } from "@/components/admin/WorkerSetupModal";
+import { WorkerHeatmapChart } from "@/components/admin/WorkerHeatmapChart";
 import { checkWorkerHealth } from "@/lib/browser-session";
 import { formatOpsStamp, formatPercent } from "@/lib/format";
 
@@ -174,6 +175,10 @@ function WorkersPage() {
           }
           foot={failHint ? failHint.supermarketName : "Nenhuma falha na frota"}
         />
+      </section>
+
+      <section className="pb-4">
+        <WorkerHeatmapChart data={overview.heatmap} />
       </section>
 
       <OpsTabs

@@ -8,6 +8,9 @@
  * @module
  */
 
+import type * as autoValidation from "../autoValidation.js";
+import type * as brands from "../brands.js";
+import type * as catalog from "../catalog.js";
 import type * as clearData from "../clearData.js";
 import type * as clientAuth from "../clientAuth.js";
 import type * as clientLib from "../clientLib.js";
@@ -23,6 +26,7 @@ import type * as flyerPages from "../flyerPages.js";
 import type * as flyerSources from "../flyerSources.js";
 import type * as flyers from "../flyers.js";
 import type * as flyersInternal from "../flyersInternal.js";
+import type * as normalization from "../normalization.js";
 import type * as offerEligibility from "../offerEligibility.js";
 import type * as offers from "../offers.js";
 import type * as scraperFlows from "../scraperFlows.js";
@@ -39,6 +43,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  autoValidation: typeof autoValidation;
+  brands: typeof brands;
+  catalog: typeof catalog;
   clearData: typeof clearData;
   clientAuth: typeof clientAuth;
   clientLib: typeof clientLib;
@@ -54,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   flyerSources: typeof flyerSources;
   flyers: typeof flyers;
   flyersInternal: typeof flyersInternal;
+  normalization: typeof normalization;
   offerEligibility: typeof offerEligibility;
   offers: typeof offers;
   scraperFlows: typeof scraperFlows;
