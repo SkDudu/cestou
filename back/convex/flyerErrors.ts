@@ -78,3 +78,14 @@ export const get = query({
     return { ...err, supermarket, flyer };
   },
 });
+
+export const listByFlyer = query({
+  args: { flyerId: v.id("flyers") },
+  handler: async (ctx, args) => {
+    const errors = await ctx.db
+      .query("flyerErrors")
+      .withIndex("by_flyer", (q) => q.eq("flyerId", args.flyerId))
+      .collect();
+    return [...errors].sort((a, b) => b.createdAt - a.createdAt);
+  },
+});

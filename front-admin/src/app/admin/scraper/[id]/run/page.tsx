@@ -86,7 +86,7 @@ function WorkerRunInner() {
     : last
       ? jobLabel(last._id)
       : run.running
-        ? jobLabel(last?._id ?? "live")
+        ? jobLabel("live")
         : "job_live";
   const phase = fromDb && hist
     ? phaseFromHist(hist)

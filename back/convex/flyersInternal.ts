@@ -1,6 +1,10 @@
 import { internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { FLYER_RETENTION_MS, purgeFlyerEvidence } from "./flyers";
+import {
+  FLYER_RETENTION_MS,
+  purgeFlyerEvidence,
+  wipeFlyer,
+} from "./flyers";
 import { armDiscoveryForSupermarket } from "./scraperFlows";
 
 const DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -70,6 +74,15 @@ export const checkFlyerLifecycle = internalMutation({
       const result = await purgeFlyerEvidence(ctx, flyer, true);
       offersPreserved += result.offers;
     }
-    return { expired, flyersPurged: stale.length, offersPreserved };
+
+    const duplicates = flyers.filter((f) => f.status === "duplicate");
+    for (const flyer of duplicates) await wipeFlyer(ctx, flyer._id);
+
+    return {
+      expired,
+      flyersPurged: stale.length,
+      duplicatesPurged: duplicates.length,
+      offersPreserved,
+    };
   },
 });

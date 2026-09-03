@@ -64,12 +64,12 @@ export function StoreCreateModal({
 
   const name = rede.trim();
   const site = normalizeSite(websiteUrl);
-  const canSubmit = Boolean(name) && Boolean(site);
+  const canSubmit = Boolean(name);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canSubmit) {
-      setError("Preencha rede e site.");
+      setError("Preencha o nome da rede.");
       return;
     }
     setError(null);
@@ -80,7 +80,7 @@ export function StoreCreateModal({
         city: "Fortaleza",
         state: "CE",
         country: "BR",
-        websiteUrl: site,
+        websiteUrl: site || undefined,
         active: true,
         timezone: "America/Fortaleza",
         networkType: networkType || undefined,
@@ -116,7 +116,7 @@ export function StoreCreateModal({
               Novo supermercado
             </h2>
             <p className="text-[13px] leading-[18px] text-[var(--ds-color-muted-foreground)]">
-              Nome + URL do site de encartes.
+              Cadastre a rede; o site de encartes pode ser informado depois.
             </p>
           </div>
           <button
@@ -151,7 +151,7 @@ export function StoreCreateModal({
 
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium leading-[18px]">
-            Site dos encartes
+            Site dos encartes (opcional)
           </span>
           <input
             type="text"
@@ -160,7 +160,6 @@ export function StoreCreateModal({
             onChange={(e) => setWebsiteUrl(e.target.value)}
             placeholder="https://loja.com/encartes"
             className="ds-input font-mono text-xs"
-            required
           />
         </label>
 

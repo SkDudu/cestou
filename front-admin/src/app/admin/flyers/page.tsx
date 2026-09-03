@@ -19,9 +19,18 @@ const DAY = 24 * 60 * 60 * 1000;
 
 export default function FlyersPage() {
   const flyers = useQuery(api.flyers.list, {});
+  const supermarkets = useQuery(api.supermarkets.listNames);
+  const sources = useQuery(api.flyerSources.list);
   const purgeExpiredEvidence = useMutation(api.flyers.purgeExpiredEvidence);
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
+  const [supermarketId, setSupermarketId] = useState("");
+  const [sourceId, setSourceId] = useState("");
+  const [status, setStatus] = useState("");
+  const [from, setFrom] = useState("");
+  const [until, setUntil] = useState("");
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  const [missingValidityOnly, setMissingValidityOnly] = useState(false);
   const [purging, setPurging] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const now = Date.now();
@@ -49,13 +58,27 @@ export default function FlyersPage() {
       if (tab === "vigente" && !vigente.includes(f)) return false;
       if (tab === "expiring" && !expiring.includes(f)) return false;
       if (tab === "noparse" && !noParse.includes(f)) return false;
+      if (supermarketId && f.supermarketId !== supermarketId) return false;
+      if (sourceId && f.sourceId !== sourceId) return false;
+      if (status && f.status !== status) return false;
+      if (duplicatesOnly && f.status !== "duplicate") return false;
+      if (missingValidityOnly && f.validUntil !== undefined) return false;
+      if (from && (f.validFrom === undefined || f.validFrom < new Date(from).getTime())) {
+        return false;
+      }
+      if (until && (f.validUntil === undefined || f.validUntil > new Date(until).getTime())) {
+        return false;
+      }
       if (!needle) return true;
       return (
         (f.title ?? "").toLowerCase().includes(needle) ||
         f.supermarketName.toLowerCase().includes(needle)
       );
     });
-  }, [rowsAll, tab, q, vigente, expiring, noParse]);
+  }, [
+    rowsAll, tab, q, vigente, expiring, noParse, supermarketId, sourceId,
+    status, duplicatesOnly, missingValidityOnly, from, until,
+  ]);
 
   if (flyers === undefined) return <p className="ds-meta">Carregando…</p>;
 
@@ -148,6 +171,35 @@ export default function FlyersPage() {
           { id: "noparse", label: "Sem parse", count: noParse.length, warn: true },
         ]}
       />
+
+      <section className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <select className="ds-search" value={supermarketId} onChange={(e) => setSupermarketId(e.target.value)}>
+          <option value="">Todos os supermercados</option>
+          {supermarkets?.map((market) => <option key={market._id} value={market._id}>{market.name}</option>)}
+        </select>
+        <select className="ds-search" value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+          <option value="">Todas as fontes</option>
+          {sources?.map((source) => <option key={source._id} value={source._id}>{source.name ?? source.type}</option>)}
+        </select>
+        <select className="ds-search" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">Todos os status</option>
+          {["discovered", "downloaded", "processing", "processed", "expired", "duplicate", "failed"].map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={duplicatesOnly} onChange={(e) => setDuplicatesOnly(e.target.checked)} />
+          Apenas duplicados
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={missingValidityOnly} onChange={(e) => setMissingValidityOnly(e.target.checked)} />
+          Sem validade
+        </label>
+        <label className="text-xs text-[var(--ds-color-muted-foreground)]">Vigência a partir de
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ds-search mt-1 w-full" />
+        </label>
+        <label className="text-xs text-[var(--ds-color-muted-foreground)]">Vigência até
+          <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="ds-search mt-1 w-full" />
+        </label>
+      </section>
 
       <section className="ds-table-card">
         <div className="ds-table-head">

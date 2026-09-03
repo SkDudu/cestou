@@ -328,11 +328,16 @@ export function TeachPanel({ flowId, startUrl, onSaved }: Props) {
                 <span className="w-6 text-[var(--ds-color-muted-foreground)]">{s.order + 1}.</span>
                 <span className="font-mono text-xs text-sky-300">{s.type}</span>
                 <span className="truncate text-xs text-[var(--ds-color-muted-foreground)]">
-                  {s.config.selector ||
-                    (s.config.selectors as string[] | undefined)?.[0] ||
-                    (s.config.url as string | undefined) ||
-                    (s.config.description as string | undefined) ||
-                    ""}
+                  {typeof s.config.selector === "string"
+                    ? s.config.selector
+                    : Array.isArray(s.config.selectors) &&
+                        typeof s.config.selectors[0] === "string"
+                      ? s.config.selectors[0]
+                      : typeof s.config.url === "string"
+                        ? s.config.url
+                        : typeof s.config.description === "string"
+                          ? s.config.description
+                          : ""}
                 </span>
               </li>
             ))}

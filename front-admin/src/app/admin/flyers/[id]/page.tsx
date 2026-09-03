@@ -28,6 +28,7 @@ export default function FlyerDetailPage() {
   const params = useParams();
   const id = params.id as Id<"flyers">;
   const flyer = useQuery(api.flyers.get, { id });
+  const errors = useQuery(api.flyerErrors.listByFlyer, { flyerId: id });
   const discardFlyer = useMutation(api.flyers.discardFlyer);
   const resetForDownload = useMutation(api.flyers.resetForDownload);
   const setStatus = useMutation(api.flyers.setStatus);
@@ -237,6 +238,27 @@ export default function FlyerDetailPage() {
           </div>
         ) : null}
       </dl>
+
+      {errors?.length ? (
+        <section className="mb-6 rounded-[10px] border border-[var(--ds-color-danger)]/40 p-4">
+          <h2 className="text-sm font-semibold text-[var(--ds-color-danger)]">
+            Erros do encarte
+          </h2>
+          <ul className="mt-2 space-y-2 text-sm">
+            {errors.map((error) => (
+              <li key={error._id}>
+                <span className="font-mono text-xs">{error.stage}</span>
+                {" · "}
+                {error.message}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-[var(--ds-color-muted-foreground)]">
+            Reanalise para tentar novamente ou exclua definitivamente para descartar
+            o encarte e todos os dados vinculados.
+          </p>
+        </section>
+      ) : null}
 
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ds-color-muted-foreground)]">
         Páginas

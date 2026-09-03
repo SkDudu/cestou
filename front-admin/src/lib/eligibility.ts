@@ -19,7 +19,7 @@ export type ConditionDraft = {
 };
 
 // ponytail: same rank as scraper eligibility.ts
-const RANK: EligibilityId[] = [
+const RANK: Exclude<EligibilityId, "ALL_CUSTOMERS">[] = [
   "UNKNOWN",
   "QUANTITY_REQUIRED",
   "COUPON_REQUIRED",
@@ -39,7 +39,10 @@ function asId(t?: string): EligibilityId {
 export function primaryEligibility(drafts: ConditionDraft[]): EligibilityId {
   const types = drafts
     .map((d) => d.type)
-    .filter((t) => t !== "ALL_CUSTOMERS");
+    .filter(
+      (t): t is Exclude<EligibilityId, "ALL_CUSTOMERS"> =>
+        t !== "ALL_CUSTOMERS",
+    );
   if (!types.length) return "ALL_CUSTOMERS";
   for (const t of RANK) if (types.includes(t)) return t;
   return types[0]!;

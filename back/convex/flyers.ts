@@ -266,7 +266,7 @@ export async function purgeFlyerEvidence(
   };
 }
 
-async function wipeFlyer(ctx: MutationCtx, id: Id<"flyers">) {
+export async function wipeFlyer(ctx: MutationCtx, id: Id<"flyers">) {
   const flyer = await ctx.db.get(id);
   if (!flyer) throw new Error("Flyer not found");
 
@@ -516,7 +516,12 @@ export const attachFile = mutation({
 export const list = query({
   args: {
     supermarketId: v.optional(v.id("supermarkets")),
+    sourceId: v.optional(v.id("flyerSources")),
     status: v.optional(flyerStatus),
+    duplicateOnly: v.optional(v.boolean()),
+    requiresValidityReview: v.optional(v.boolean()),
+    validFrom: v.optional(v.number()),
+    validUntil: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     let flyers;
@@ -538,6 +543,21 @@ export const list = query({
 
     if (args.status && args.supermarketId) {
       flyers = flyers.filter((f) => f.status === args.status);
+    }
+    if (args.sourceId) flyers = flyers.filter((f) => f.sourceId === args.sourceId);
+    if (args.duplicateOnly) flyers = flyers.filter((f) => f.status === "duplicate");
+    if (args.requiresValidityReview) {
+      flyers = flyers.filter((f) => f.validUntil === undefined);
+    }
+    if (args.validFrom !== undefined) {
+      flyers = flyers.filter(
+        (f) => f.validFrom !== undefined && f.validFrom >= args.validFrom!,
+      );
+    }
+    if (args.validUntil !== undefined) {
+      flyers = flyers.filter(
+        (f) => f.validUntil !== undefined && f.validUntil <= args.validUntil!,
+      );
     }
 
     const sorted = [...flyers].sort((a, b) => b.createdAt - a.createdAt);

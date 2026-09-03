@@ -62,14 +62,14 @@ O admin controla as fontes de ofertas.
 **Supermercado (rede)**
 
 
-| Campo     | Notas                                               |
-| --------- | --------------------------------------------------- |
-| Nome      |                                                     |
-| Logo      | ✅ upload via storage                                |
-| Site      |                                                     |
-| Cidade/UF | na rede; filiais herdam / CEP                       |
-| Status    | ativo / inativo                                     |
-| Tipo      | ✅ supermarket / wholesale / distributor             |
+| Campo     | Notas                                   |
+| --------- | --------------------------------------- |
+| Nome      |                                         |
+| Logo      | ✅ upload via storage                    |
+| Site      |                                         |
+| Cidade/UF | na rede; filiais herdam / CEP           |
+| Status    | ativo / inativo                         |
+| Tipo      | ✅ supermarket / wholesale / distributor |
 
 
 **Lojas / filiais**
@@ -138,7 +138,7 @@ ignora    salva
 
 **Falha operacional:** se download pelo worker ou análise falhar, o flyer é descartado integralmente — arquivo, páginas, extrações, erros e ofertas parciais. Retenção de ofertas aplica-se exclusivamente a flyers expirados com extração concluída.
 
-**Estado atual:** listagem, detalhe, reanálise, correção de validade, novo download, expiração manual, descarte integral, limpeza de evidências após 30 dias e painel de automação estão entregues. O cron também agenda discovery na expiração e na janela de 24h. Ainda faltam filtros/erros no admin, política para flyers sem validade, limpeza de duplicatas e testes de integração.
+**Estado atual:** listagem, detalhe, reanálise, correção de validade, novo download, filtros, erros no detalhe, expiração manual, descarte integral, limpeza de evidências após 30 dias, limpeza de duplicatas e painel de automação estão entregues. O cron também agenda discovery na expiração e na janela de 24h. Flyers sem `validUntil` ficam em revisão manual e não são expirados/removidos automaticamente. Ainda faltam testes de integração.
 
 ### 3. Normalização dos produtos
 
@@ -221,11 +221,11 @@ Sinais comportamentais (sem IA no início):
 - [x] Cadastro de lojas / filiais  
 - [x] Fontes de ofertas (escopo rede / filial)  
 - [x] Logo / tipo da rede  
-- [ ] Gestão de flyers (ops completa)  
-- [ ] Ciclo automático de flyers (cron estável)  
-- [ ] Expiração automática  
-- [ ] Retenção mensal: remover flyers expirados e arquivos; preservar ofertas extraídas
-- [ ] Deduplicação robusta  
+- [x] Gestão de flyers (ops completa)  
+- [x] Ciclo automático de flyers (cron estável)  
+- [x] Expiração automática  
+- [x] Retenção mensal: remover flyers expirados e arquivos; preservar ofertas extraídas
+- [x] Deduplicação robusta  
 
 
 

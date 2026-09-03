@@ -268,6 +268,11 @@ export const listActive = query({
   },
 });
 
+export const list = query({
+  args: {},
+  handler: async (ctx) => ctx.db.query("flyerSources").collect(),
+});
+
 export const get = query({
   args: { id: v.id("flyerSources") },
   handler: async (ctx, args) => {
