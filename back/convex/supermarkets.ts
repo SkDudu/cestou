@@ -2,6 +2,12 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
 
+const networkTypeValidator = v.union(
+  v.literal("supermarket"),
+  v.literal("wholesale"),
+  v.literal("distributor"),
+);
+
 function slugify(name: string) {
   const base = name
     .toLowerCase()
@@ -37,6 +43,7 @@ export const ensure = mutation({
     websiteUrl: v.optional(v.string()),
     active: v.optional(v.boolean()),
     timezone: v.optional(v.string()),
+    networkType: v.optional(networkTypeValidator),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -57,6 +64,7 @@ export const ensure = mutation({
         websiteUrl: args.websiteUrl,
         active: args.active ?? existing.active,
         timezone: args.timezone ?? existing.timezone,
+        networkType: args.networkType ?? existing.networkType,
         updatedAt: now,
       });
       return existing._id;
@@ -71,6 +79,7 @@ export const ensure = mutation({
       websiteUrl: args.websiteUrl,
       active: args.active ?? true,
       timezone: args.timezone,
+      networkType: args.networkType,
       createdAt: now,
       updatedAt: now,
     });
@@ -86,6 +95,7 @@ export const create = mutation({
     websiteUrl: v.optional(v.string()),
     active: v.optional(v.boolean()),
     timezone: v.optional(v.string()),
+    networkType: v.optional(networkTypeValidator),
   },
   handler: async (ctx, args) => {
     const slug = await uniqueSlug(ctx, slugify(args.name));
@@ -99,6 +109,7 @@ export const create = mutation({
       websiteUrl: args.websiteUrl,
       active: args.active ?? true,
       timezone: args.timezone,
+      networkType: args.networkType,
       createdAt: now,
       updatedAt: now,
     });
@@ -115,6 +126,8 @@ export const update = mutation({
     websiteUrl: v.optional(v.string()),
     active: v.optional(v.boolean()),
     timezone: v.optional(v.string()),
+    networkType: v.optional(networkTypeValidator),
+    logoStorageId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const { id, ...patch } = args;
@@ -138,6 +151,16 @@ export const getBySlug = query({
       .unique(),
 });
 
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => ctx.storage.generateUploadUrl(),
+});
+
+export const getLogoUrl = query({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => ctx.storage.getUrl(args.storageId),
+});
+
 export const listNames = query({
   args: {},
   handler: async (ctx) => ctx.db.query("supermarkets").collect(),
@@ -149,8 +172,15 @@ export const list = query({
     const supermarkets = await ctx.db.query("supermarkets").collect();
     return await Promise.all(
       supermarkets.map(async (s) => {
+        const logoUrl = s.logoStorageId
+          ? await ctx.storage.getUrl(s.logoStorageId)
+          : null;
         const sources = await ctx.db
           .query("flyerSources")
+          .withIndex("by_supermarket", (q) => q.eq("supermarketId", s._id))
+          .collect();
+        const branches = await ctx.db
+          .query("stores")
           .withIndex("by_supermarket", (q) => q.eq("supermarketId", s._id))
           .collect();
         const flyers = await ctx.db
@@ -174,6 +204,9 @@ export const list = query({
 
         return {
           ...s,
+          logoUrl,
+          stores: branches,
+          storeCount: branches.length,
           sourceCount: sources.length,
           activeSourceCount: sources.filter((x) => x.active).length,
           flyerCount: flyers.length,
@@ -191,8 +224,40 @@ export const get = query({
     const supermarket = await ctx.db.get(args.id);
     if (!supermarket) return null;
 
-    const sources = await ctx.db
+    const logoUrl = supermarket.logoStorageId
+      ? await ctx.storage.getUrl(supermarket.logoStorageId)
+      : null;
+
+    const stores = await ctx.db
+      .query("stores")
+      .withIndex("by_supermarket", (q) => q.eq("supermarketId", args.id))
+      .collect();
+    const rawSources = await ctx.db
       .query("flyerSources")
+      .withIndex("by_supermarket", (q) => q.eq("supermarketId", args.id))
+      .collect();
+    const sources = await Promise.all(
+      rawSources.map(async (s) => {
+        const links = await ctx.db
+          .query("flyerSourceStores")
+          .withIndex("by_source", (q) => q.eq("sourceId", s._id))
+          .collect();
+        const op =
+          s.operationalStatus ??
+          (!s.active
+            ? "inactive"
+            : s.type !== "manual" && !s.flowId
+              ? "not_configured"
+              : "active");
+        return {
+          ...s,
+          storeIds: links.map((l) => l.storeId),
+          operationalStatus: op,
+        };
+      }),
+    );
+    const flows = await ctx.db
+      .query("scraperFlows")
       .withIndex("by_supermarket", (q) => q.eq("supermarketId", args.id))
       .collect();
     const flyers = await ctx.db
@@ -205,7 +270,16 @@ export const get = query({
 
     return {
       ...supermarket,
+      logoUrl,
+      stores,
       sources,
+      flows: flows.map((f) => ({
+        _id: f._id,
+        name: f.name,
+        status: f.status,
+        scope: f.scope,
+        storeId: f.storeId,
+      })),
       recentFlyers,
       flyerCount: flyers.length,
     };

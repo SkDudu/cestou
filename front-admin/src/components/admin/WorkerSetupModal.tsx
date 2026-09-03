@@ -51,6 +51,8 @@ export function WorkerSetupModal({
 
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [supermarketId, setSupermarketId] = useState(presetSupermarketId ?? "");
+  const [scope, setScope] = useState<"supermarket" | "store">("supermarket");
+  const [storeId, setStoreId] = useState("");
   const [startUrl, setStartUrl] = useState("");
   const [flowId, setFlowId] = useState<Id<"scraperFlows"> | null>(null);
   const [savedActions, setSavedActions] = useState<SessionAction[]>([]);
@@ -62,10 +64,23 @@ export function WorkerSetupModal({
   const preview = useHarvestPreview(previewSid);
   const previewAuto = useRef("");
 
+  const branches = useQuery(
+    api.stores.listBySupermarket,
+    supermarketId
+      ? { supermarketId: supermarketId as Id<"supermarkets"> }
+      : "skip",
+  );
+  const activeBranches = useMemo(
+    () => (branches ?? []).filter((s) => s.active),
+    [branches],
+  );
+
   useEffect(() => {
     if (!open) return;
     setStep(1);
     setSupermarketId(presetSupermarketId ?? "");
+    setScope("supermarket");
+    setStoreId("");
     setStartUrl("");
     setFlowId(null);
     setSavedActions([]);
@@ -97,16 +112,38 @@ export function WorkerSetupModal({
     () => markets?.find((m) => m._id === supermarketId),
     [markets, supermarketId],
   );
-  const idPreview = market ? workerSlug(market.name) : "wrk_…";
-  const withSite = useMemo(
-    () => (markets ?? []).filter((m) => Boolean(m.websiteUrl?.trim())),
-    [markets],
+  const branch = useMemo(
+    () => activeBranches.find((s) => s._id === storeId),
+    [activeBranches, storeId],
   );
+  const idPreview = market
+    ? workerSlug(
+        scope === "store" && branch
+          ? `${market.name}_${branch.name}`
+          : market.name,
+      )
+    : "wrk_…";
 
-  function onStoreChange(id: string) {
-    setSupermarketId(id);
-    const m = markets?.find((x) => x._id === id);
-    setStartUrl(m?.websiteUrl ?? "");
+  function onScopeChange(next: "supermarket" | "store") {
+    setScope(next);
+    if (next === "supermarket") {
+      setStoreId("");
+      setStartUrl(market?.websiteUrl ?? "");
+      return;
+    }
+    if (activeBranches.length === 1) {
+      const only = activeBranches[0]!;
+      setStoreId(only._id);
+      setStartUrl(only.url?.trim() || market?.websiteUrl || "");
+    } else {
+      setStoreId("");
+    }
+  }
+
+  function onBranchChange(id: string) {
+    setStoreId(id);
+    const s = activeBranches.find((x) => x._id === id);
+    setStartUrl(s?.url?.trim() || market?.websiteUrl || "");
   }
 
   useEffect(() => {
@@ -120,6 +157,14 @@ export function WorkerSetupModal({
     if (m?.websiteUrl) setStartUrl(m.websiteUrl);
   }, [open, markets, presetSupermarketId, supermarketId, startUrl]);
 
+  // sem filiais → força geral
+  useEffect(() => {
+    if (scope === "store" && branches !== undefined && !activeBranches.length) {
+      setScope("supermarket");
+      setStoreId("");
+    }
+  }, [scope, branches, activeBranches.length]);
+
   useEffect(() => {
     if (step !== 4 || !previewSid) return;
     if (previewAuto.current === previewSid) return;
@@ -132,6 +177,10 @@ export function WorkerSetupModal({
   async function openChromium() {
     if (!market) {
       setError("Escolha uma loja.");
+      return;
+    }
+    if (scope === "store" && !storeId) {
+      setError("Escolha uma filial.");
       return;
     }
     if (!startUrl.trim()) {
@@ -149,6 +198,9 @@ export function WorkerSetupModal({
         supermarketId: market._id,
         name: market.name,
         startUrl: startUrl.trim(),
+        scope,
+        storeId:
+          scope === "store" ? (storeId as Id<"stores">) : undefined,
       });
       setFlowId(id);
       setStep(3);
@@ -237,27 +289,58 @@ export function WorkerSetupModal({
         <div className="ds-setup-body overflow-y-auto">
         <div className="ds-setup-card">
           <div>
-            <div className="text-base font-semibold">Qual loja?</div>
+            <div className="text-base font-semibold">
+              {market ? market.name : "Disponibilidade"}
+            </div>
             <p className="mt-1 text-[13px] leading-[18px] text-[var(--ds-color-muted-foreground)]">
-              Worker herda cidade, UF e site da filial. Só filiais com site
-              configurado.
+              {market
+                ? "Escolha se o worker cobre toda a rede ou uma filial."
+                : "Abra o setup a partir de um supermercado."}
             </p>
           </div>
-          <label className="flex w-full flex-col gap-1.5">
-            <span className="text-[13px] font-medium">Loja</span>
-            <select
-              className="ds-select w-full"
-              value={supermarketId}
-              onChange={(e) => onStoreChange(e.target.value)}
-            >
-              <option value="">Escolher loja…</option>
-              {withSite.map((m) => (
-                <option key={m._id} value={m._id}>
-                  {m.name}
+
+          {supermarketId ? (
+            <label className="flex w-full flex-col gap-1.5">
+              <span className="text-[13px] font-medium">Disponibilidade</span>
+              <select
+                className="ds-select w-full"
+                value={scope}
+                onChange={(e) =>
+                  onScopeChange(e.target.value as "supermarket" | "store")
+                }
+              >
+                <option value="supermarket">Geral (toda a rede)</option>
+                <option
+                  value="store"
+                  disabled={!activeBranches.length}
+                >
+                  {activeBranches.length
+                    ? "Filial"
+                    : "Filial (cadastre filiais antes)"}
                 </option>
-              ))}
-            </select>
-          </label>
+              </select>
+            </label>
+          ) : null}
+
+          {scope === "store" && activeBranches.length ? (
+            <label className="flex w-full flex-col gap-1.5">
+              <span className="text-[13px] font-medium">Filial</span>
+              <select
+                className="ds-select w-full"
+                value={storeId}
+                onChange={(e) => onBranchChange(e.target.value)}
+              >
+                <option value="">Escolher filial…</option>
+                {activeBranches.map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.name}
+                    {s.neighborhood ? ` · ${s.neighborhood}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
           <label className="flex w-full flex-col gap-1.5">
             <span className="text-[13px] font-medium">ID do worker</span>
             <input
@@ -270,27 +353,35 @@ export function WorkerSetupModal({
           {market ? (
             <div className="flex flex-col gap-2.5 rounded-[var(--ds-radius-md)] bg-[var(--ds-color-muted)] px-4 py-3.5">
               <div className="text-[12px] font-semibold tracking-wide text-[var(--ds-color-muted-foreground)]">
-                DA FILIAL
+                {scope === "store" && branch ? "DA FILIAL" : "DA REDE"}
               </div>
               <div className="flex gap-6">
                 <div className="w-[120px] shrink-0">
                   <div className="text-xs text-[var(--ds-color-muted-foreground)]">
                     Cidade
                   </div>
-                  <div className="text-sm font-medium">{market.city}</div>
+                  <div className="text-sm font-medium">
+                    {branch?.city ?? market.city}
+                  </div>
                 </div>
                 <div className="w-16 shrink-0">
                   <div className="text-xs text-[var(--ds-color-muted-foreground)]">
                     UF
                   </div>
-                  <div className="text-sm font-medium">{market.state}</div>
+                  <div className="text-sm font-medium">
+                    {branch?.state ?? market.state}
+                  </div>
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs text-[var(--ds-color-muted-foreground)]">
                     Site
                   </div>
                   <div className="truncate font-mono text-xs">
-                    {(market.websiteUrl ?? "").replace(/^https?:\/\//, "")}
+                    {(
+                      (scope === "store" && branch?.url
+                        ? branch.url
+                        : market.websiteUrl) ?? ""
+                    ).replace(/^https?:\/\//, "")}
                   </div>
                 </div>
               </div>
@@ -403,6 +494,16 @@ export function WorkerSetupModal({
               </div>
               <div className="text-[13px] font-medium">{market?.name}</div>
             </div>
+            <div className="w-36 shrink-0">
+              <div className="text-[11px] text-[var(--ds-color-muted-foreground)]">
+                Disponibilidade
+              </div>
+              <div className="text-[13px] font-medium">
+                {scope === "store"
+                  ? branch?.name ?? "Filial"
+                  : "Geral"}
+              </div>
+            </div>
             <div className="min-w-0 flex-1">
               <div className="text-[11px] text-[var(--ds-color-muted-foreground)]">
                 Fonte
@@ -462,10 +563,16 @@ export function WorkerSetupModal({
             <button
               type="button"
               className="ds-btn ds-btn--primary"
-              disabled={!market}
+              disabled={
+                !market || (scope === "store" && !storeId)
+              }
               onClick={() => {
-                if (!startUrl && market?.websiteUrl) {
-                  setStartUrl(market.websiteUrl);
+                if (!startUrl) {
+                  const fallback =
+                    (scope === "store" && branch?.url
+                      ? branch.url
+                      : market?.websiteUrl) ?? "";
+                  if (fallback) setStartUrl(fallback);
                 }
                 setStep(2);
               }}
@@ -486,7 +593,12 @@ export function WorkerSetupModal({
               <button
                 type="button"
                 className="ds-btn ds-btn--primary"
-                disabled={busy || !supermarketId || !startUrl.trim()}
+                disabled={
+                  busy ||
+                  !supermarketId ||
+                  !startUrl.trim() ||
+                  (scope === "store" && !storeId)
+                }
                 onClick={() => void openChromium()}
               >
                 {busy ? "Criando…" : "Abrir Chromium"}

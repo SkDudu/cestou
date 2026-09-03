@@ -24,6 +24,19 @@ const flyerSourceType = v.union(
   v.literal("image"),
   v.literal("web"),
   v.literal("dynamic"),
+  v.literal("manual"),
+);
+
+const flyerSourceScope = v.union(
+  v.literal("supermarket"),
+  v.literal("store"),
+);
+
+const flyerSourceOperationalStatus = v.union(
+  v.literal("active"),
+  v.literal("inactive"),
+  v.literal("error"),
+  v.literal("not_configured"),
 );
 
 const offerValidationStatus = v.union(
@@ -48,6 +61,12 @@ const extractionProvider = v.union(
   v.literal("tesseract-rules"),
 );
 
+const networkType = v.union(
+  v.literal("supermarket"),
+  v.literal("wholesale"),
+  v.literal("distributor"),
+);
+
 export default defineSchema({
   supermarkets: defineTable({
     name: v.string(),
@@ -58,24 +77,68 @@ export default defineSchema({
     active: v.boolean(),
     websiteUrl: v.optional(v.string()),
     timezone: v.optional(v.string()),
+    networkType: v.optional(networkType),
+    logoStorageId: v.optional(v.id("_storage")),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
 
-  flyerSources: defineTable({
+  // ponytail: filiais físicas; supermarket = rede
+  stores: defineTable({
     supermarketId: v.id("supermarkets"),
-    type: flyerSourceType,
-    url: v.string(),
+    name: v.string(),
+    slug: v.string(),
+    address: v.optional(v.string()),
+    number: v.optional(v.string()),
+    neighborhood: v.optional(v.string()),
+    city: v.string(),
+    state: v.string(),
+    zipCode: v.optional(v.string()),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    url: v.optional(v.string()),
+    externalId: v.optional(v.string()),
     active: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_supermarket", ["supermarketId"])
-    .index("by_supermarket_active", ["supermarketId", "active"]),
+    .index("by_supermarket_slug", ["supermarketId", "slug"])
+    .index("by_supermarket_externalId", ["supermarketId", "externalId"]),
+
+  flyerSources: defineTable({
+    supermarketId: v.id("supermarkets"),
+    name: v.optional(v.string()),
+    type: flyerSourceType,
+    url: v.string(),
+    /** supermarket = todas filiais; store = só as em flyerSourceStores */
+    scope: v.optional(flyerSourceScope),
+    /** ops: active | inactive | error | not_configured */
+    operationalStatus: v.optional(flyerSourceOperationalStatus),
+    flowId: v.optional(v.id("scraperFlows")),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_supermarket", ["supermarketId"])
+    .index("by_supermarket_active", ["supermarketId", "active"])
+    .index("by_flow", ["flowId"]),
+
+  flyerSourceStores: defineTable({
+    sourceId: v.id("flyerSources"),
+    storeId: v.id("stores"),
+    createdAt: v.number(),
+  })
+    .index("by_source", ["sourceId"])
+    .index("by_store", ["storeId"])
+    .index("by_source_store", ["sourceId", "storeId"]),
 
   flyers: defineTable({
     supermarketId: v.id("supermarkets"),
     sourceId: v.id("flyerSources"),
+    /** empty/undefined = todas as filiais da rede (scope supermarket) */
+    storeIds: v.optional(v.array(v.id("stores"))),
     title: v.optional(v.string()),
     originalUrl: v.string(),
     /** Provider flyer id (`?id=` / data-flyer-id). Not flyerSources._id. */
@@ -213,6 +276,9 @@ export default defineSchema({
 
   scraperFlows: defineTable({
     supermarketId: v.id("supermarkets"),
+    /** supermarket = geral (toda a rede); store = uma filial */
+    scope: v.optional(v.union(v.literal("supermarket"), v.literal("store"))),
+    storeId: v.optional(v.id("stores")),
     name: v.string(),
     startUrl: v.string(),
     status: v.union(
@@ -232,7 +298,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_supermarket", ["supermarketId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_store", ["storeId"]),
 
   scraperSteps: defineTable({
     flowId: v.id("scraperFlows"),

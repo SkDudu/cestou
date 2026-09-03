@@ -31,6 +31,7 @@ const pills: Record<string, { className: string; label: string }> = {
   cancelled: { className: "ds-pill ds-pill--queue", label: "Parado" },
   disabled: { className: "ds-pill ds-pill--queue", label: "Pausada" },
   inactive: { className: "ds-pill ds-pill--queue", label: "Pausada" },
+  not_configured: { className: "ds-pill ds-pill--review", label: "Não config." },
   resolved: { className: "ds-pill ds-pill--queue", label: "Resolvido" },
 };
 

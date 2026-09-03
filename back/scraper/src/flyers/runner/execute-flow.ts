@@ -66,6 +66,9 @@ export async function executeFlowById(
 
   const fullCtx = {
     supermarketId: String(flow.supermarketId ?? ""),
+    ...(flow.storeId && flow.scope === "store"
+      ? { storeId: String(flow.storeId) }
+      : {}),
     ...ctx,
   };
 

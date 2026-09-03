@@ -1,21 +1,42 @@
-const STEPS = [
-  { n: 1, label: "Loja" },
+const SETUP_STEPS = [
+  { n: 1, label: "Disponibilidade" },
   { n: 2, label: "Fonte" },
   { n: 3, label: "Chromium" },
   { n: 4, label: "Teste" },
   { n: 5, label: "Confirmar" },
 ] as const;
 
-export function WorkerSetupStepper({ step }: { step: 1 | 2 | 3 | 4 | 5 }) {
+const EDIT_STEPS = [
+  { n: 1, label: "Chromium" },
+  { n: 2, label: "Teste" },
+] as const;
+
+export type StepperStep = { n: number; label: string };
+
+export function WorkerSetupStepper({
+  step,
+  steps = SETUP_STEPS,
+}: {
+  step: number;
+  steps?: readonly StepperStep[];
+}) {
   return (
-    <div className="ds-setup-stepper">
-      {STEPS.map((s, i) => {
+    <nav className="ds-setup-stepper" aria-label="Progresso">
+      {steps.map((s, i) => {
         const done = s.n < step;
         const active = s.n === step;
+        const lineDone = s.n < step;
+        const last = i === steps.length - 1;
         return (
-          <div key={s.n} className="flex items-center gap-0">
-            {i > 0 ? <div className="ds-setup-stepper-line" /> : null}
-            <div className="flex shrink-0 items-center gap-2.5">
+          <div
+            key={s.n}
+            className={
+              last
+                ? "ds-setup-stepper-item ds-setup-stepper-item--last"
+                : "ds-setup-stepper-item"
+            }
+          >
+            <div className="ds-setup-stepper-node">
               <div
                 className={
                   done
@@ -24,22 +45,52 @@ export function WorkerSetupStepper({ step }: { step: 1 | 2 | 3 | 4 | 5 }) {
                       ? "ds-setup-step-dot ds-setup-step-dot--active"
                       : "ds-setup-step-dot"
                 }
+                aria-current={active ? "step" : undefined}
               >
-                {done ? "✓" : s.n}
+                {done ? (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    aria-hidden
+                  >
+                    <path
+                      d="M2.5 7.2 5.4 10.2 11.5 3.8"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : (
+                  s.n
+                )}
               </div>
               <span
                 className={
-                  active
-                    ? "text-sm font-semibold text-[var(--ds-color-ink)]"
-                    : "text-sm font-medium text-[var(--ds-color-muted-foreground)]"
+                  done || active
+                    ? "ds-setup-step-label ds-setup-step-label--on"
+                    : "ds-setup-step-label"
                 }
               >
                 {s.label}
               </span>
             </div>
+            {!last ? (
+              <div
+                className={
+                  lineDone
+                    ? "ds-setup-stepper-line ds-setup-stepper-line--done"
+                    : "ds-setup-stepper-line"
+                }
+              />
+            ) : null}
           </div>
         );
       })}
-    </div>
+    </nav>
   );
 }
+
+export { SETUP_STEPS, EDIT_STEPS };

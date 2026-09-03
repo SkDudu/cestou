@@ -18,7 +18,9 @@ export const wipeAll = mutation({
       "flyerPages",
       "flyerErrors",
       "flyers",
+      "flyerSourceStores",
       "flyerSources",
+      "stores",
       "supermarkets",
     ] as const;
     const deleted: Record<string, number> = {};

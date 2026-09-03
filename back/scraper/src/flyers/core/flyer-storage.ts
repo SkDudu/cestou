@@ -29,7 +29,7 @@ export async function ensureSupermarket(args: {
 
 export async function ensureFlyerSource(args: {
   supermarketId: string;
-  type: "pdf" | "image" | "web" | "dynamic";
+  type: "pdf" | "image" | "web" | "dynamic" | "manual";
   url: string;
   active?: boolean;
 }): Promise<string> {
@@ -64,6 +64,7 @@ export async function createDiscoveredFlyer(args: {
   validFrom?: number;
   validUntil?: number;
   externalId?: string;
+  storeIds?: string[];
 }): Promise<{ id: string; created: boolean }> {
   const res = (await getClient().mutation(api.flyers.createDiscovered, args)) as
     | { id: string; created: boolean }
@@ -71,6 +72,12 @@ export async function createDiscoveredFlyer(args: {
   // ponytail: old mutation returned id string
   if (typeof res === "string") return { id: res, created: true };
   return res;
+}
+
+export async function getSourceStoreIds(sourceId: string) {
+  return (await getClient().query(api.flyerSources.getStoreIds, {
+    id: sourceId as never,
+  })) as string[] | null | undefined;
 }
 
 export async function findFlyerByHash(

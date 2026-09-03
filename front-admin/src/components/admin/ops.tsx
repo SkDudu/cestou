@@ -11,7 +11,7 @@ export function OpsHeader({
   primary,
 }: {
   crumb?: ReactNode;
-  title: string;
+  title: ReactNode;
   subtitle?: string;
   stamp?: string;
   filter?: ReactNode;

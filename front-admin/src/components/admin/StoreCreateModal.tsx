@@ -15,6 +15,14 @@ function normalizeSite(raw: string) {
   return `https://${t}`;
 }
 
+const NETWORK_TYPES = [
+  { value: "supermarket", label: "Supermercado" },
+  { value: "wholesale", label: "Atacarejo" },
+  { value: "distributor", label: "Distribuidora" },
+] as const;
+
+type NetworkType = "supermarket" | "wholesale" | "distributor";
+
 export function StoreCreateModal({
   open,
   storeNames,
@@ -27,6 +35,7 @@ export function StoreCreateModal({
   const create = useMutation(api.supermarkets.create);
   const [rede, setRede] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [networkType, setNetworkType] = useState<NetworkType | "">("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +48,7 @@ export function StoreCreateModal({
     if (!open) return;
     setRede("");
     setWebsiteUrl("");
+    setNetworkType("");
     setError(null);
     setBusy(false);
   }, [open]);
@@ -73,6 +83,7 @@ export function StoreCreateModal({
         websiteUrl: site,
         active: true,
         timezone: "America/Fortaleza",
+        networkType: networkType || undefined,
       });
       window.location.href = `/admin/supermarkets/${id}`;
     } catch (err) {
@@ -151,6 +162,24 @@ export function StoreCreateModal({
             className="ds-input font-mono text-xs"
             required
           />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[13px] font-medium leading-[18px]">
+            Tipo de rede
+          </span>
+          <select
+            className="ds-input"
+            value={networkType}
+            onChange={(e) => setNetworkType(e.target.value as NetworkType | "")}
+          >
+            <option value="">Selecionar…</option>
+            {NETWORK_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         {error ? (

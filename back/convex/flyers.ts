@@ -1,6 +1,7 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { resolveSourceStoreIds } from "./flyerSources";
 
 const flyerStatus = v.union(
   v.literal("discovered"),
@@ -67,6 +68,7 @@ function discoveredPatch(
     validUntil?: number;
     externalId?: string;
     originalUrl?: string;
+    storeIds?: Id<"stores">[];
   },
   existing: { status: string; storageId?: string },
 ) {
@@ -77,6 +79,7 @@ function discoveredPatch(
   if (args.validFrom !== undefined) patch.validFrom = args.validFrom;
   if (args.validUntil !== undefined) patch.validUntil = args.validUntil;
   if (args.originalUrl) patch.originalUrl = args.originalUrl;
+  if (args.storeIds !== undefined) patch.storeIds = args.storeIds;
   // ponytail: no file in storage → requeue download; skip in-flight / expired
   if (
     args.pageUrls?.length &&
@@ -99,8 +102,15 @@ export const createDiscovered = mutation({
     validFrom: v.optional(v.number()),
     validUntil: v.optional(v.number()),
     externalId: v.optional(v.string()),
+    storeIds: v.optional(v.array(v.id("stores"))),
   },
   handler: async (ctx, args) => {
+    const storeIds =
+      args.storeIds ??
+      (await resolveSourceStoreIds(ctx, args.sourceId)) ??
+      undefined;
+    const withStores = { ...args, storeIds };
+
     // Dedupe by originalUrl per store — date-only identity collided Açougue/Peixaria
     const byUrl = await ctx.db
       .query("flyers")
@@ -110,7 +120,7 @@ export const createDiscovered = mutation({
       .filter((q) => q.eq(q.field("originalUrl"), args.originalUrl))
       .first();
     if (byUrl) {
-      const patch = discoveredPatch(args, byUrl);
+      const patch = discoveredPatch(withStores, byUrl);
       if (Object.keys(patch).length > 1) await ctx.db.patch(byUrl._id, patch);
       return { id: byUrl._id, created: false };
     }
@@ -125,7 +135,7 @@ export const createDiscovered = mutation({
         )
         .first();
       if (byExt) {
-        await ctx.db.patch(byExt._id, discoveredPatch(args, byExt));
+        await ctx.db.patch(byExt._id, discoveredPatch(withStores, byExt));
         return { id: byExt._id, created: false };
       }
     }
@@ -134,6 +144,7 @@ export const createDiscovered = mutation({
     const id = await ctx.db.insert("flyers", {
       supermarketId: args.supermarketId,
       sourceId: args.sourceId,
+      storeIds,
       title: args.title,
       originalUrl: args.originalUrl,
       pageUrls: args.pageUrls,

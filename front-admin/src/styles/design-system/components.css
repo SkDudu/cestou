@@ -888,22 +888,47 @@
   border-radius: 999px;
 }
 
-/* Worker setup wizard */
+/* Worker setup wizard — stepper with inline titles */
 .ds-setup-stepper {
   display: flex;
   align-items: center;
+  justify-content: center;
   width: 100%;
-  padding: 14px 18px;
+  padding: 16px 18px;
+  overflow-x: auto;
   background: var(--ds-color-card);
   border: 1px solid var(--ds-color-border);
   border-radius: var(--ds-radius-lg);
 }
 
-.ds-setup-stepper-line {
-  width: 20px;
-  height: 1px;
+.ds-setup-stepper-item {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.ds-setup-stepper-item--last {
+  flex: 0 0 auto;
+}
+
+.ds-setup-stepper-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
+}
+
+.ds-setup-stepper-line {
+  width: 28px;
+  height: 2px;
+  flex-shrink: 0;
+  margin: 0 14px;
+  border-radius: 1px;
   background: var(--ds-color-border);
+}
+
+.ds-setup-stepper-line--done {
+  background: var(--ds-color-ink);
 }
 
 .ds-setup-step-dot {
@@ -914,21 +939,31 @@
   height: 28px;
   flex-shrink: 0;
   border-radius: 999px;
-  background: var(--ds-color-secondary);
+  background: var(--ds-color-muted);
   font-family: var(--ds-font-sans);
   font-size: 13px;
   font-weight: 600;
+  line-height: 1;
   color: var(--ds-color-muted-foreground);
 }
 
-.ds-setup-step-dot--active {
-  background: var(--ds-color-primary);
-  color: var(--ds-color-primary-foreground);
+.ds-setup-step-dot--active,
+.ds-setup-step-dot--done {
+  background: var(--ds-color-ink);
+  color: #fff;
 }
 
-.ds-setup-step-dot--done {
-  background: var(--ds-color-success);
-  color: #fff;
+.ds-setup-step-label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ds-color-muted-foreground);
+  white-space: nowrap;
+}
+
+.ds-setup-step-label--on {
+  color: var(--ds-color-ink);
+  font-weight: 600;
 }
 
 .ds-setup-modal {

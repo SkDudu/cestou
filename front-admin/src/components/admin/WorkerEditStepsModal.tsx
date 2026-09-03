@@ -10,6 +10,10 @@ import {
   FlyerHarvestCheck,
   useHarvestPreview,
 } from "@/components/admin/FlyerHarvestCheck";
+import {
+  EDIT_STEPS,
+  WorkerSetupStepper,
+} from "@/components/admin/WorkerSetupStepper";
 import { stopBrowserSession } from "@/lib/browser-session";
 
 export function WorkerEditStepsModal({
@@ -147,7 +151,7 @@ export function WorkerEditStepsModal({
               id="worker-edit-steps-title"
               className="text-[20px] font-bold leading-[26px] tracking-[-0.03em]"
             >
-              {phase === "check" ? "Teste dos encartes" : "Editar steps"}
+              Editar steps
             </h1>
             <p className="mt-1 text-[13px] leading-[18px] text-[var(--ds-color-muted-foreground)]">
               {phase === "check"
@@ -165,6 +169,11 @@ export function WorkerEditStepsModal({
             ×
           </button>
         </header>
+
+        <WorkerSetupStepper
+          step={phase === "record" ? 1 : 2}
+          steps={EDIT_STEPS}
+        />
 
         <div className={phase === "record" ? "ds-setup-body" : "hidden"}>
           <WorkerSetupRecord

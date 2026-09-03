@@ -29,6 +29,7 @@ import type * as scraperFlows from "../scraperFlows.js";
 import type * as scraperRuns from "../scraperRuns.js";
 import type * as scraperSetupEvents from "../scraperSetupEvents.js";
 import type * as scraperSteps from "../scraperSteps.js";
+import type * as stores from "../stores.js";
 import type * as supermarkets from "../supermarkets.js";
 
 import type {
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   scraperRuns: typeof scraperRuns;
   scraperSetupEvents: typeof scraperSetupEvents;
   scraperSteps: typeof scraperSteps;
+  stores: typeof stores;
   supermarkets: typeof supermarkets;
 }>;
 

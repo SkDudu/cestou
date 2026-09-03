@@ -61,18 +61,42 @@ export const create = mutation({
     name: v.string(),
     startUrl: v.optional(v.string()),
     config: v.optional(v.string()),
+    scope: v.optional(v.union(v.literal("supermarket"), v.literal("store"))),
+    storeId: v.optional(v.id("stores")),
   },
   handler: async (ctx, args) => {
     const sm = await ctx.db.get(args.supermarketId);
     if (!sm) throw new Error("Supermarket not found");
-    const startUrl = (args.startUrl?.trim() || sm.websiteUrl?.trim()) ?? "";
+    const scope = args.scope ?? "supermarket";
+    let storeId = args.storeId;
+    let storeName: string | undefined;
+    let storeUrl: string | undefined;
+    if (scope === "store") {
+      if (!storeId) throw new Error("Escolha uma filial");
+      const store = await ctx.db.get(storeId);
+      if (!store || store.supermarketId !== args.supermarketId) {
+        throw new Error("Filial inválida");
+      }
+      storeName = store.name;
+      storeUrl = store.url?.trim();
+    } else {
+      storeId = undefined;
+    }
+    const startUrl =
+      (args.startUrl?.trim() || storeUrl || sm.websiteUrl?.trim()) ?? "";
     if (!startUrl) {
       throw new Error("Supermarket has no website URL — set it on the market first");
     }
+    const name =
+      scope === "store" && storeName
+        ? `${args.name} — ${storeName}`
+        : args.name;
     const now = Date.now();
     const flowId = await ctx.db.insert("scraperFlows", {
       supermarketId: args.supermarketId,
-      name: args.name,
+      scope,
+      storeId,
+      name,
       startUrl,
       status: "draft",
       version: 1,
@@ -85,10 +109,12 @@ export const create = mutation({
       order: 0,
       at: now,
       kind: "flow_created",
-      label: `Worker criado: ${args.name}`,
+      label: `Worker criado: ${name}`,
       payload: JSON.stringify({
         startUrl,
         supermarketId: args.supermarketId,
+        scope,
+        storeId,
       }),
     });
     return flowId;
@@ -105,6 +131,8 @@ export const update = mutation({
     schedule: v.optional(v.string()),
     nextRunAt: v.optional(v.number()),
     bumpVersion: v.optional(v.boolean()),
+    scope: v.optional(v.union(v.literal("supermarket"), v.literal("store"))),
+    storeId: v.optional(v.id("stores")),
   },
   handler: async (ctx, args) => {
     const flow = await ctx.db.get(args.id);
@@ -115,6 +143,9 @@ export const update = mutation({
     };
     for (const [k, val] of Object.entries(rest)) {
       if (val !== undefined) patch[k] = val;
+    }
+    if (args.scope === "supermarket") {
+      patch.storeId = undefined;
     }
     if (args.status === "active" && flow.status !== "active") {
       patch.discoveryAttempts = 0;

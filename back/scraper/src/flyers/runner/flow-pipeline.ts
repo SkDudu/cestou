@@ -2,6 +2,7 @@ import type { Page, Response } from "playwright";
 import {
   createDiscoveredFlyer,
   ensureFlyerSource,
+  getSourceStoreIds,
   getSupermarket,
 } from "../core/flyer-storage.js";
 import { parseValidity } from "../core/validity.js";
@@ -398,6 +399,12 @@ export async function persistDiscovered(
     url: state.ctx.startUrl || candidates[0]?.originalUrl || "flow",
     active: true,
   });
+  const say = state.onLog;
+  // ponytail: Convex also resolves; pass explicit for log + override
+  const storeIds = (await getSourceStoreIds(sourceId)) ?? undefined;
+  if (storeIds?.length) {
+    say?.(`[DISCOVER] fonte escopo filiais=${storeIds.length}`);
+  }
   const sm = await getSupermarket(supermarketId);
   const tz =
     (sm as { timezone?: string } | null)?.timezone || "America/Fortaleza";
@@ -405,7 +412,6 @@ export async function persistDiscovered(
   const ids: string[] = [];
   let created = 0;
   let duplicates = 0;
-  const say = state.onLog;
   if (!state.capturedPages) state.capturedPages = new Map();
   for (const c of candidates) {
     const pages = c.pageUrls.filter(ok);
@@ -436,6 +442,7 @@ export async function persistDiscovered(
       externalId: c.externalId ?? flyerExternalId(originalUrl),
       validFrom: parseValidity(c.validFrom, tz, "from"),
       validUntil: parseValidity(c.validUntil, tz, "until"),
+      storeIds,
     });
     ids.push(res.id);
     if (c.pageBuffers?.length) {
