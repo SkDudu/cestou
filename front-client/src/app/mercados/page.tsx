@@ -1,36 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Star } from "@phosphor-icons/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
-import { useSession } from "@/components/SessionProvider";
 import { Button, EmptyState, Panel, Skeleton } from "@/components/ui";
+import { formatDistanceKm } from "@/lib/format";
 
 export default function MercadosPage() {
-  const { userId } = useSession();
+  const { isAuthenticated } = useConvexAuth();
   const data = useQuery(
     api.clientStores.listStoresForMe,
-    userId ? { userId } : "skip",
+    isAuthenticated ? {} : "skip",
   );
   const toggle = useMutation(api.clientStores.toggleFavoriteStore);
 
   const loc = data?.location;
   const locLabel = loc ? `${loc.city} — ${loc.state}` : null;
 
-  async function onToggle(supermarketId: Id<"supermarkets">) {
-    if (!userId) return;
-    await toggle({ userId, supermarketId });
+  async function onToggle(storeId: Id<"stores">) {
+    await toggle({ storeId });
   }
 
-  if (userId && data && data.location === null) {
+  if (data && data.location === null) {
     return (
       <div className="grid min-h-[100dvh] place-items-center px-6">
         <EmptyState
           title="Defina sua região"
-          body="Sem localização não dá para listar supermercados próximos."
+          body="Sem localização não dá para listar filiais próximas."
           action={
             <Link href="/onboarding">
               <Button type="button">Ir para onboarding</Button>
@@ -48,7 +47,7 @@ export default function MercadosPage() {
     <AppShell
       locationLabel={locLabel}
       title="Mercados"
-      subtitle="Favoritos entram na comparação da lista. Sem favorito = todos da região."
+      subtitle="Favoritos entram na comparação da lista. Sem favorito = filiais da região. Preço é da rede; a filial é o destino."
     >
       {!data ? (
         <div className="grid gap-4 md:grid-cols-2">
@@ -57,8 +56,8 @@ export default function MercadosPage() {
         </div>
       ) : data.stores.length === 0 ? (
         <EmptyState
-          title="Nenhum supermercado ativo"
-          body={`Não há mercados cadastrados em ${loc?.city}/${loc?.state}.`}
+          title="Nenhuma filial ativa"
+          body={`Não há lojas cadastradas em ${loc?.city}/${loc?.state}.`}
         />
       ) : (
         <div className="grid gap-10 xl:grid-cols-[1fr_1.2fr]">
@@ -76,6 +75,8 @@ export default function MercadosPage() {
                   <StoreRow
                     key={s._id}
                     name={s.name}
+                    networkName={s.networkName}
+                    distanceKm={s.distanceKm}
                     offerCount={s.offerCount}
                     favorited
                     onToggle={() => void onToggle(s._id)}
@@ -94,6 +95,8 @@ export default function MercadosPage() {
                 <StoreRow
                   key={s._id}
                   name={s.name}
+                  networkName={s.networkName}
+                  distanceKm={s.distanceKm}
                   offerCount={s.offerCount}
                   favorited={false}
                   onToggle={() => void onToggle(s._id)}
@@ -109,11 +112,15 @@ export default function MercadosPage() {
 
 function StoreRow({
   name,
+  networkName,
+  distanceKm,
   offerCount,
   favorited,
   onToggle,
 }: {
   name: string;
+  networkName: string;
+  distanceKm: number | null;
   offerCount: number;
   favorited: boolean;
   onToggle: () => void;
@@ -124,7 +131,7 @@ function StoreRow({
         <div className="min-w-0">
           <p className="truncate font-medium tracking-tight">{name}</p>
           <p className="mt-1 font-mono text-xs text-[var(--muted)]">
-            {offerCount} ofertas validadas
+            {networkName} · {formatDistanceKm(distanceKm)} · {offerCount} ofertas
           </p>
         </div>
         <button

@@ -5,6 +5,20 @@ export function formatCurrency(value: number) {
   }).format(value);
 }
 
+export function formatDistanceKm(km: number | null | undefined) {
+  if (km == null) return "sem GPS";
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(1).replace(".", ",")} km`;
+}
+
+export function formatDay(ts?: number | null) {
+  if (ts == null) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  }).format(ts);
+}
+
 export function formatInstallment(o: {
   installmentCount?: number | null;
   installmentAmount?: number | null;

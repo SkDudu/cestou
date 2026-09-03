@@ -2,27 +2,26 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Plus, Scales, Trash } from "@phosphor-icons/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
-import { useSession } from "@/components/SessionProvider";
+import { ClubPrice } from "@/components/ClubPrice";
 import {
   Button,
   EmptyState,
   Input,
-  Money,
   Skeleton,
 } from "@/components/ui";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { PaymentNote } from "@/components/PaymentNote";
 
 export default function ListaPage() {
-  const { userId, ready } = useSession();
+  const { isAuthenticated } = useConvexAuth();
   const location = useQuery(
     api.clientLocation.getMyDefaultLocation,
-    userId ? { userId } : "skip",
+    isAuthenticated ? {} : "skip",
   );
   const ensureList = useMutation(api.clientLists.getOrCreateDefaultList);
   const addItem = useMutation(api.clientLists.addListItem);
@@ -31,31 +30,23 @@ export default function ListaPage() {
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
-    if (!userId || listId) return;
-    void ensureList({ userId }).then(setListId);
-  }, [userId, listId, ensureList]);
+    if (!isAuthenticated || listId) return;
+    void ensureList({}).then(setListId);
+  }, [isAuthenticated, listId, ensureList]);
 
   const list = useQuery(
     api.clientLists.getShoppingList,
-    userId && listId ? { userId, listId } : "skip",
+    listId ? { listId } : "skip",
   );
 
   async function onAdd(e: FormEvent) {
     e.preventDefault();
-    if (!userId || !listId || !draft.trim()) return;
-    await addItem({ userId, listId, queryText: draft.trim() });
+    if (!listId || !draft.trim()) return;
+    await addItem({ listId, queryText: draft.trim() });
     setDraft("");
   }
 
   const locLabel = location ? `${location.city} — ${location.state}` : null;
-
-  if (!ready) {
-    return (
-      <div className="grid min-h-[100dvh] place-items-center">
-        <Skeleton className="h-8 w-40" />
-      </div>
-    );
-  }
 
   return (
     <AppShell
@@ -89,8 +80,8 @@ export default function ListaPage() {
             Adicionar
           </Button>
           <p className="text-xs leading-relaxed text-[var(--muted)]">
-            Sem oferta fixada, a comparação faz match por texto nas ofertas
-            validadas.
+            Sem oferta fixada, a comparação usa o produto canônico quando
+            existir, senão o texto.
           </p>
         </form>
 
@@ -123,9 +114,13 @@ export default function ListaPage() {
                     {item.offer ? (
                       <div className="mt-1 text-xs text-[var(--muted)]">
                         <p>
-                          {item.offer.name} · {item.offer.supermarketName} ·{" "}
-                          <Money value={item.offer.price} />
+                          {item.offer.name} · {item.offer.supermarketName}
                         </p>
+                        <ClubPrice
+                          publicPrice={item.offer.publicPrice}
+                          memberPrice={item.offer.memberPrice}
+                          membershipName={item.offer.membershipName}
+                        />
                         <PaymentNote
                           installmentCount={item.offer.installmentCount}
                           installmentAmount={item.offer.installmentAmount}
@@ -146,9 +141,7 @@ export default function ListaPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
-                      userId && void removeItem({ userId, itemId: item._id })
-                    }
+                    onClick={() => void removeItem({ itemId: item._id })}
                     className="inline-flex cursor-pointer items-center gap-1 text-xs text-[var(--alert)] transition-opacity hover:opacity-80 active:scale-[0.98]"
                     aria-label={`Remover ${item.queryText}`}
                   >

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuthActions } from "@convex-dev/auth/react";
 import type { Icon } from "@phosphor-icons/react";
 import {
   House,
@@ -9,6 +10,9 @@ import {
   ShoppingCart,
   Storefront,
   MapPin,
+  Newspaper,
+  Heart,
+  SignOut,
 } from "@phosphor-icons/react";
 
 const links: { href: string; label: string; icon: Icon }[] = [
@@ -16,6 +20,8 @@ const links: { href: string; label: string; icon: Icon }[] = [
   { href: "/busca", label: "Busca", icon: MagnifyingGlass },
   { href: "/lista", label: "Lista", icon: ShoppingCart },
   { href: "/mercados", label: "Mercados", icon: Storefront },
+  { href: "/encartes", label: "Encartes", icon: Newspaper },
+  { href: "/favoritos", label: "Favoritos", icon: Heart },
 ];
 
 export function AppShell({
@@ -32,6 +38,7 @@ export function AppShell({
   actions?: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { signOut } = useAuthActions();
 
   return (
     <div className="mx-auto grid min-h-[100dvh] w-full max-w-[1400px] grid-cols-1 lg:grid-cols-[var(--rail)_1fr]">
@@ -99,9 +106,19 @@ export function AppShell({
           })}
         </nav>
 
-        <p className="hidden px-6 pb-6 text-[11px] leading-relaxed text-[var(--muted)] lg:block">
-          Ofertas validadas da região — não é catálogo completo de prateleira.
-        </p>
+        <div className="hidden px-3 pb-6 lg:block">
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="inline-flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-xs text-[var(--muted)] hover:text-[var(--fg)]"
+          >
+            <SignOut size={14} aria-hidden />
+            Sair
+          </button>
+          <p className="mt-3 px-3 text-[11px] leading-relaxed text-[var(--muted)]">
+            Ofertas validadas da região — não é catálogo completo de prateleira.
+          </p>
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-col">

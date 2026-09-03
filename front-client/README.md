@@ -17,10 +17,12 @@ npm run dev
 
 Convex: schema + funções `client*` vivem em `back/convex` (symlink `front-client/convex` → `../back/convex`).
 
+Auth usa `@convex-dev/auth` (Password). No backend local, `JWT_PRIVATE_KEY` e `JWKS` precisam estar no env do Convex (`npx convex env set`).
+
 ```bash
 cd back && npm run convex:dev
 ```
 
-## Auth MVP
+## Auth
 
-Sessão anônima via `localStorage` (`cestou_session_token`) → `clientAuth.ensureSession`. Email/senha depois.
+Convex Auth (Password). Telas `/entrar` e `/cadastro`. Sem verificação de e-mail nesta fase.

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
-import { SessionProvider } from "@/components/SessionProvider";
+import { AuthGate } from "@/components/AuthGate";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,7 +32,7 @@ export default function RootLayout({
     >
       <body className="min-h-[100dvh] font-sans text-[var(--fg)]">
         <ConvexClientProvider>
-          <SessionProvider>{children}</SessionProvider>
+          <AuthGate>{children}</AuthGate>
         </ConvexClientProvider>
       </body>
     </html>

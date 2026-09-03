@@ -2,8 +2,9 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
   getDefaultLocation,
-  listRegionSupermarkets,
-  requireUser,
+  listRegionStores,
+  requireAuth,
+  withDistance,
 } from "./clientLib";
 
 export const listSupermarketsByRegion = query({
@@ -12,44 +13,36 @@ export const listSupermarketsByRegion = query({
     state: v.string(),
   },
   handler: async (ctx, args) => {
-    const stores = await listRegionSupermarkets(ctx, args.city, args.state);
-    return await Promise.all(
-      stores.map(async (s) => {
-        const offers = await ctx.db
-          .query("offers")
-          .withIndex("by_supermarket_status", (q) =>
-            q.eq("supermarketId", s._id).eq("validationStatus", "validated"),
-          )
-          .collect();
-        return {
-          _id: s._id,
-          name: s.name,
-          slug: s.slug,
-          city: s.city,
-          state: s.state,
-          offerCount: offers.length,
-        };
-      }),
-    );
+    const stores = await listRegionStores(ctx, args.city, args.state);
+    return stores.map((s) => ({
+      _id: s._id,
+      name: s.name,
+      networkName: s.network.name,
+      city: s.city,
+      state: s.state,
+    }));
   },
 });
 
 export const listMyFavoriteStores = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
     const favs = await ctx.db
       .query("favoriteStores")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
     const rows = [];
     for (const f of favs) {
-      const store = await ctx.db.get(f.supermarketId);
+      const store = await ctx.db.get(f.storeId);
       if (!store) continue;
+      const network = await ctx.db.get(store.supermarketId);
       rows.push({
         favoriteId: f._id,
-        supermarketId: store._id,
+        storeId: store._id,
+        supermarketId: store.supermarketId,
         name: store.name,
+        networkName: network?.name ?? "—",
         city: store.city,
         state: store.state,
       });
@@ -59,58 +52,82 @@ export const listMyFavoriteStores = query({
 });
 
 export const listStoresForMe = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
-    const loc = await getDefaultLocation(ctx, args.userId);
-    if (!loc) return { location: null, stores: [], favorites: [] as string[] };
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
+    const loc = await getDefaultLocation(ctx, userId);
+    if (!loc) return { location: null, stores: [] };
 
-    const stores = await listRegionSupermarkets(ctx, loc.city, loc.state);
+    const region = withDistance(
+      await listRegionStores(ctx, loc.city, loc.state),
+      loc.lat,
+      loc.lng,
+    );
     const favs = await ctx.db
       .query("favoriteStores")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
-    const favSet = new Set(favs.map((f) => f.supermarketId as string));
+    const favSet = new Set(favs.map((f) => f.storeId as string));
 
-    const enriched = await Promise.all(
-      stores.map(async (s) => {
+    const now = Date.now();
+    const offerCountByNetwork = new Map<string, number>();
+    const stores = [];
+    for (const s of region) {
+      const netKey = s.supermarketId as string;
+      if (!offerCountByNetwork.has(netKey)) {
         const offers = await ctx.db
           .query("offers")
           .withIndex("by_supermarket_status", (q) =>
-            q.eq("supermarketId", s._id).eq("validationStatus", "validated"),
+            q
+              .eq("supermarketId", s.supermarketId)
+              .eq("validationStatus", "validated"),
           )
           .collect();
-        return {
-          _id: s._id,
-          name: s.name,
-          slug: s.slug,
-          city: s.city,
-          state: s.state,
-          offerCount: offers.length,
-          isFavorite: favSet.has(s._id),
-        };
-      }),
-    );
+        offerCountByNetwork.set(
+          netKey,
+          offers.filter((o) => {
+            if (o.validFrom !== undefined && o.validFrom > now) return false;
+            if (o.validUntil !== undefined && o.validUntil < now) return false;
+            return true;
+          }).length,
+        );
+      }
+      stores.push({
+        _id: s._id,
+        supermarketId: s.supermarketId,
+        name: s.name,
+        networkName: s.network.name,
+        city: s.city,
+        state: s.state,
+        neighborhood: s.neighborhood,
+        distanceKm: s.distanceKm,
+        offerCount: offerCountByNetwork.get(netKey) ?? 0,
+        isFavorite: favSet.has(s._id),
+      });
+    }
 
-    return {
-      location: loc,
-      stores: enriched.sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite)),
-      favorites: [...favSet],
-    };
+    stores.sort((a, b) => {
+      if (a.isFavorite !== b.isFavorite) return Number(b.isFavorite) - Number(a.isFavorite);
+      if (a.distanceKm == null && b.distanceKm == null) return 0;
+      if (a.distanceKm == null) return 1;
+      if (b.distanceKm == null) return -1;
+      return a.distanceKm - b.distanceKm;
+    });
+
+    return { location: loc, stores };
   },
 });
 
 export const toggleFavoriteStore = mutation({
-  args: {
-    userId: v.id("users"),
-    supermarketId: v.id("supermarkets"),
-  },
+  args: { storeId: v.id("stores") },
   handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
+    const userId = await requireAuth(ctx);
+    const store = await ctx.db.get(args.storeId);
+    if (!store) throw new Error("Store not found");
     const existing = await ctx.db
       .query("favoriteStores")
       .withIndex("by_user_store", (q) =>
-        q.eq("userId", args.userId).eq("supermarketId", args.supermarketId),
+        q.eq("userId", userId).eq("storeId", args.storeId),
       )
       .unique();
     if (existing) {
@@ -118,8 +135,8 @@ export const toggleFavoriteStore = mutation({
       return { favorited: false };
     }
     await ctx.db.insert("favoriteStores", {
-      userId: args.userId,
-      supermarketId: args.supermarketId,
+      userId,
+      storeId: args.storeId,
       createdAt: Date.now(),
     });
     return { favorited: true };

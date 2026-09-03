@@ -1,18 +1,19 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getDefaultLocation, requireUser } from "./clientLib";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { getDefaultLocation, requireAuth } from "./clientLib";
 
 export const getMyDefaultLocation = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
-    return await getDefaultLocation(ctx, args.userId);
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    return await getDefaultLocation(ctx, userId);
   },
 });
 
 export const upsertLocation = mutation({
   args: {
-    userId: v.id("users"),
     label: v.optional(v.string()),
     city: v.string(),
     state: v.string(),
@@ -22,13 +23,13 @@ export const upsertLocation = mutation({
     lng: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
+    const userId = await requireAuth(ctx);
     const now = Date.now();
     const city = args.city.trim();
     const state = args.state.trim().toUpperCase();
     if (!city || !state) throw new Error("city and state required");
 
-    const current = await getDefaultLocation(ctx, args.userId);
+    const current = await getDefaultLocation(ctx, userId);
     if (current) {
       await ctx.db.patch(current._id, {
         label: args.label?.trim() || current.label,
@@ -45,7 +46,7 @@ export const upsertLocation = mutation({
     }
 
     return await ctx.db.insert("locations", {
-      userId: args.userId,
+      userId,
       label: args.label?.trim() || "Casa",
       city,
       state,

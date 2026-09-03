@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 import {
   eligibilityEvidence,
   eligibilityStatus,
@@ -68,6 +69,8 @@ const networkType = v.union(
 );
 
 export default defineSchema({
+  ...authTables,
+
   supermarkets: defineTable({
     name: v.string(),
     slug: v.string(),
@@ -437,14 +440,7 @@ export default defineSchema({
     .index("by_canonical", ["canonicalProductId"])
     .index("by_offer", ["offerId"]),
 
-  // --- App cliente (docs/cliente-mvp.md) ---
-  // ponytail: sessionToken = auth anônimo; email/senha depois
-  users: defineTable({
-    sessionToken: v.string(),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  }).index("by_sessionToken", ["sessionToken"]),
-
+  // --- App cliente ---
   locations: defineTable({
     userId: v.id("users"),
     label: v.string(),
@@ -463,11 +459,19 @@ export default defineSchema({
 
   favoriteStores: defineTable({
     userId: v.id("users"),
-    supermarketId: v.id("supermarkets"),
+    storeId: v.id("stores"),
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
-    .index("by_user_store", ["userId", "supermarketId"]),
+    .index("by_user_store", ["userId", "storeId"]),
+
+  favoriteProducts: defineTable({
+    userId: v.id("users"),
+    canonicalProductId: v.id("canonicalProducts"),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_product", ["userId", "canonicalProductId"]),
 
   shoppingLists: defineTable({
     userId: v.id("users"),
@@ -481,6 +485,7 @@ export default defineSchema({
     listId: v.id("shoppingLists"),
     queryText: v.string(),
     offerId: v.optional(v.id("offers")),
+    canonicalProductId: v.optional(v.id("canonicalProducts")),
     quantity: v.number(),
     notes: v.optional(v.string()),
     createdAt: v.number(),

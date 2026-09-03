@@ -3,22 +3,21 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { ArrowLeft, Scales, Storefront, Trophy } from "@phosphor-icons/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
-import { useSession } from "@/components/SessionProvider";
 import { EmptyState, Money, Panel, Skeleton } from "@/components/ui";
 
 function CompareInner() {
-  const { userId } = useSession();
+  const { isAuthenticated } = useConvexAuth();
   const params = useSearchParams();
   const listId = params.get("listId") as Id<"shoppingLists"> | null;
 
   const result = useQuery(
     api.clientLists.compareShoppingList,
-    userId && listId ? { userId, listId } : "skip",
+    isAuthenticated && listId ? { listId } : "skip",
   );
 
   return (

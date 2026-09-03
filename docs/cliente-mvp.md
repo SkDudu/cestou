@@ -1,7 +1,7 @@
 # SPEC — App Cliente Cestou (MVP)
 
-**Status:** Draft  
-**Versão:** 0.1.0  
+**Status:** Fase 3  
+**Versão:** 0.3.0  
 **Tipo:** Product / Frontend Client  
 **Relacionados:** `docs/mvp.md`, `front-admin/docs/dashboard-mvp.md`, `back/convex/schema.ts`
 
@@ -28,19 +28,19 @@ Preço unitário aparece na busca. Na lista, herói = melhor mercado único (+ s
 
 ---
 
-## 2. Realidade do back (hoje)
+## 2. Realidade do back (Fase 3)
 
-Schema atual: `supermarkets` → `flyers` → `offers` (+ validação admin).
+Schema: redes, **filiais** (`stores` com lat/lng), flyers, ofertas validadas, **canônicos**, `priceHistory`, users (Convex Auth).
 
-| Tem | Não tem |
-|-----|---------|
-| Ofertas de encarte (nome, preço, validade) | User / Location / FavoriteStores |
-| Status `validated` / `pending` | ShoppingList / compare |
-| Supermarket com city/state | Lat/lng, loja física |
-| Encartes com `validFrom` / `validUntil` | Produto canônico / match estável |
-| Histórico implícito (offers no tempo) | Série limpa por SKU |
+| Tem | Ainda não (Fase 4+) |
+|-----|---------------------|
+| Cadastro e-mail/senha | Alertas, perfil de compra |
+| Location + GPS opcional | Mapa, custo de deslocamento |
+| Favorito de **filial** | Verificação de e-mail |
+| Lista + compare (canônico) | IA assistente |
+| Preço público vs clube | |
 
-**Implicação de produto:** MVP compara o que está **em oferta válida na região**, não catálogo completo de prateleira. UI deve ser transparente sobre isso.
+**Implicação de produto:** compara o que está **em oferta válida na região**, não catálogo completo de prateleira. UI deve ser transparente sobre isso. Preço é da **rede**; a filial diz onde ir.
 
 ---
 
@@ -114,7 +114,7 @@ locations {
 
 favoriteStores {
   userId
-  supermarketId
+  storeId          // filial
   createdAt
 }
 
@@ -127,8 +127,9 @@ shoppingLists {
 
 shoppingListItems {
   listId
-  queryText      // o que o usuário digitou ("arroz 5kg")
-  offerId?       // oferta escolhida (quando match manual/auto)
+  queryText
+  offerId?
+  canonicalProductId?
   quantity: number
   notes?: string
   createdAt, updatedAt
@@ -141,10 +142,10 @@ shoppingListItems {
 - `flyers` — encartes vigentes (`validUntil`, status `processed`)
 - `offers` — **somente** `validationStatus === "validated"` e dentro da validade do flyer/oferta
 
-### Evolução (não no MVP schema)
+### Evolução (não neste SPEC)
 
-- `storeLocations` (loja física com lat/lng) quando distância real importar
-- `products` canônicos + matching quando busca textual não segurar
+- Custo km × combustível
+- Alertas de preço (Fase 4)
 
 ---
 
@@ -396,6 +397,7 @@ Quando GPS, mapa ou multi-endereço chegarem, **não refazer** o produto — só
 ## 13. Implementação
 
 App: pasta `front-client/` (Next.js, porta **3001**).  
-API: `back/convex/client*.ts` + tabelas em `schema.ts`.  
+API: `back/convex/client*.ts` + Convex Auth (`auth.ts`, `http.ts`).  
+Detalhe da fase: `back/docs/roadmap/fase-3-cliente.md`.  
 Ver `front-client/README.md`.
 )

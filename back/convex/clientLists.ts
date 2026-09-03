@@ -1,18 +1,20 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
+  clubFields,
   getDefaultLocation,
-  isOfferValidNow,
-  requireUser,
+  rankingPrice,
+  requireAuth,
   resolveCompareStores,
   tokensMatch,
+  validatedOffersForStores,
 } from "./clientLib";
 import { publicCondition, publicPayment } from "./offerEligibility";
 
 async function requireListOwner(
-  ctx: QueryCtx,
+  ctx: QueryCtx | MutationCtx,
   listId: Id<"shoppingLists">,
   userId: Id<"users">,
 ) {
@@ -21,40 +23,51 @@ async function requireListOwner(
   return list;
 }
 
-async function findBestOfferForItem(
-  ctx: QueryCtx,
+function offerMatchesItem(
+  offer: Doc<"offers">,
+  item: Doc<"shoppingListItems">,
+  canonicalName?: string,
+) {
+  if (
+    item.canonicalProductId &&
+    offer.canonicalProductId === item.canonicalProductId
+  ) {
+    return true;
+  }
+  if (item.offerId && offer._id === item.offerId) return true;
+  if (canonicalName && tokensMatch(canonicalName, item.queryText)) return true;
+  return (
+    tokensMatch(offer.name, item.queryText) ||
+    (offer.normalizedName
+      ? tokensMatch(offer.normalizedName, item.queryText)
+      : false)
+  );
+}
+
+function findBestOfferForItem(
   item: Doc<"shoppingListItems">,
   supermarketId: Id<"supermarkets">,
   validatedCache: Doc<"offers">[],
-): Promise<Doc<"offers"> | null> {
-  if (item.offerId) {
-    const attached = await ctx.db.get(item.offerId);
-    if (
-      attached &&
-      attached.supermarketId === supermarketId &&
-      isOfferValidNow(attached)
-    ) {
-      return attached;
-    }
-  }
-
-  const matches = validatedCache.filter(
-    (o) =>
-      o.supermarketId === supermarketId &&
-      isOfferValidNow(o) &&
-      tokensMatch(o.name, item.queryText),
-  );
+  canonicalNames: Map<string, string>,
+): Doc<"offers"> | null {
+  const matches = validatedCache.filter((o) => {
+    if (o.supermarketId !== supermarketId) return false;
+    const cName = o.canonicalProductId
+      ? canonicalNames.get(o.canonicalProductId)
+      : undefined;
+    return offerMatchesItem(o, item, cName);
+  });
   if (!matches.length) return null;
-  return matches.sort((a, b) => a.price - b.price)[0]!;
+  return matches.sort((a, b) => rankingPrice(a) - rankingPrice(b))[0]!;
 }
 
 export const listMyShoppingLists = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
     const lists = await ctx.db
       .query("shoppingLists")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
     return await Promise.all(
       lists.map(async (l) => {
@@ -70,11 +83,11 @@ export const listMyShoppingLists = query({
 
 export const getShoppingList = query({
   args: {
-    userId: v.id("users"),
     listId: v.id("shoppingLists"),
   },
   handler: async (ctx, args) => {
-    const list = await requireListOwner(ctx, args.listId, args.userId);
+    const userId = await requireAuth(ctx);
+    const list = await requireListOwner(ctx, args.listId, userId);
     const items = await ctx.db
       .query("shoppingListItems")
       .withIndex("by_list", (q) => q.eq("listId", args.listId))
@@ -92,9 +105,10 @@ export const getShoppingList = query({
             ? {
                 _id: offer._id,
                 name: offer.name,
-                price: offer.price,
+                price: rankingPrice(offer),
                 supermarketName: supermarket?.name ?? "—",
                 condition: publicCondition(offer),
+                ...clubFields(offer),
                 ...publicPayment(offer),
               }
             : null,
@@ -107,19 +121,19 @@ export const getShoppingList = query({
 });
 
 export const getOrCreateDefaultList = mutation({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
     const existing = await ctx.db
       .query("shoppingLists")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
     if (existing) return existing._id;
 
-    const loc = await getDefaultLocation(ctx, args.userId);
+    const loc = await getDefaultLocation(ctx, userId);
     const now = Date.now();
     return await ctx.db.insert("shoppingLists", {
-      userId: args.userId,
+      userId,
       name: "Compras da semana",
       locationId: loc?._id,
       createdAt: now,
@@ -130,15 +144,14 @@ export const getOrCreateDefaultList = mutation({
 
 export const createShoppingList = mutation({
   args: {
-    userId: v.id("users"),
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx, args.userId);
-    const loc = await getDefaultLocation(ctx, args.userId);
+    const userId = await requireAuth(ctx);
+    const loc = await getDefaultLocation(ctx, userId);
     const now = Date.now();
     return await ctx.db.insert("shoppingLists", {
-      userId: args.userId,
+      userId,
       name: args.name.trim() || "Minha lista",
       locationId: loc?._id,
       createdAt: now,
@@ -149,12 +162,12 @@ export const createShoppingList = mutation({
 
 export const renameShoppingList = mutation({
   args: {
-    userId: v.id("users"),
     listId: v.id("shoppingLists"),
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireListOwner(ctx, args.listId, args.userId);
+    const userId = await requireAuth(ctx);
+    await requireListOwner(ctx, args.listId, userId);
     await ctx.db.patch(args.listId, {
       name: args.name.trim(),
       updatedAt: Date.now(),
@@ -164,11 +177,11 @@ export const renameShoppingList = mutation({
 
 export const deleteShoppingList = mutation({
   args: {
-    userId: v.id("users"),
     listId: v.id("shoppingLists"),
   },
   handler: async (ctx, args) => {
-    await requireListOwner(ctx, args.listId, args.userId);
+    const userId = await requireAuth(ctx);
+    await requireListOwner(ctx, args.listId, userId);
     const items = await ctx.db
       .query("shoppingListItems")
       .withIndex("by_list", (q) => q.eq("listId", args.listId))
@@ -180,22 +193,29 @@ export const deleteShoppingList = mutation({
 
 export const addListItem = mutation({
   args: {
-    userId: v.id("users"),
     listId: v.id("shoppingLists"),
     queryText: v.string(),
     offerId: v.optional(v.id("offers")),
+    canonicalProductId: v.optional(v.id("canonicalProducts")),
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireListOwner(ctx, args.listId, args.userId);
+    const userId = await requireAuth(ctx);
+    await requireListOwner(ctx, args.listId, userId);
     const text = args.queryText.trim();
     if (!text) throw new Error("queryText required");
+    let canonicalProductId = args.canonicalProductId;
+    if (!canonicalProductId && args.offerId) {
+      const offer = await ctx.db.get(args.offerId);
+      canonicalProductId = offer?.canonicalProductId;
+    }
     const now = Date.now();
     return await ctx.db.insert("shoppingListItems", {
       listId: args.listId,
       queryText: text,
       offerId: args.offerId,
+      canonicalProductId,
       quantity: args.quantity ?? 1,
       notes: args.notes,
       createdAt: now,
@@ -206,13 +226,13 @@ export const addListItem = mutation({
 
 export const removeListItem = mutation({
   args: {
-    userId: v.id("users"),
     itemId: v.id("shoppingListItems"),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuth(ctx);
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found");
-    await requireListOwner(ctx, item.listId, args.userId);
+    await requireListOwner(ctx, item.listId, userId);
     await ctx.db.delete(args.itemId);
     await ctx.db.patch(item.listId, { updatedAt: Date.now() });
   },
@@ -220,20 +240,21 @@ export const removeListItem = mutation({
 
 export const attachOfferToItem = mutation({
   args: {
-    userId: v.id("users"),
     itemId: v.id("shoppingListItems"),
     offerId: v.id("offers"),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuth(ctx);
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found");
-    await requireListOwner(ctx, item.listId, args.userId);
+    await requireListOwner(ctx, item.listId, userId);
     const offer = await ctx.db.get(args.offerId);
     if (!offer || offer.validationStatus !== "validated") {
       throw new Error("Offer not available");
     }
     await ctx.db.patch(args.itemId, {
       offerId: args.offerId,
+      canonicalProductId: offer.canonicalProductId,
       queryText: offer.name,
       updatedAt: Date.now(),
     });
@@ -242,12 +263,12 @@ export const attachOfferToItem = mutation({
 
 export const compareShoppingList = query({
   args: {
-    userId: v.id("users"),
     listId: v.id("shoppingLists"),
   },
   handler: async (ctx, args) => {
-    await requireListOwner(ctx, args.listId, args.userId);
-    const loc = await getDefaultLocation(ctx, args.userId);
+    const userId = await requireAuth(ctx);
+    await requireListOwner(ctx, args.listId, userId);
+    const loc = await getDefaultLocation(ctx, userId);
     if (!loc) {
       return {
         error: "Defina sua região antes de comparar.",
@@ -261,14 +282,19 @@ export const compareShoppingList = query({
 
     const stores = await resolveCompareStores(
       ctx,
-      args.userId,
+      userId,
       loc.city,
       loc.state,
+      loc.lat,
+      loc.lng,
     );
     const items = await ctx.db
       .query("shoppingListItems")
       .withIndex("by_list", (q) => q.eq("listId", args.listId))
       .collect();
+
+    const disclaimer =
+      "Comparação baseada em ofertas de encarte validadas e vigentes. Preço da cesta usa o valor público; clube aparece à parte.";
 
     if (!items.length) {
       return {
@@ -277,17 +303,19 @@ export const compareShoppingList = query({
         bestSingle: null,
         split: null,
         itemCount: 0,
-        disclaimer:
-          "Comparação baseada em ofertas de encarte validadas e vigentes.",
+        disclaimer,
       };
     }
 
-    const validated = await ctx.db
-      .query("offers")
-      .withIndex("by_validationStatus", (q) =>
-        q.eq("validationStatus", "validated"),
-      )
-      .collect();
+    const validated = await validatedOffersForStores(ctx, stores);
+    const canonicalNames = new Map<string, string>();
+    for (const o of validated) {
+      if (!o.canonicalProductId) continue;
+      const cid = o.canonicalProductId as string;
+      if (canonicalNames.has(cid)) continue;
+      const p = await ctx.db.get(o.canonicalProductId);
+      if (p) canonicalNames.set(cid, p.canonicalName);
+    }
 
     type Line = {
       itemId: Id<"shoppingListItems">;
@@ -296,22 +324,40 @@ export const compareShoppingList = query({
       offerId: Id<"offers"> | null;
       offerName: string | null;
       unitPrice: number | null;
+      memberPrice: number | null;
       lineTotal: number | null;
       available: boolean;
       condition: ReturnType<typeof publicCondition> | null;
     };
 
-    const markets = [];
+    const networks = new Map<
+      string,
+      { supermarketId: Id<"supermarkets">; name: string; storeLabel: string }
+    >();
     for (const store of stores) {
+      const key = store.supermarketId as string;
+      const existing = networks.get(key);
+      const label = `${store.network.name} · ${store.name}`;
+      if (!existing) {
+        networks.set(key, {
+          supermarketId: store.supermarketId,
+          name: store.network.name,
+          storeLabel: label,
+        });
+      }
+    }
+
+    const markets = [];
+    for (const net of networks.values()) {
       const lines: Line[] = [];
       let total = 0;
       let missing = 0;
       for (const item of items) {
-        const offer = await findBestOfferForItem(
-          ctx,
+        const offer = findBestOfferForItem(
           item,
-          store._id,
+          net.supermarketId,
           validated,
+          canonicalNames,
         );
         if (!offer) {
           missing++;
@@ -322,13 +368,15 @@ export const compareShoppingList = query({
             offerId: null,
             offerName: null,
             unitPrice: null,
+            memberPrice: null,
             lineTotal: null,
             available: false,
             condition: null,
           });
           continue;
         }
-        const lineTotal = offer.price * item.quantity;
+        const unit = rankingPrice(offer);
+        const lineTotal = unit * item.quantity;
         total += lineTotal;
         lines.push({
           itemId: item._id,
@@ -336,15 +384,16 @@ export const compareShoppingList = query({
           quantity: item.quantity,
           offerId: offer._id,
           offerName: offer.name,
-          unitPrice: offer.price,
+          unitPrice: unit,
+          memberPrice: offer.memberPrice ?? null,
           lineTotal,
           available: true,
           condition: publicCondition(offer),
         });
       }
       markets.push({
-        supermarketId: store._id,
-        supermarketName: store.name,
+        supermarketId: net.supermarketId,
+        supermarketName: net.storeLabel,
         total,
         missing,
         coverage: items.length - missing,
@@ -367,7 +416,6 @@ export const compareShoppingList = query({
         ? Math.max(0, worstComplete.total - bestSingle.total)
         : 0;
 
-    // P1 — split até 2 mercados (greedy no mais barato por item)
     type SplitAssign = {
       itemId: Id<"shoppingListItems">;
       queryText: string;
@@ -380,27 +428,29 @@ export const compareShoppingList = query({
       lineTotal: number;
     };
     const assignments: SplitAssign[] = [];
+    const netList = [...networks.values()];
     for (const item of items) {
       let best: SplitAssign | null = null;
-      for (const store of stores) {
-        const offer = await findBestOfferForItem(
-          ctx,
+      for (const net of netList) {
+        const offer = findBestOfferForItem(
           item,
-          store._id,
+          net.supermarketId,
           validated,
+          canonicalNames,
         );
         if (!offer) continue;
-        const lineTotal = offer.price * item.quantity;
+        const unit = rankingPrice(offer);
+        const lineTotal = unit * item.quantity;
         if (!best || lineTotal < best.lineTotal) {
           best = {
             itemId: item._id,
             queryText: item.queryText,
             quantity: item.quantity,
-            supermarketId: store._id,
-            supermarketName: store.name,
+            supermarketId: net.supermarketId,
+            supermarketName: net.storeLabel,
             offerId: offer._id,
             offerName: offer.name,
-            unitPrice: offer.price,
+            unitPrice: unit,
             lineTotal,
           };
         }
@@ -424,7 +474,6 @@ export const compareShoppingList = query({
       lines,
     }));
 
-    // Se >2 mercados, funde os menores no top-2 por total de itens
     if (storeEntries.length > 2) {
       storeEntries.sort((a, b) => b.itemCount - a.itemCount);
       const keep = storeEntries.slice(0, 2);
@@ -432,28 +481,27 @@ export const compareShoppingList = query({
       const keepIds = new Set(keep.map((k) => k.supermarketId as string));
       for (const d of drop) {
         for (const line of d.lines) {
-          // Reassign cada item ao mais barato entre os 2 keep
           let bestKeep: SplitAssign | null = null;
           for (const kid of keepIds) {
-            const offer = await findBestOfferForItem(
-              ctx,
+            const offer = findBestOfferForItem(
               items.find((i) => i._id === line.itemId)!,
               kid as Id<"supermarkets">,
               validated,
+              canonicalNames,
             );
             if (!offer) continue;
-            const lineTotal = offer.price * line.quantity;
-            const store = stores.find((s) => s._id === kid)!;
+            const net = networks.get(kid)!;
+            const unit = rankingPrice(offer);
             const cand: SplitAssign = {
               itemId: line.itemId,
               queryText: line.queryText,
               quantity: line.quantity,
-              supermarketId: store._id,
-              supermarketName: store.name,
+              supermarketId: net.supermarketId,
+              supermarketName: net.storeLabel,
               offerId: offer._id,
               offerName: offer.name,
-              unitPrice: offer.price,
-              lineTotal,
+              unitPrice: unit,
+              lineTotal: unit * line.quantity,
             };
             if (!bestKeep || cand.lineTotal < bestKeep.lineTotal) {
               bestKeep = cand;
@@ -491,12 +539,9 @@ export const compareShoppingList = query({
       itemCount: items.length,
       location: { city: loc.city, state: loc.state },
       markets: ranked,
-      bestSingle: bestSingle
-        ? { ...bestSingle, savingsVsWorst }
-        : null,
+      bestSingle: bestSingle ? { ...bestSingle, savingsVsWorst } : null,
       split,
-      disclaimer:
-        "Comparação baseada em ofertas de encarte validadas e vigentes. Preço condicionado (clube, cartão, CPF, app) não é preço para todos.",
+      disclaimer,
     };
   },
 });

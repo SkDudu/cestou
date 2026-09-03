@@ -1,17 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { MagnifyingGlass, Plus, Trophy } from "@phosphor-icons/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { Heart, MagnifyingGlass, Plus, Trophy } from "@phosphor-icons/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
-import { useSession } from "@/components/SessionProvider";
+import { ClubPrice } from "@/components/ClubPrice";
 import {
   Button,
   EmptyState,
   Input,
-  Money,
   Panel,
   Skeleton,
 } from "@/components/ui";
@@ -19,38 +18,51 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { PaymentNote } from "@/components/PaymentNote";
 
 export default function BuscaPage() {
-  const { userId } = useSession();
+  const { isAuthenticated } = useConvexAuth();
   const location = useQuery(
     api.clientLocation.getMyDefaultLocation,
-    userId ? { userId } : "skip",
+    isAuthenticated ? {} : "skip",
   );
   const [q, setQ] = useState("");
   const [deferred, setDeferred] = useState("");
   const results = useQuery(
     api.clientOffers.searchOffers,
-    userId && deferred.length >= 2 ? { userId, q: deferred } : "skip",
+    isAuthenticated && deferred.length >= 2 ? { q: deferred } : "skip",
+  );
+  const favIds = useQuery(
+    api.clientFavorites.listFavoriteProductIds,
+    isAuthenticated ? {} : "skip",
   );
   const ensureList = useMutation(api.clientLists.getOrCreateDefaultList);
   const addItem = useMutation(api.clientLists.addListItem);
+  const toggleFav = useMutation(api.clientFavorites.toggleFavoriteProduct);
   const [added, setAdded] = useState<string | null>(null);
+  const favSet = useMemo(() => new Set(favIds ?? []), [favIds]);
 
   const locLabel = useMemo(() => {
     if (!location) return null;
     return `${location.city} — ${location.state}`;
   }, [location]);
 
-  async function addOffer(queryText: string, offerId: Id<"offers">) {
-    if (!userId) return;
-    const listId = await ensureList({ userId });
-    await addItem({ userId, listId, queryText, offerId });
+  async function addOffer(
+    queryText: string,
+    offerId: Id<"offers">,
+    canonicalProductId: Id<"canonicalProducts"> | null,
+  ) {
+    const listId = await ensureList({});
+    await addItem({
+      listId,
+      queryText,
+      offerId,
+      canonicalProductId: canonicalProductId ?? undefined,
+    });
     setAdded(offerId);
     setTimeout(() => setAdded(null), 1500);
   }
 
   async function addQueryOnly(queryText: string) {
-    if (!userId) return;
-    const listId = await ensureList({ userId });
-    await addItem({ userId, listId, queryText });
+    const listId = await ensureList({});
+    await addItem({ listId, queryText });
     setAdded(queryText);
     setTimeout(() => setAdded(null), 1500);
   }
@@ -59,7 +71,7 @@ export default function BuscaPage() {
     <AppShell
       locationLabel={locLabel}
       title="Buscar produto"
-      subtitle="Compare preços por mercado a partir de ofertas validadas."
+      subtitle="Compare preços por mercado a partir de ofertas validadas e produtos canônicos."
     >
       <form
         className="grid gap-3 md:grid-cols-[1fr_auto]"
@@ -104,7 +116,7 @@ export default function BuscaPage() {
         {!deferred ? (
           <EmptyState
             title="Digite e busque"
-            body="Resultados agrupam o mesmo produto com preços por supermercado da sua região."
+            body="Resultados agrupam o mesmo produto canônico com preços por supermercado da sua região."
           />
         ) : results === undefined ? (
           <div className="grid gap-4 md:grid-cols-2">
@@ -130,9 +142,30 @@ export default function BuscaPage() {
           <div className="grid gap-4 md:grid-cols-2 stagger-in">
             {results.map((g) => (
               <Panel key={g.key} className="flex flex-col p-5">
-                <h2 className="text-lg font-semibold tracking-tight">
-                  {g.name}
-                </h2>
+                <div className="flex items-start justify-between gap-2">
+                  <h2 className="text-lg font-semibold tracking-tight">
+                    {g.name}
+                  </h2>
+                  {g.canonicalProductId ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void toggleFav({
+                          canonicalProductId: g.canonicalProductId!,
+                        })
+                      }
+                      className="cursor-pointer text-[var(--amber)]"
+                      aria-label="Favoritar produto"
+                    >
+                      <Heart
+                        size={18}
+                        weight={
+                          favSet.has(g.canonicalProductId) ? "fill" : "regular"
+                        }
+                      />
+                    </button>
+                  ) : null}
+                </div>
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   {[g.brand, g.quantity, g.unit].filter(Boolean).join(" · ")}
                 </p>
@@ -146,7 +179,11 @@ export default function BuscaPage() {
                         {p.supermarketName}
                       </span>
                       <span className="text-right">
-                        <Money value={p.price} />
+                        <ClubPrice
+                          publicPrice={p.publicPrice}
+                          memberPrice={p.memberPrice}
+                          membershipName={p.membershipName}
+                        />
                         <PaymentNote
                           installmentCount={p.installmentCount}
                           installmentAmount={p.installmentAmount}
@@ -167,7 +204,13 @@ export default function BuscaPage() {
                       type="button"
                       variant="ghost"
                       className="!py-2 !text-xs"
-                      onClick={() => void addOffer(g.name, g.cheapest!.offerId)}
+                      onClick={() =>
+                        void addOffer(
+                          g.name,
+                          g.cheapest!.offerId,
+                          g.canonicalProductId,
+                        )
+                      }
                     >
                       <Plus size={14} weight="bold" aria-hidden />
                       Lista

@@ -265,14 +265,16 @@ Sinais comportamentais (sem IA no início):
 
 ### Fase 3 — Cliente
 
-- [ ] Cadastro  
-- [ ] Localização / endereço  
-- [ ] Meus supermercados  
-- [ ] Lista de compras  
-- [ ] Busca de produtos  
-- [ ] Comparação de preços  
-- [ ] Ofertas próximas  
-- [ ] Favoritos  
+→ Detalhes: [`roadmap/fase-3-cliente.md`](./fase-3-cliente.md)
+
+- [x] Cadastro  
+- [x] Localização / endereço  
+- [x] Meus supermercados  
+- [x] Lista de compras  
+- [x] Busca de produtos  
+- [x] Comparação de preços  
+- [x] Ofertas próximas  
+- [x] Favoritos  
 
 
 
@@ -306,7 +308,8 @@ Sinais comportamentais (sem IA no início):
 1. ~~Fechar gestão e ciclo automático de flyers~~ — ver [`fase-1-backend.md`](./fase-1-backend.md).
 2. ~~**Fase 2 — Dados** (backend)~~ — ver [`fase-2-dados.md`](./fase-2-dados.md).
 3. ~~**Fase 2.1 — Admin catálogo / preços**~~ — ver [`fase-2.1-admin-catalogo.md`](./fase-2.1-admin-catalogo.md).
-4. Aprofundar o app cliente (listas + proximidade) — Fase 3.
+4. ~~**Fase 3 — Cliente**~~ — ver [`fase-3-cliente.md`](./fase-3-cliente.md).
+5. Fase 4 — Inteligência (perfil, alertas).
 
 Documentação por fase: [`roadmap/README.md`](./README.md).
 
