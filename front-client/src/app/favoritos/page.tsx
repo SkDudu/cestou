@@ -47,7 +47,7 @@ export default function FavoritosPage() {
               <Panel className="flex items-start justify-between gap-4 px-5 py-4">
                 <div>
                   <p className="font-medium tracking-tight">{p.name}</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
+                  <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
                     {[p.brand, p.quantity, p.unit].filter(Boolean).join(" · ") ||
                       "Produto canônico"}
                   </p>
@@ -57,7 +57,7 @@ export default function FavoritosPage() {
                   onClick={() =>
                     void toggle({ canonicalProductId: p.canonicalProductId })
                   }
-                  className="cursor-pointer text-[var(--amber)]"
+                  className="cursor-pointer text-[var(--ds-color-accent)]"
                   aria-label="Remover dos favoritos"
                 >
                   <Heart size={18} weight="fill" />

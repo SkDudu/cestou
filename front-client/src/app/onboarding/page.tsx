@@ -63,28 +63,34 @@ export default function OnboardingPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="grid min-h-[100dvh] place-items-center text-[var(--muted)]">
+      <div className="grid min-h-[100dvh] place-items-center bg-[var(--ds-color-muted)] text-[var(--ds-color-muted-foreground)]">
         Preparando sessão…
       </div>
     );
   }
 
   return (
-    <div className="mx-auto grid min-h-[100dvh] max-w-[1400px] grid-cols-1 lg:grid-cols-[0.95fr_1.05fr]">
-      <section className="flex flex-col justify-center border-b border-[var(--line)] px-8 py-14 lg:border-b-0 lg:border-r lg:px-16">
-        <p className="font-mono text-[11px] font-bold tracking-[0.28em] text-[var(--amber)]">
-          CESTOU
-        </p>
-        <h1 className="mt-6 max-w-[16ch] text-4xl font-semibold tracking-tighter md:text-5xl">
+    <div className="mx-auto grid min-h-[100dvh] max-w-[1400px] grid-cols-1 bg-[var(--ds-color-muted)] lg:grid-cols-[0.95fr_1.05fr]">
+      <section className="flex flex-col justify-center border-b border-[var(--ds-color-border)] bg-[var(--ds-color-background)] px-5 py-10 pt-[max(2.5rem,env(safe-area-inset-top))] sm:px-8 sm:py-14 lg:border-b-0 lg:border-r lg:px-16">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[13px] font-bold text-white"
+            style={{ background: "var(--ds-color-harbor)" }}
+          >
+            C
+          </span>
+          <span className="text-sm font-medium">Cestou</span>
+        </div>
+        <h1 className="mt-6 max-w-[16ch] text-[32px] font-bold leading-9 tracking-[-0.04em] sm:mt-8 sm:text-[44px] sm:leading-[48px] md:text-5xl">
           Onde você costuma comprar?
         </h1>
-        <p className="mt-4 max-w-[48ch] text-sm leading-relaxed text-[var(--muted)]">
+        <p className="mt-3 max-w-[48ch] text-sm leading-relaxed text-[var(--ds-color-muted-foreground)] sm:mt-4">
           Cidade e estado filtram as filiais. GPS é opcional e só ordena por
           distância — sem mapa e sem endereço automático.
         </p>
       </section>
 
-      <section className="flex items-center px-8 py-14 lg:px-16">
+      <section className="flex items-center px-5 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] sm:px-8 sm:py-14 lg:px-16">
         <form onSubmit={onSubmit} className="w-full max-w-md space-y-5">
           <Field label="Cidade">
             <Input
@@ -109,15 +115,19 @@ export default function OnboardingPage() {
               placeholder="Ex.: Aldeota"
             />
           </Field>
-          <Button type="button" variant="ghost" className="w-full" onClick={useGps}>
+          <Button type="button" variant="outline" className="w-full" onClick={useGps}>
             <GpsFix size={16} weight="bold" aria-hidden />
             Usar minha localização
           </Button>
           {gpsHint ? (
-            <p className="text-xs text-[var(--muted)]">{gpsHint}</p>
+            <p className="text-xs text-[var(--ds-color-muted-foreground)]">
+              {gpsHint}
+            </p>
           ) : null}
-          {error ? <p className="text-sm text-[var(--alert)]">{error}</p> : null}
-          <Button type="submit" disabled={busy} className="w-full">
+          {error ? (
+            <p className="text-sm text-[var(--ds-color-danger)]">{error}</p>
+          ) : null}
+          <Button type="submit" disabled={busy} className="w-full ds-btn--lg">
             {busy ? "Salvando…" : "Continuar"}
             {!busy ? <ArrowRight size={16} weight="bold" aria-hidden /> : null}
           </Button>

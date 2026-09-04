@@ -13,6 +13,7 @@ import {
   Button,
   EmptyState,
   Input,
+  ListSurface,
   Skeleton,
 } from "@/components/ui";
 
@@ -43,7 +44,7 @@ export default function EncarteDetailPage({
       actions={
         <Link
           href="/encartes"
-          className="inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--fg)]"
+          className="inline-flex items-center gap-2 text-sm text-[var(--ds-color-muted-foreground)] hover:text-[var(--ds-color-foreground)]"
         >
           <ArrowLeft size={16} aria-hidden />
           Voltar
@@ -65,7 +66,7 @@ export default function EncarteDetailPage({
           body="Este encarte não tem ofertas validadas no momento."
         />
       ) : (
-        <ul className="divide-y divide-[var(--line)] border border-[var(--line)] bg-[var(--bg-elev)]">
+        <ListSurface>
           {data.offers.map((o) => (
             <li
               key={o._id}
@@ -73,7 +74,7 @@ export default function EncarteDetailPage({
             >
               <div className="min-w-0">
                 <p className="font-medium tracking-tight">{o.name}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">
+                <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
                   {[o.brand, o.quantity, o.unit].filter(Boolean).join(" · ")}
                 </p>
                 <ConditionBadge condition={o.condition} />
@@ -86,8 +87,7 @@ export default function EncarteDetailPage({
                 />
                 <Button
                   type="button"
-                  variant="ghost"
-                  className="!py-2 !text-xs"
+                  variant="outline"
                   onClick={() => void add(o.name, o._id)}
                 >
                   <Plus size={14} weight="bold" aria-hidden />
@@ -96,7 +96,7 @@ export default function EncarteDetailPage({
               </div>
             </li>
           ))}
-        </ul>
+        </ListSurface>
       )}
     </AppShell>
   );

@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Star } from "@phosphor-icons/react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
-import { Button, EmptyState, Panel, Skeleton } from "@/components/ui";
+import { EmptyState, Panel, Skeleton } from "@/components/ui";
 import { formatDistanceKm } from "@/lib/format";
 
 export default function MercadosPage() {
@@ -24,22 +23,6 @@ export default function MercadosPage() {
     await toggle({ storeId });
   }
 
-  if (data && data.location === null) {
-    return (
-      <div className="grid min-h-[100dvh] place-items-center px-6">
-        <EmptyState
-          title="Defina sua região"
-          body="Sem localização não dá para listar filiais próximas."
-          action={
-            <Link href="/onboarding">
-              <Button type="button">Ir para onboarding</Button>
-            </Link>
-          }
-        />
-      </div>
-    );
-  }
-
   const favorites = data?.stores.filter((s) => s.isFavorite) ?? [];
   const others = data?.stores.filter((s) => !s.isFavorite) ?? [];
 
@@ -47,7 +30,7 @@ export default function MercadosPage() {
     <AppShell
       locationLabel={locLabel}
       title="Mercados"
-      subtitle="Favoritos entram na comparação da lista. Sem favorito = filiais da região. Preço é da rede; a filial é o destino."
+      subtitle="Todas as redes e filiais ativas. Favoritos restringem só a comparação da lista."
     >
       {!data ? (
         <div className="grid gap-4 md:grid-cols-2">
@@ -57,16 +40,16 @@ export default function MercadosPage() {
       ) : data.stores.length === 0 ? (
         <EmptyState
           title="Nenhuma filial ativa"
-          body={`Não há lojas cadastradas em ${loc?.city}/${loc?.state}.`}
+          body="Não há lojas ativas cadastradas no sistema."
         />
       ) : (
         <div className="grid gap-10 xl:grid-cols-[1fr_1.2fr]">
           <section>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--amber)]">
+            <h2 className="ds-label-caps text-[var(--ds-color-primary)]">
               Meus mercados
             </h2>
             {favorites.length === 0 ? (
-              <p className="mt-4 text-sm text-[var(--muted)]">
+              <p className="mt-4 text-sm text-[var(--ds-color-muted-foreground)]">
                 Nenhum favorito ainda — marque na coluna ao lado.
               </p>
             ) : (
@@ -87,9 +70,9 @@ export default function MercadosPage() {
           </section>
 
           <section>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-              Outros na região
-            </h2>
+            <h2 className="ds-label-caps">
+            Outros mercados
+          </h2>
             <ul className="mt-4 grid gap-3 sm:grid-cols-2 stagger-in">
               {others.map((s) => (
                 <StoreRow
@@ -130,7 +113,7 @@ function StoreRow({
       <Panel className="flex items-center justify-between gap-4 px-4 py-4">
         <div className="min-w-0">
           <p className="truncate font-medium tracking-tight">{name}</p>
-          <p className="mt-1 font-mono text-xs text-[var(--muted)]">
+          <p className="mt-1 font-mono text-xs text-[var(--ds-color-muted-foreground)]">
             {networkName} · {formatDistanceKm(distanceKm)} · {offerCount} ofertas
           </p>
         </div>
@@ -140,7 +123,9 @@ function StoreRow({
           aria-pressed={favorited}
           aria-label={favorited ? "Remover dos favoritos" : "Favoritar"}
           className={`inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold uppercase tracking-wide transition-colors duration-200 active:scale-[0.98] ${
-            favorited ? "text-[var(--amber)]" : "text-[var(--muted)] hover:text-[var(--fg)]"
+            favorited
+              ? "text-[var(--ds-color-accent)]"
+              : "text-[var(--ds-color-muted-foreground)] hover:text-[var(--ds-color-foreground)]"
           }`}
         >
           <Star size={16} weight={favorited ? "fill" : "regular"} aria-hidden />

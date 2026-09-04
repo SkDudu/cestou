@@ -9,18 +9,20 @@ export function ConditionBadge({
   if (condition.kind === "none") {
     if (!showAll) return null;
     return (
-      <p className="mt-0.5 text-[11px] text-[var(--muted)]">✓ {condition.text}</p>
+      <p className="mt-0.5 text-[11px] text-[var(--ds-color-muted-foreground)]">
+        ✓ {condition.text}
+      </p>
     );
   }
   if (condition.kind === "unknown") {
     return (
-      <p className="mt-0.5 text-[11px] text-[var(--alert)]">
+      <p className="mt-0.5 text-[11px] text-[var(--ds-color-danger)]">
         ⚠ {condition.text}
       </p>
     );
   }
   return (
-    <p className="mt-0.5 text-[11px] text-[var(--amber)]">
+    <p className="mt-0.5 text-[11px] text-[var(--ds-color-accent)]">
       {condition.text}
     </p>
   );

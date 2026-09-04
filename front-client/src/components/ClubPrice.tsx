@@ -11,9 +11,9 @@ export function ClubPrice({
 }) {
   return (
     <div className="text-right">
-      <Money value={publicPrice} className="text-[var(--moss)]" />
+      <Money value={publicPrice} className="text-[var(--ds-color-success)]" />
       {memberPrice != null && memberPrice !== publicPrice ? (
-        <p className="mt-0.5 text-[11px] text-[var(--amber)]">
+        <p className="mt-0.5 text-[11px] text-[var(--ds-color-accent)]">
           Clube{membershipName ? ` ${membershipName}` : ""}:{" "}
           <Money value={memberPrice} />
         </p>

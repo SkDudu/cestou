@@ -1,11 +1,11 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Geist_Mono, Outfit } from "next/font/google";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { AuthGate } from "@/components/AuthGate";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const outfit = Outfit({
+  variable: "--font-outfit",
   subsets: ["latin"],
 });
 
@@ -18,6 +18,29 @@ export const metadata: Metadata = {
   title: "Cestou — Compre melhor",
   description:
     "Compare ofertas e ache o menor custo da sua lista de compras.",
+  applicationName: "Cestou",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Cestou",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#2f5f7a" },
+    { media: "(prefers-color-scheme: dark)", color: "#2f5f7a" },
+  ],
+  colorScheme: "light",
 };
 
 export default function RootLayout({
@@ -28,9 +51,10 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      data-theme="light"
+      className={`${outfit.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-[100dvh] font-sans text-[var(--fg)]">
+      <body className="min-h-[100dvh] touch-manipulation font-sans text-[var(--ds-color-foreground)]">
         <ConvexClientProvider>
           <AuthGate>{children}</AuthGate>
         </ConvexClientProvider>

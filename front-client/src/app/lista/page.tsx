@@ -12,6 +12,7 @@ import {
   Button,
   EmptyState,
   Input,
+  ListSurface,
   Skeleton,
 } from "@/components/ui";
 import { ConditionBadge } from "@/components/ConditionBadge";
@@ -66,9 +67,7 @@ export default function ListaPage() {
     >
       <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
         <form onSubmit={onAdd} className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-            Novo item
-          </p>
+          <p className="ds-label-caps">Novo item</p>
           <Input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -79,7 +78,7 @@ export default function ListaPage() {
             <Plus size={16} weight="bold" aria-hidden />
             Adicionar
           </Button>
-          <p className="text-xs leading-relaxed text-[var(--muted)]">
+          <p className="text-xs leading-relaxed text-[var(--ds-color-muted-foreground)]">
             Sem oferta fixada, a comparação usa o produto canônico quando
             existir, senão o texto.
           </p>
@@ -101,7 +100,7 @@ export default function ListaPage() {
               }
             />
           ) : (
-            <ul className="divide-y divide-[var(--line)] border border-[var(--line)] bg-[var(--bg-elev)] stagger-in">
+            <ListSurface className="stagger-in">
               {list.items.map((item) => (
                 <li
                   key={item._id}
@@ -112,7 +111,7 @@ export default function ListaPage() {
                       {item.queryText}
                     </p>
                     {item.offer ? (
-                      <div className="mt-1 text-xs text-[var(--muted)]">
+                      <div className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
                         <p>
                           {item.offer.name} · {item.offer.supermarketName}
                         </p>
@@ -134,7 +133,7 @@ export default function ListaPage() {
                         />
                       </div>
                     ) : (
-                      <p className="mt-1 text-xs text-[var(--muted)]">
+                      <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
                         Sem oferta fixada — match na comparação
                       </p>
                     )}
@@ -142,7 +141,7 @@ export default function ListaPage() {
                   <button
                     type="button"
                     onClick={() => void removeItem({ itemId: item._id })}
-                    className="inline-flex cursor-pointer items-center gap-1 text-xs text-[var(--alert)] transition-opacity hover:opacity-80 active:scale-[0.98]"
+                    className="inline-flex cursor-pointer items-center gap-1 text-xs text-[var(--ds-color-danger)] transition-opacity hover:opacity-80 active:scale-[0.98]"
                     aria-label={`Remover ${item.queryText}`}
                   >
                     <Trash size={14} aria-hidden />
@@ -150,7 +149,7 @@ export default function ListaPage() {
                   </button>
                 </li>
               ))}
-            </ul>
+            </ListSurface>
           )}
         </div>
       </div>

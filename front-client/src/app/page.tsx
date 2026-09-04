@@ -13,7 +13,7 @@ import { AppShell } from "@/components/AppShell";
 import { ClubPrice } from "@/components/ClubPrice";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { PaymentNote } from "@/components/PaymentNote";
-import { Button, EmptyState, Panel, Skeleton } from "@/components/ui";
+import { Button, EmptyState, ListSurface, Panel, Skeleton } from "@/components/ui";
 import { formatDay } from "@/lib/format";
 
 export default function HomePage() {
@@ -73,12 +73,12 @@ export default function HomePage() {
 
         <section>
           <div className="mb-4 flex items-end justify-between gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--amber)]">
-              Encartes perto de você
+            <h2 className="ds-label-caps text-[var(--ds-color-primary)]">
+              Encartes publicados
             </h2>
             <Link
               href="/encartes"
-              className="text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+              className="text-xs text-[var(--ds-color-muted-foreground)] transition-colors hover:text-[var(--ds-color-foreground)]"
             >
               Ver todos
             </Link>
@@ -86,23 +86,23 @@ export default function HomePage() {
           {!flyers ? (
             <Skeleton className="h-20 w-full" />
           ) : flyers.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">
-              Nenhum encarte vigente na região.
+            <p className="text-sm text-[var(--ds-color-muted-foreground)]">
+              Nenhum encarte publicado no momento.
             </p>
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2 stagger-in">
               {flyers.slice(0, 4).map((f) => (
                 <li key={f._id}>
-                  <Link href={`/encartes/${f._id}`}>
-                    <Panel className="px-4 py-4 transition-colors hover:border-[var(--amber)]/40">
-                      <p className="inline-flex items-center gap-2 text-xs text-[var(--amber)]">
+                  <Link href={`/encartes/${f._id}`} className="block no-underline">
+                    <Panel className="transition-colors hover:border-[var(--ds-color-primary)]">
+                      <p className="inline-flex items-center gap-2 text-xs text-[var(--ds-color-primary)]">
                         <Newspaper size={14} aria-hidden />
                         {f.supermarketName}
                       </p>
-                      <p className="mt-2 font-medium tracking-tight">
+                      <p className="mt-1 font-medium tracking-tight text-[var(--ds-color-foreground)]">
                         {f.title ?? "Encarte"}
                       </p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
+                      <p className="text-xs text-[var(--ds-color-muted-foreground)]">
                         {formatDay(f.validFrom)} → {formatDay(f.validUntil)} ·{" "}
                         {f.offerCount} ofertas
                       </p>
@@ -116,12 +116,12 @@ export default function HomePage() {
 
         <section>
           <div className="mb-4 flex items-end justify-between gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--amber)]">
+            <h2 className="ds-label-caps text-[var(--ds-color-primary)]">
               Ofertas para você
             </h2>
             <Link
               href="/busca"
-              className="text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+              className="text-xs text-[var(--ds-color-muted-foreground)] transition-colors hover:text-[var(--ds-color-foreground)]"
             >
               Abrir busca
             </Link>
@@ -137,7 +137,7 @@ export default function HomePage() {
               body="Quando o pipeline validar ofertas na sua região, elas aparecem aqui."
             />
           ) : (
-            <ul className="divide-y divide-[var(--line)] border border-[var(--line)] bg-[var(--bg-elev)] stagger-in">
+            <ListSurface className="stagger-in">
               {offers.map((o) => (
                 <li
                   key={o._id}
@@ -147,7 +147,7 @@ export default function HomePage() {
                     <p className="truncate font-medium tracking-tight">
                       {o.name}
                     </p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">
+                    <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
                       {o.supermarketName}
                       {o.brand ? ` · ${o.brand}` : ""}
                     </p>
@@ -165,7 +165,7 @@ export default function HomePage() {
                   />
                 </li>
               ))}
-            </ul>
+            </ListSurface>
           )}
         </section>
       </div>
@@ -185,11 +185,13 @@ function QuickLink({
   hint: string;
 }) {
   return (
-    <Link href={href} className="block">
-      <Panel className="h-full px-4 py-4 transition-colors duration-200 hover:border-[var(--amber)]/40">
-        <div className="text-[var(--amber)]">{icon}</div>
-        <p className="mt-3 font-medium tracking-tight">{label}</p>
-        <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
+    <Link href={href} className="block no-underline">
+      <Panel className="h-full transition-colors hover:border-[var(--ds-color-primary)]">
+        <div className="text-[var(--ds-color-primary)]">{icon}</div>
+        <p className="mt-2 font-medium tracking-tight text-[var(--ds-color-foreground)]">
+          {label}
+        </p>
+        <p className="text-xs text-[var(--ds-color-muted-foreground)]">{hint}</p>
       </Panel>
     </Link>
   );

@@ -83,7 +83,7 @@ export default function BuscaPage() {
         <div className="relative">
           <MagnifyingGlass
             size={18}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-color-muted-foreground)]"
             aria-hidden
           />
           <Input
@@ -102,13 +102,13 @@ export default function BuscaPage() {
           <button
             type="button"
             onClick={() => void addQueryOnly(deferred)}
-            className="cursor-pointer text-xs text-[var(--amber)] underline-offset-2 transition-colors hover:underline"
+            className="cursor-pointer text-xs text-[var(--ds-color-primary)] underline-offset-2 transition-colors hover:underline"
           >
             Adicionar &ldquo;{deferred}&rdquo; à lista sem escolher oferta
           </button>
         ) : null}
         {added ? (
-          <p className="text-sm text-[var(--moss)]">Adicionado à lista.</p>
+          <p className="text-sm text-[var(--ds-color-success)]">Adicionado à lista.</p>
         ) : null}
       </div>
 
@@ -154,7 +154,7 @@ export default function BuscaPage() {
                           canonicalProductId: g.canonicalProductId!,
                         })
                       }
-                      className="cursor-pointer text-[var(--amber)]"
+                      className="cursor-pointer text-[var(--ds-color-accent)]"
                       aria-label="Favoritar produto"
                     >
                       <Heart
@@ -166,16 +166,16 @@ export default function BuscaPage() {
                     </button>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-[var(--muted)]">
+                <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
                   {[g.brand, g.quantity, g.unit].filter(Boolean).join(" · ")}
                 </p>
-                <ul className="mt-4 flex-1 space-y-2 border-t border-[var(--line)] pt-4">
+                <ul className="mt-4 flex-1 space-y-2 border-t border-[var(--ds-color-border)] pt-4">
                   {g.prices.map((p) => (
                     <li
                       key={p.offerId}
                       className="flex items-center justify-between text-sm"
                     >
-                      <span className="text-[var(--muted)]">
+                      <span className="text-[var(--ds-color-muted-foreground)]">
                         {p.supermarketName}
                       </span>
                       <span className="text-right">
@@ -195,15 +195,14 @@ export default function BuscaPage() {
                   ))}
                 </ul>
                 {g.cheapest ? (
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-4">
-                    <p className="inline-flex items-center gap-1.5 text-xs text-[var(--moss)]">
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--ds-color-border)] pt-4">
+                    <p className="inline-flex items-center gap-1.5 text-xs text-[var(--ds-color-success)]">
                       <Trophy size={14} weight="fill" aria-hidden />
                       {g.cheapest.supermarketName}
                     </p>
                     <Button
                       type="button"
-                      variant="ghost"
-                      className="!py-2 !text-xs"
+                      variant="outline"
                       onClick={() =>
                         void addOffer(
                           g.name,

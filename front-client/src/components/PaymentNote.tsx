@@ -15,5 +15,9 @@ export function PaymentNote({
     installmentInterestFree,
   });
   if (!text) return null;
-  return <p className="mt-0.5 text-[11px] text-[var(--muted)]">{text}</p>;
+  return (
+    <p className="mt-0.5 text-[11px] text-[var(--ds-color-muted-foreground)]">
+      {text}
+    </p>
+  );
 }
