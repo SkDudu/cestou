@@ -100,20 +100,27 @@ export async function listRegionStores(
 ) {
   const c = normalizeText(city);
   const s = normalizeText(state);
+  const stores = await listAllActiveStores(ctx);
+  return stores.filter((store) => {
+    const storeCity = normalizeText(store.city);
+    const storeState = normalizeText(store.state);
+    const netCity = normalizeText(store.network.city);
+    const netState = normalizeText(store.network.state);
+    return (
+      (storeCity === c && storeState === s) ||
+      (netCity === c && netState === s)
+    );
+  });
+}
+
+export async function listAllActiveStores(ctx: QueryCtx) {
   const stores = await ctx.db.query("stores").collect();
   const out: Array<Doc<"stores"> & { network: Doc<"supermarkets"> }> = [];
   for (const store of stores) {
     if (!store.active) continue;
     const network = await ctx.db.get(store.supermarketId);
     if (!network?.active) continue;
-    const storeCity = normalizeText(store.city);
-    const storeState = normalizeText(store.state);
-    const netCity = normalizeText(network.city);
-    const netState = normalizeText(network.state);
-    const match =
-      (storeCity === c && storeState === s) ||
-      (netCity === c && netState === s);
-    if (match) out.push({ ...store, network });
+    out.push({ ...store, network });
   }
   return out;
 }
@@ -149,6 +156,18 @@ export function withDistance(
     });
 }
 
+/** Discovery / client: todas as filiais ativas (sem filtro de cidade). */
+export async function resolveRegionStores(
+  ctx: QueryCtx,
+  _city: string,
+  _state: string,
+  lat?: number,
+  lng?: number,
+): Promise<NearbyStore[]> {
+  return withDistance(await listAllActiveStores(ctx), lat, lng);
+}
+
+/** Favoritos restringem só a comparação da lista. */
 export async function resolveCompareStores(
   ctx: QueryCtx,
   userId: Id<"users">,
@@ -157,11 +176,7 @@ export async function resolveCompareStores(
   lat?: number,
   lng?: number,
 ): Promise<NearbyStore[]> {
-  const region = withDistance(
-    await listRegionStores(ctx, city, state),
-    lat,
-    lng,
-  );
+  const region = await resolveRegionStores(ctx, city, state, lat, lng);
   const favs = await ctx.db
     .query("favoriteStores")
     .withIndex("by_user", (q) => q.eq("userId", userId))

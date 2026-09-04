@@ -5,13 +5,17 @@ import {
   purgeFlyerEvidence,
   wipeFlyer,
 } from "./flyers";
-import { armDiscoveryForSupermarket } from "./scraperFlows";
+import {
+  armDiscoveryForSupermarket,
+  armPeriodicDiscovery,
+} from "./scraperFlows";
 
 const DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Hourly lifecycle: expire finished flyers and purge evidence after 30 days.
  * Offers are deliberately retained as historical data by the purge.
+ * Also caps nextRunAt so active flows recheck pages at least every 6h.
  */
 export const checkFlyerLifecycle = internalMutation({
   args: {},
@@ -61,6 +65,7 @@ export const checkFlyerLifecycle = internalMutation({
     for (const supermarketId of marketsToDiscover) {
       await armDiscoveryForSupermarket(ctx, supermarketId, now);
     }
+    await armPeriodicDiscovery(ctx);
 
     const cutoff = now - FLYER_RETENTION_MS;
     const stale = flyers.filter(

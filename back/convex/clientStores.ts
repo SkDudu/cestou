@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
   getDefaultLocation,
+  listAllActiveStores,
   listRegionStores,
   requireAuth,
   withDistance,
@@ -56,12 +57,11 @@ export const listStoresForMe = query({
   handler: async (ctx) => {
     const userId = await requireAuth(ctx);
     const loc = await getDefaultLocation(ctx, userId);
-    if (!loc) return { location: null, stores: [] };
 
-    const region = withDistance(
-      await listRegionStores(ctx, loc.city, loc.state),
-      loc.lat,
-      loc.lng,
+    const all = withDistance(
+      await listAllActiveStores(ctx),
+      loc?.lat,
+      loc?.lng,
     );
     const favs = await ctx.db
       .query("favoriteStores")
@@ -72,7 +72,7 @@ export const listStoresForMe = query({
     const now = Date.now();
     const offerCountByNetwork = new Map<string, number>();
     const stores = [];
-    for (const s of region) {
+    for (const s of all) {
       const netKey = s.supermarketId as string;
       if (!offerCountByNetwork.has(netKey)) {
         const offers = await ctx.db
@@ -107,8 +107,11 @@ export const listStoresForMe = query({
     }
 
     stores.sort((a, b) => {
-      if (a.isFavorite !== b.isFavorite) return Number(b.isFavorite) - Number(a.isFavorite);
-      if (a.distanceKm == null && b.distanceKm == null) return 0;
+      if (a.isFavorite !== b.isFavorite)
+        return Number(b.isFavorite) - Number(a.isFavorite);
+      if (a.distanceKm == null && b.distanceKm == null) {
+        return a.name.localeCompare(b.name, "pt-BR");
+      }
       if (a.distanceKm == null) return 1;
       if (b.distanceKm == null) return -1;
       return a.distanceKm - b.distanceKm;

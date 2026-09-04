@@ -193,7 +193,13 @@ export const listDue = query({
 });
 
 const HOUR = 60 * 60 * 1000;
+/** Max gap between discovery checks while a flyer is still valid. */
+export const DISCOVERY_MAX_INTERVAL_MS = 6 * HOUR;
 const MAX_ATTEMPTS = 4;
+
+function capNextRunAt(now: number, candidate: number) {
+  return Math.min(Math.max(candidate, now), now + DISCOVERY_MAX_INTERVAL_MS);
+}
 
 /** Arm active flows for a supermarket without replacing an earlier due check. */
 export async function armDiscoveryForSupermarket(
@@ -212,6 +218,23 @@ export async function armDiscoveryForSupermarket(
       nextRunAt: Math.min(flow.nextRunAt ?? nextRunAt, nextRunAt),
       updatedAt: now,
     });
+  }
+}
+
+/** Ensure no active flow waits more than DISCOVERY_MAX_INTERVAL_MS since last run. */
+export async function armPeriodicDiscovery(ctx: Pick<MutationCtx, "db">) {
+  const now = Date.now();
+  const flows = await ctx.db
+    .query("scraperFlows")
+    .withIndex("by_status", (q) => q.eq("status", "active"))
+    .collect();
+  for (const flow of flows) {
+    const dueBy =
+      (flow.lastRunAt ?? now - DISCOVERY_MAX_INTERVAL_MS) +
+      DISCOVERY_MAX_INTERVAL_MS;
+    const nextRunAt = Math.min(flow.nextRunAt ?? dueBy, dueBy);
+    if (flow.nextRunAt === nextRunAt) continue;
+    await ctx.db.patch(flow._id, { nextRunAt, updatedAt: now });
   }
 }
 
@@ -238,11 +261,10 @@ export const scheduleNextCheck = mutation({
       }
       next = next === undefined ? f.validUntil : Math.min(next, f.validUntil);
     }
-    if (next === undefined) {
-      await ctx.db.patch(flow._id, { lastRunAt: now, updatedAt: now });
-      return { nextRunAt: flow.nextRunAt };
-    }
-    const nextRunAt = next <= now ? now : next;
+    const nextRunAt =
+      next === undefined
+        ? now + DISCOVERY_MAX_INTERVAL_MS
+        : capNextRunAt(now, next);
     await ctx.db.patch(flow._id, {
       lastRunAt: now,
       discoveryAttempts: 0,
@@ -273,6 +295,18 @@ export const recordDiscoveryResult = mutation({
         updatedAt: now,
       });
       return { status: flow.status, attempts: 0 };
+    }
+
+    // Discovery ok but nothing new: keep flow healthy, recheck within max interval.
+    if (args.ok) {
+      const nextRunAt = now + DISCOVERY_MAX_INTERVAL_MS;
+      await ctx.db.patch(flow._id, {
+        lastRunAt: now,
+        discoveryAttempts: 0,
+        nextRunAt,
+        updatedAt: now,
+      });
+      return { status: flow.status, attempts: 0, nextRunAt };
     }
 
     if (scopeLost) {

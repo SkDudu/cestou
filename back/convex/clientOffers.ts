@@ -6,7 +6,7 @@ import {
   isOfferValidNow,
   rankingPrice,
   requireAuth,
-  resolveCompareStores,
+  resolveRegionStores,
   tokensMatch,
   validatedOffersForStores,
 } from "./clientLib";
@@ -41,9 +41,8 @@ export const searchOffers = query({
     const loc = await getDefaultLocation(ctx, userId);
     if (!loc) return [];
 
-    const stores = await resolveCompareStores(
+    const stores = await resolveRegionStores(
       ctx,
-      userId,
       loc.city,
       loc.state,
       loc.lat,
@@ -201,65 +200,59 @@ export const getOffer = query({
 export const listNearbyFlyers = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await requireAuth(ctx);
-    const loc = await getDefaultLocation(ctx, userId);
-    if (!loc) return [];
-
-    const stores = await resolveCompareStores(
-      ctx,
-      userId,
-      loc.city,
-      loc.state,
-      loc.lat,
-      loc.lng,
-    );
-    const storeIds = new Set(stores.map((s) => s._id as string));
+    await requireAuth(ctx);
     const now = Date.now();
-    const seen = new Set<string>();
+    const publishedStatuses = [
+      "processed",
+      "partially_processed",
+      "processing",
+    ] as const;
+
+    const flyers = [];
+    for (const status of publishedStatuses) {
+      const batch = await ctx.db
+        .query("flyers")
+        .withIndex("by_status", (q) => q.eq("status", status))
+        .collect();
+      flyers.push(...batch);
+    }
+
+    const supermarketCache = new Map<
+      string,
+      { name: string } | null
+    >();
     const rows = [];
 
-    for (const store of stores) {
-      const flyers = await ctx.db
-        .query("flyers")
-        .withIndex("by_supermarket", (q) =>
-          q.eq("supermarketId", store.supermarketId),
-        )
-        .collect();
+    for (const f of flyers) {
+      if (f.validUntil !== undefined && f.validUntil < now) continue;
 
-      for (const f of flyers) {
-        if (seen.has(f._id)) continue;
-        if (f.status === "expired" || f.status === "failed") continue;
-        if (f.validUntil !== undefined && f.validUntil < now) continue;
-        if (
-          f.status !== "processed" &&
-          f.status !== "partially_processed" &&
-          f.status !== "processing"
-        ) {
-          continue;
-        }
-        if (f.storeIds?.length && !f.storeIds.some((id) => storeIds.has(id))) {
-          continue;
-        }
-        seen.add(f._id);
-        const offers = await ctx.db
-          .query("offers")
-          .withIndex("by_flyer", (q) => q.eq("flyerId", f._id))
-          .collect();
-        const validatedCount = offers.filter((o) =>
-          isOfferValidNow(o, now),
-        ).length;
-        rows.push({
-          _id: f._id,
-          title: f.title,
-          supermarketId: store.supermarketId,
-          supermarketName: store.network.name,
-          storeName: store.name,
-          validFrom: f.validFrom,
-          validUntil: f.validUntil,
-          status: f.status,
-          offerCount: validatedCount,
-        });
+      const sid = f.supermarketId as string;
+      let supermarket = supermarketCache.get(sid);
+      if (supermarket === undefined) {
+        const doc = await ctx.db.get(f.supermarketId);
+        supermarket = doc ? { name: doc.name } : null;
+        supermarketCache.set(sid, supermarket);
       }
+
+      const offers = await ctx.db
+        .query("offers")
+        .withIndex("by_flyer", (q) => q.eq("flyerId", f._id))
+        .collect();
+      const validatedCount = offers.filter((o) =>
+        isOfferValidNow(o, now),
+      ).length;
+
+      rows.push({
+        _id: f._id,
+        title: f.title,
+        supermarketId: f.supermarketId,
+        supermarketName: supermarket?.name ?? "—",
+        storeName: undefined,
+        validFrom: f.validFrom,
+        validUntil: f.validUntil,
+        status: f.status,
+        offerCount: validatedCount,
+      });
     }
 
     return rows.sort((a, b) => (b.validUntil ?? 0) - (a.validUntil ?? 0));
@@ -312,9 +305,8 @@ export const listHomeOffers = query({
     const loc = await getDefaultLocation(ctx, userId);
     if (!loc) return [];
 
-    const stores = await resolveCompareStores(
+    const stores = await resolveRegionStores(
       ctx,
-      userId,
       loc.city,
       loc.state,
       loc.lat,

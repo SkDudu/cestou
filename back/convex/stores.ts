@@ -98,6 +98,38 @@ export const create = mutation({
   },
 });
 
+/** Cria 1 filial ativa por rede que ainda não tem loja (necessário pro client). */
+export const ensureDefaultsForNetworks = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const supers = await ctx.db.query("supermarkets").collect();
+    const created: string[] = [];
+    const now = Date.now();
+    for (const sm of supers) {
+      if (!sm.active) continue;
+      const existing = await ctx.db
+        .query("stores")
+        .withIndex("by_supermarket", (q) => q.eq("supermarketId", sm._id))
+        .first();
+      if (existing) continue;
+      const name = `${sm.name} — ${sm.city}`;
+      const slug = await uniqueSlug(ctx, sm._id, slugify(name));
+      await ctx.db.insert("stores", {
+        supermarketId: sm._id,
+        name,
+        slug,
+        city: sm.city,
+        state: sm.state.trim().toUpperCase(),
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      created.push(sm.name);
+    }
+    return { createdCount: created.length, created };
+  },
+});
+
 export const update = mutation({
   args: {
     id: v.id("stores"),
