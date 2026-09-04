@@ -84,47 +84,77 @@ export const listProducts = query({
     const limit = args.limit ?? 80;
     const now = Date.now();
 
-    const enriched = await Promise.all(
-      products.map(async (p) => {
-        const brand = p.brandId ? await ctx.db.get(p.brandId) : null;
-        const prices = await ctx.db
-          .query("priceHistory")
-          .withIndex("by_canonical", (q) => q.eq("canonicalProductId", p._id))
-          .collect();
-        const marketIds = new Set(prices.map((r) => r.supermarketId));
-        const activePrices = prices.filter((r) => isActivePrice(r, now));
-        const activeMarkets = new Set(activePrices.map((r) => r.supermarketId));
-        const offers = await ctx.db
-          .query("offers")
-          .withIndex("by_canonical", (q) => q.eq("canonicalProductId", p._id))
-          .collect();
-        const priceValues = activePrices.map((r) => r.price);
-        const minPrice = priceValues.length ? Math.min(...priceValues) : null;
-        const maxPrice = priceValues.length ? Math.max(...priceValues) : null;
-        return {
-          ...p,
-          brandName: brand?.name ?? null,
-          marketCount: marketIds.size,
-          activeMarketCount: activeMarkets.size,
-          offerCount: offers.length,
-          minPrice,
-          maxPrice,
-          spreadPct:
-            minPrice != null && maxPrice != null && minPrice > 0
-              ? Math.round(((maxPrice - minPrice) / minPrice) * 1000) / 10
-              : null,
-        };
-      }),
-    );
+    // ponytail: 1 collect de priceHistory + brands só da página — evita N+1 (limite 4096)
+    const prices = await ctx.db.query("priceHistory").collect();
+
+    type PriceRow = (typeof prices)[number];
+    const pricesByCanonical = new Map<Id<"canonicalProducts">, PriceRow[]>();
+    const offerIdsByCanonical = new Map<
+      Id<"canonicalProducts">,
+      Set<Id<"offers">>
+    >();
+    for (const row of prices) {
+      const list = pricesByCanonical.get(row.canonicalProductId);
+      if (list) list.push(row);
+      else pricesByCanonical.set(row.canonicalProductId, [row]);
+
+      let offers = offerIdsByCanonical.get(row.canonicalProductId);
+      if (!offers) {
+        offers = new Set();
+        offerIdsByCanonical.set(row.canonicalProductId, offers);
+      }
+      offers.add(row.offerId);
+    }
+
+    const enriched = products.map((p) => {
+      const pPrices = pricesByCanonical.get(p._id) ?? [];
+      const marketIds = new Set(pPrices.map((r) => r.supermarketId));
+      const activePrices = pPrices.filter((r) => isActivePrice(r, now));
+      const activeMarkets = new Set(activePrices.map((r) => r.supermarketId));
+      const priceValues = activePrices.map((r) => r.price);
+      const minPrice = priceValues.length ? Math.min(...priceValues) : null;
+      const maxPrice = priceValues.length ? Math.max(...priceValues) : null;
+      return {
+        ...p,
+        marketCount: marketIds.size,
+        activeMarketCount: activeMarkets.size,
+        offerCount: offerIdsByCanonical.get(p._id)?.size ?? 0,
+        minPrice,
+        maxPrice,
+        spreadPct:
+          minPrice != null && maxPrice != null && minPrice > 0
+            ? Math.round(((maxPrice - minPrice) / minPrice) * 1000) / 10
+            : null,
+      };
+    });
 
     let filtered = enriched;
     if (args.minMarkets != null) {
       filtered = filtered.filter((p) => p.marketCount >= args.minMarkets!);
     }
 
-    return filtered
+    const page = filtered
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
+
+    const brandIds = [
+      ...new Set(
+        page
+          .map((p) => p.brandId)
+          .filter((id): id is Id<"brands"> => id != null),
+      ),
+    ];
+    const brands = await Promise.all(brandIds.map((id) => ctx.db.get(id)));
+    const brandName = new Map(
+      brands
+        .filter((b): b is NonNullable<typeof b> => b != null)
+        .map((b) => [b._id, b.name] as const),
+    );
+
+    return page.map((p) => ({
+      ...p,
+      brandName: p.brandId ? (brandName.get(p.brandId) ?? null) : null,
+    }));
   },
 });
 
@@ -421,23 +451,55 @@ export const healthSummary = query({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const offers = await ctx.db.query("offers").collect();
-    const products = await ctx.db.query("canonicalProducts").collect();
+    // ponytail: 3 collects + gets só dos 40 da fila — evita N+1 por canônico (limite 4096 reads)
+    const [offers, products, prices] = await Promise.all([
+      ctx.db.query("offers").collect(),
+      ctx.db.query("canonicalProducts").collect(),
+      ctx.db.query("priceHistory").collect(),
+    ]);
     const totalOffers = offers.length || 1;
 
-    const withBrand = offers.filter((o) => o.brandId).length;
-    const withCanonical = offers.filter((o) => o.canonicalProductId).length;
-    const withoutBrand = offers.filter((o) => !o.brandId && !o.brand);
-    const withoutQty = offers.filter((o) => !o.quantity && !o.quantityValue);
-    const invalidUnit = offers.filter(
-      (o) => o.unit && !o.unitNormalized && !o.quantityValue,
-    );
+    let withBrand = 0;
+    let withCanonical = 0;
+    const withoutBrand: typeof offers = [];
+    const withoutQty: typeof offers = [];
+    const invalidUnit: typeof offers = [];
+
+    const offersByCanonical = new Map<
+      Id<"canonicalProducts">,
+      string[]
+    >();
+
+    for (const o of offers) {
+      if (o.brandId) withBrand += 1;
+      if (o.canonicalProductId) {
+        withCanonical += 1;
+        const cid = o.canonicalProductId;
+        const names = offersByCanonical.get(cid);
+        if (names) {
+          if (!names.includes(o.name)) names.push(o.name);
+        } else {
+          offersByCanonical.set(cid, [o.name]);
+        }
+      }
+      if (!o.brandId && !o.brand) withoutBrand.push(o);
+      if (!o.quantity && !o.quantityValue) withoutQty.push(o);
+      if (o.unit && !o.unitNormalized && !o.quantityValue) invalidUnit.push(o);
+    }
+
+    type PriceRow = (typeof prices)[number];
+    const pricesByCanonical = new Map<Id<"canonicalProducts">, PriceRow[]>();
+    for (const row of prices) {
+      const list = pricesByCanonical.get(row.canonicalProductId);
+      if (list) list.push(row);
+      else pricesByCanonical.set(row.canonicalProductId, [row]);
+    }
 
     const singleMarket: Array<{
       _id: Id<"canonicalProducts">;
       canonicalName: string;
-      brandName: string | null;
-      supermarketName: string;
+      brandId: Id<"brands"> | null;
+      supermarketId: Id<"supermarkets">;
     }> = [];
     const divergentNames: Array<{
       _id: Id<"canonicalProducts">;
@@ -455,33 +517,26 @@ export const healthSummary = query({
     }> = [];
 
     for (const p of products) {
-      const brand = p.brandId ? await ctx.db.get(p.brandId) : null;
-      const prices = await ctx.db
-        .query("priceHistory")
-        .withIndex("by_canonical", (q) => q.eq("canonicalProductId", p._id))
-        .collect();
-      const markets = new Set(prices.map((r) => r.supermarketId));
+      const pPrices = pricesByCanonical.get(p._id) ?? [];
+      const markets = new Set(pPrices.map((r) => r.supermarketId));
 
       if (markets.size === 1) {
-        const only = [...markets][0]!;
-        const sm = await ctx.db.get(only);
         singleMarket.push({
           _id: p._id,
           canonicalName: p.canonicalName,
-          brandName: brand?.name ?? null,
-          supermarketName: sm?.name ?? "—",
+          brandId: p.brandId ?? null,
+          supermarketId: [...markets][0]!,
         });
       }
 
-      const linked = await ctx.db
-        .query("offers")
-        .withIndex("by_canonical", (q) => q.eq("canonicalProductId", p._id))
-        .collect();
-      const sourceNames = [...new Set(linked.map((o) => o.name))];
+      const sourceNames = offersByCanonical.get(p._id) ?? [];
       const divergent = sourceNames.filter((n) =>
         nameDivergence(p.canonicalName, n),
       );
-      if (divergent.length >= 2 || (sourceNames.length >= 3 && divergent.length >= 1)) {
+      if (
+        divergent.length >= 2 ||
+        (sourceNames.length >= 3 && divergent.length >= 1)
+      ) {
         divergentNames.push({
           _id: p._id,
           canonicalName: p.canonicalName,
@@ -490,7 +545,7 @@ export const healthSummary = query({
         });
       }
 
-      const active = prices.filter((r) => isActivePrice(r, now));
+      const active = pPrices.filter((r) => isActivePrice(r, now));
       const latest = new Map<Id<"supermarkets">, number>();
       for (const row of [...active].sort((a, b) => b.createdAt - a.createdAt)) {
         if (!latest.has(row.supermarketId)) {
@@ -515,9 +570,35 @@ export const healthSummary = query({
       }
     }
 
-    singleMarket.sort((a, b) => a.canonicalName.localeCompare(b.canonicalName, "pt-BR"));
+    singleMarket.sort((a, b) =>
+      a.canonicalName.localeCompare(b.canonicalName, "pt-BR"),
+    );
     divergentNames.sort((a, b) => b.sampleNames.length - a.sampleNames.length);
     extremeSpread.sort((a, b) => b.spreadPct - a.spreadPct);
+
+    const singleTop = singleMarket.slice(0, 40);
+    const brandIds = [
+      ...new Set(
+        singleTop
+          .map((s) => s.brandId)
+          .filter((id): id is Id<"brands"> => id != null),
+      ),
+    ];
+    const smIds = [...new Set(singleTop.map((s) => s.supermarketId))];
+    const [brands, sms] = await Promise.all([
+      Promise.all(brandIds.map((id) => ctx.db.get(id))),
+      Promise.all(smIds.map((id) => ctx.db.get(id))),
+    ]);
+    const brandName = new Map(
+      brands
+        .filter((b): b is NonNullable<typeof b> => b != null)
+        .map((b) => [b._id, b.name] as const),
+    );
+    const smName = new Map(
+      sms
+        .filter((s): s is NonNullable<typeof s> => s != null)
+        .map((s) => [s._id, s.name] as const),
+    );
 
     return {
       kpis: {
@@ -551,7 +632,12 @@ export const healthSummary = query({
           unit: o.unit,
           price: o.price,
         })),
-        singleMarket: singleMarket.slice(0, 40),
+        singleMarket: singleTop.map((p) => ({
+          _id: p._id,
+          canonicalName: p.canonicalName,
+          brandName: p.brandId ? (brandName.get(p.brandId) ?? null) : null,
+          supermarketName: smName.get(p.supermarketId) ?? "—",
+        })),
         divergentNames: divergentNames.slice(0, 40),
         extremeSpread: extremeSpread.slice(0, 40),
       },
@@ -733,6 +819,340 @@ function dayStartMs(ts: number): number {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
+
+/* ── Bancada de correção (saúde) ──────────────────────────── */
+
+const OFFER_FIX = v.union(
+  v.literal("brand"),
+  v.literal("qty"),
+  v.literal("unit"),
+);
+
+const UNIT_MAP: Record<string, string> = {
+  lt: "l",
+  litro: "l",
+  litros: "l",
+  und: "un",
+  unid: "un",
+  unidade: "un",
+  unidades: "un",
+  kilo: "kg",
+  kilos: "kg",
+  kgs: "kg",
+};
+const VALID_UNITS = new Set([
+  "kg",
+  "g",
+  "l",
+  "ml",
+  "un",
+  "cx",
+  "pct",
+  "pack",
+  "fd",
+]);
+
+function normalizeUnit(unit: string): string | undefined {
+  const u = unit.toLowerCase().replace(/\.$/, "").trim();
+  const mapped = UNIT_MAP[u] ?? u;
+  return VALID_UNITS.has(mapped) ? mapped : undefined;
+}
+
+function parseQuantity(
+  qty: string | undefined,
+  unit: string | undefined,
+): { quantityValue: number | undefined; unitNormalized: string | undefined } {
+  if (qty) {
+    const num = Number(qty.replace(",", "."));
+    return {
+      quantityValue: Number.isFinite(num) ? num : undefined,
+      unitNormalized: unit ? normalizeUnit(unit) : undefined,
+    };
+  }
+  return {
+    quantityValue: undefined,
+    unitNormalized: unit ? normalizeUnit(unit) : undefined,
+  };
+}
+
+function offerFixReason(
+  fix: "brand" | "qty" | "unit",
+): string {
+  if (fix === "brand") return "Marca ausente";
+  if (fix === "qty") return "Quantidade ausente";
+  return "Unidade inválida";
+}
+
+function filterOfferFixQueue(
+  offers: Array<{
+    _id: Id<"offers">;
+    name: string;
+    brand?: string;
+    brandId?: Id<"brands">;
+    quantity?: string;
+    quantityValue?: number;
+    unit?: string;
+    unitNormalized?: string;
+    price: number;
+  }>,
+  fix: "brand" | "qty" | "unit",
+) {
+  const filtered =
+    fix === "brand"
+      ? offers.filter((o) => !o.brandId && !o.brand)
+      : fix === "qty"
+        ? offers.filter((o) => !o.quantity && !o.quantityValue)
+        : offers.filter((o) => o.unit && !o.unitNormalized && !o.quantityValue);
+  return filtered.map((o) => ({
+    _id: o._id,
+    name: o.name,
+    price: o.price,
+    reason: offerFixReason(fix),
+    detail:
+      fix === "brand"
+        ? (o.brand ?? "—")
+        : (o.unit ?? "—"),
+  }));
+}
+
+/** Fila compacta para navegação Anterior/Próxima na bancada. */
+export const healthFixQueue = query({
+  args: { fix: OFFER_FIX },
+  handler: async (ctx, args) => {
+    const offers = await ctx.db.query("offers").collect();
+    const items = filterOfferFixQueue(offers, args.fix);
+    return { fix: args.fix, pendingCount: items.length, items };
+  },
+});
+
+/** Contexto da bancada: oferta + canônico resumido + comparação. */
+export const healthFixContext = query({
+  args: {
+    fix: OFFER_FIX,
+    offerId: v.id("offers"),
+  },
+  handler: async (ctx, args) => {
+    const offer = await ctx.db.get(args.offerId);
+    if (!offer) return null;
+
+    const supermarket = await ctx.db.get(offer.supermarketId);
+    const flyer = await ctx.db.get(offer.flyerId);
+    let pageUrl: string | null = null;
+    if (offer.pageNumber !== undefined) {
+      const page = await ctx.db
+        .query("flyerPages")
+        .withIndex("by_flyer_page", (q) =>
+          q.eq("flyerId", offer.flyerId).eq("pageNumber", offer.pageNumber!),
+        )
+        .unique();
+      if (page) pageUrl = await ctx.storage.getUrl(page.storageId);
+    }
+
+    let canonical = null;
+    let metrics = {
+      activeMarkets: 0,
+      minPrice: null as number | null,
+      offerCount: 0,
+    };
+
+    if (offer.canonicalProductId) {
+      const product = await ctx.db.get(offer.canonicalProductId);
+      if (product) {
+        const brand = product.brandId
+          ? await ctx.db.get(product.brandId)
+          : null;
+        const prices = await ctx.db
+          .query("priceHistory")
+          .withIndex("by_canonical", (q) =>
+            q.eq("canonicalProductId", product._id),
+          )
+          .collect();
+        const now = Date.now();
+        const active = prices.filter((r) => isActivePrice(r, now));
+        const markets = new Set(active.map((r) => r.supermarketId));
+        const vals = active.map((r) => r.price);
+        const linked = await ctx.db
+          .query("offers")
+          .withIndex("by_canonical", (q) =>
+            q.eq("canonicalProductId", product._id),
+          )
+          .collect();
+        metrics = {
+          activeMarkets: markets.size,
+          minPrice: vals.length ? Math.min(...vals) : null,
+          offerCount: linked.length,
+        };
+        canonical = {
+          _id: product._id,
+          canonicalName: product.canonicalName,
+          quantity: product.quantity,
+          unit: product.unit,
+          brandId: product.brandId ?? null,
+          brandName: brand?.name ?? null,
+        };
+      }
+    }
+
+    // ponytail: sugestões no client via brands.list — evita 2º collect aqui
+    const suggestions: Array<{
+      _id: Id<"brands">;
+      name: string;
+      score: number;
+    }> = [];
+
+    const offerPack = [offer.quantity, offer.unitNormalized ?? offer.unit]
+      .filter(Boolean)
+      .join(" ");
+    const canonPack = canonical
+      ? [canonical.quantity, canonical.unit].filter(Boolean).join(" ")
+      : "";
+
+    const compare = {
+      name:
+        !canonical ||
+        normalize(offer.name) === normalize(canonical.canonicalName)
+          ? ("ok" as const)
+          : ("review" as const),
+      unit:
+        args.fix === "qty" || args.fix === "unit"
+          ? ("fix" as const)
+          : !canonical ||
+              (!offerPack && !canonPack) ||
+              normalize(offerPack) === normalize(canonPack)
+            ? ("ok" as const)
+            : ("review" as const),
+      brand:
+        args.fix === "brand"
+          ? ("fix" as const)
+          : offer.brandId || canonical?.brandId
+            ? ("ok" as const)
+            : ("review" as const),
+    };
+
+    return {
+      fix: args.fix,
+      reason: offerFixReason(args.fix),
+      offer: {
+        _id: offer._id,
+        name: offer.name,
+        price: offer.price,
+        quantity: offer.quantity,
+        unit: offer.unit,
+        unitNormalized: offer.unitNormalized,
+        quantityValue: offer.quantityValue,
+        brand: offer.brand,
+        brandId: offer.brandId,
+        pageNumber: offer.pageNumber,
+        rawText: offer.rawText,
+        pageUrl,
+        supermarketName: supermarket?.name ?? "—",
+        flyerTitle: flyer?.title ?? offer.sourceFlyerTitle,
+        flyerId: offer.flyerId,
+        canonicalProductId: offer.canonicalProductId,
+      },
+      canonical,
+      metrics,
+      compare,
+      suggestions,
+    };
+  },
+});
+
+/**
+ * Aplica correção da bancada e devolve o próximo item da mesma fila.
+ * brandId null = "Sem marca aplicável". skip = só avança.
+ */
+export const applyOfferHealthFix = mutation({
+  args: {
+    fix: OFFER_FIX,
+    offerId: v.id("offers"),
+    skip: v.optional(v.boolean()),
+    brandId: v.optional(v.union(v.id("brands"), v.null())),
+    quantity: v.optional(v.union(v.string(), v.null())),
+    unit: v.optional(v.union(v.string(), v.null())),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const offer = await ctx.db.get(args.offerId);
+    if (!offer) throw new Error("Oferta não encontrada");
+    const now = Date.now();
+
+    if (!args.skip) {
+      if (args.fix === "brand") {
+        if (args.brandId === undefined) {
+          throw new Error("Selecione uma marca ou Sem marca aplicável");
+        }
+        let brandName: string | undefined;
+        if (args.brandId) {
+          const brand = await ctx.db.get(args.brandId);
+          if (!brand) throw new Error("Marca não encontrada");
+          brandName = brand.name;
+        }
+        await ctx.db.patch(args.offerId, {
+          brandId: args.brandId ?? undefined,
+          // marca texto marca saída da fila withoutBrand (!brandId && !brand)
+          brand: brandName ?? (args.brandId === null ? "Sem marca" : offer.brand),
+          normalizedBrand: brandName,
+          updatedAt: now,
+        });
+        if (offer.canonicalProductId) {
+          await ctx.db.patch(offer.canonicalProductId, {
+            brandId: args.brandId ?? undefined,
+            updatedAt: now,
+          });
+        }
+      }
+
+      if (args.fix === "qty" || args.fix === "unit") {
+        const quantity =
+          args.quantity !== undefined
+            ? args.quantity?.trim() || undefined
+            : offer.quantity;
+        const rawUnit =
+          args.unit !== undefined
+            ? args.unit?.trim().toLowerCase() || undefined
+            : offer.unit;
+        const unit = rawUnit ? normalizeUnit(rawUnit) ?? rawUnit : undefined;
+        const { quantityValue, unitNormalized } = parseQuantity(
+          quantity,
+          unit,
+        );
+        if (args.fix === "qty" && quantityValue == null && !quantity) {
+          throw new Error("Informe a quantidade");
+        }
+        if (args.fix === "unit" && !unitNormalized) {
+          throw new Error("Informe uma unidade válida (kg, g, l, ml, un…)");
+        }
+        await ctx.db.patch(args.offerId, {
+          quantity,
+          unit: unitNormalized ?? unit,
+          quantityValue,
+          unitNormalized,
+          updatedAt: now,
+        });
+        if (offer.canonicalProductId) {
+          await ctx.db.patch(offer.canonicalProductId, {
+            quantity: quantity ?? undefined,
+            unit: unitNormalized ?? unit,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    // ponytail: reason só para UI/logs futuros — sem tabela de auditoria ainda
+    void args.reason;
+
+    const offers = await ctx.db.query("offers").collect();
+    const items = filterOfferFixQueue(offers, args.fix);
+    const idx = items.findIndex((i) => i._id === args.offerId);
+    const next = items[idx + 1] ?? items[0] ?? null;
+    return {
+      pendingCount: items.length,
+      nextId: next && next._id !== args.offerId ? next._id : null,
+    };
+  },
+});
 
 /* ── Mutations de correção ────────────────────────────────── */
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatOpsStamp } from "@/lib/format";
 
 export type SetupTraceEvent = {
@@ -86,14 +86,32 @@ function PayloadBlock({ payload }: { payload: unknown }) {
 }
 
 type Props = {
+  open: boolean;
+  onClose: () => void;
   events: SetupTraceEvent[];
 };
 
-export function WorkerSetupTracePanel({ events }: Props) {
+export function WorkerSetupTracePanel({ open, onClose, events }: Props) {
   const [filter, setFilter] = useState<"all" | "analyze" | "teach" | "persist">(
     "all",
   );
   const [openId, setOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      setOpenId(null);
+      setFilter("all");
+    }
+  }, [open]);
 
   const sorted = useMemo(
     () => [...events].sort((a, b) => a.order - b.order),
@@ -127,97 +145,128 @@ export function WorkerSetupTracePanel({ events }: Props) {
     return ids.size;
   }, [sorted]);
 
-  if (!events.length) {
-    return (
-      <section className="ds-table-card mt-6">
-        <div className="ds-table-head">
-          <h2 className="text-[15px] font-semibold">Rastreio do setup</h2>
-        </div>
-        <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
-          Nenhum evento registrado ainda. Crie ou reensine o worker para
-          popular o histórico.
-        </p>
-      </section>
-    );
-  }
+  if (!open) return null;
 
   return (
-    <section className="ds-table-card mt-6">
-      <div className="ds-table-head flex-wrap gap-2">
-        <div>
-          <h2 className="text-[15px] font-semibold">Rastreio do setup</h2>
-          <p className="text-xs text-[var(--ds-color-muted-foreground)]">
-            {sorted.length} evento(s)
-            {sessions ? ` · ${sessions} sessão(ões) de ensino` : ""}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {(
-            [
-              ["all", "Tudo"],
-              ["analyze", "Análises"],
-              ["teach", "Cliques"],
-              ["persist", "Salvar/Teste"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={
-                filter === id
-                  ? "ds-btn ds-btn--primary text-xs !py-1 !px-2.5"
-                  : "ds-btn ds-btn--outline text-xs !py-1 !px-2.5"
-              }
-              onClick={() => setFilter(id)}
+    <div
+      className="ds-modal-overlay"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="ds-modal"
+        style={{
+          width: 720,
+          maxWidth: "calc(100vw - 32px)",
+          maxHeight: "min(85vh, 800px)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal
+        aria-labelledby="setup-trace-title"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3">
+          <div>
+            <h2
+              id="setup-trace-title"
+              className="text-[22px] font-semibold tracking-[-0.02em]"
             >
-              {label}
-            </button>
-          ))}
+              Rastreio do setup
+            </h2>
+            <p className="mt-1 text-[13px] leading-5 text-[var(--ds-color-muted-foreground)]">
+              {sorted.length
+                ? `${sorted.length} evento(s)${sessions ? ` · ${sessions} sessão(ões) de ensino` : ""}`
+                : "Histórico de ensino e configuração deste worker"}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="ds-modal-x"
+            onClick={onClose}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
         </div>
-      </div>
 
-      <ol className="divide-y divide-[var(--ds-color-border)]">
-        {filtered.map((ev) => {
-          const meta = kindMeta(ev.kind);
-          const payload = parsePayload(ev.payload);
-          const hint = payloadPreview(payload);
-          const expanded = openId === ev._id;
-          return (
-            <li key={ev._id} className="px-[18px] py-3">
-              <button
-                type="button"
-                className="flex w-full items-start gap-3 text-left"
-                onClick={() => setOpenId(expanded ? null : ev._id)}
-              >
-                <span
-                  className="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-                  style={{ background: meta.color }}
+        {sorted.length ? (
+          <>
+            <div className="mt-4 flex shrink-0 flex-wrap gap-1.5">
+              {(
+                [
+                  ["all", "Tudo"],
+                  ["analyze", "Análises"],
+                  ["teach", "Cliques"],
+                  ["persist", "Salvar/Teste"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={
+                    filter === id
+                      ? "ds-btn ds-btn--primary text-xs !py-1 !px-2.5"
+                      : "ds-btn ds-btn--outline text-xs !py-1 !px-2.5"
+                  }
+                  onClick={() => setFilter(id)}
                 >
-                  {meta.title}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium leading-snug">
-                    {ev.label}
-                  </span>
-                  {hint ? (
-                    <span className="mt-0.5 block font-mono text-[11px] text-[var(--ds-color-muted-foreground)]">
-                      {hint}
-                    </span>
-                  ) : null}
-                  <span className="mt-1 block text-[11px] text-[var(--ds-color-muted-foreground)]">
-                    {formatOpsStamp(ev.at)}
-                    {ev.sessionId ? ` · ${ev.sessionId}` : ""}
-                  </span>
-                </span>
-                <span className="shrink-0 text-xs text-[var(--ds-color-muted-foreground)]">
-                  {expanded ? "▲" : "▼"}
-                </span>
-              </button>
-              {expanded ? <PayloadBlock payload={payload} /> : null}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <ol className="mt-4 -mx-1 min-h-0 flex-1 overflow-y-auto divide-y divide-[var(--ds-color-border)]">
+              {filtered.map((ev) => {
+                const meta = kindMeta(ev.kind);
+                const payload = parsePayload(ev.payload);
+                const hint = payloadPreview(payload);
+                const expanded = openId === ev._id;
+                return (
+                  <li key={ev._id} className="px-1 py-3">
+                    <button
+                      type="button"
+                      className="flex w-full items-start gap-3 text-left"
+                      onClick={() => setOpenId(expanded ? null : ev._id)}
+                    >
+                      <span
+                        className="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                        style={{ background: meta.color }}
+                      >
+                        {meta.title}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium leading-snug">
+                          {ev.label}
+                        </span>
+                        {hint ? (
+                          <span className="mt-0.5 block font-mono text-[11px] text-[var(--ds-color-muted-foreground)]">
+                            {hint}
+                          </span>
+                        ) : null}
+                        <span className="mt-1 block text-[11px] text-[var(--ds-color-muted-foreground)]">
+                          {formatOpsStamp(ev.at)}
+                          {ev.sessionId ? ` · ${ev.sessionId}` : ""}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-xs text-[var(--ds-color-muted-foreground)]">
+                        {expanded ? "▲" : "▼"}
+                      </span>
+                    </button>
+                    {expanded ? <PayloadBlock payload={payload} /> : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </>
+        ) : (
+          <p className="mt-8 mb-4 text-center text-sm text-[var(--ds-color-muted-foreground)]">
+            Nenhum evento registrado ainda. Crie ou reensine o worker para
+            popular o histórico.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

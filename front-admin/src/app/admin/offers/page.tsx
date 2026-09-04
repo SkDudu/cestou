@@ -1,11 +1,16 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs } from "@/components/admin/ops";
 import { OffersSkuChart } from "@/components/admin/OffersSkuChart";
+import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
 import {
   formatCompact,
   formatCurrency,
@@ -23,8 +28,13 @@ export default function OffersPage() {
   const { results, status, loadMore } = usePaginatedQuery(
     api.offers.list,
     {},
-    { initialNumItems: 60 },
+    { initialNumItems: 100 },
   );
+
+  // ponytail: carrega tudo e pagina no client — sem botão "Carregar mais"
+  useEffect(() => {
+    if (status === "CanLoadMore") loadMore(100);
+  }, [status, loadMore]);
 
   const counts = {
     all: results.length,
@@ -57,6 +67,9 @@ export default function OffersPage() {
       );
     });
   }, [results, tab, q, elig]);
+
+  const [page, setPage] = useTablePage(`${tab}|${elig}|${q}`);
+  const pageRows = slicePage(rows, page);
 
   return (
     <div>
@@ -143,7 +156,7 @@ export default function OffersPage() {
           <span className="ds-label-caps w-[100px] shrink-0">Condição</span>
           <span className="ds-label-caps w-[72px] shrink-0">Match</span>
         </div>
-        {rows.map((o) => {
+        {pageRows.map((o) => {
           const drop =
             o.originalPrice != null && o.originalPrice > 0
               ? (o.price - o.originalPrice) / o.originalPrice
@@ -220,16 +233,17 @@ export default function OffersPage() {
             Nenhuma oferta.
           </p>
         ) : null}
+        {status === "LoadingFirstPage" || status === "LoadingMore" ? (
+          <p className="px-[18px] py-3 text-center text-[12px] text-[var(--ds-color-muted-foreground)]">
+            Carregando ofertas…
+          </p>
+        ) : null}
+        <TablePagination
+          page={page}
+          total={rows.length}
+          onPageChange={setPage}
+        />
       </section>
-      {status === "CanLoadMore" ? (
-        <button
-          type="button"
-          onClick={() => loadMore(40)}
-          className="ds-btn ds-btn--outline mt-4"
-        >
-          Carregar mais
-        </button>
-      ) : null}
     </div>
   );
 }

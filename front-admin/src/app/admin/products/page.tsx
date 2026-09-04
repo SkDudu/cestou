@@ -6,6 +6,11 @@ import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { OpsHeader, OpsKpi, OpsTabs } from "@/components/admin/ops";
+import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
 import { formatCompact, formatCurrency, formatPack } from "@/lib/format";
 
 export default function ProductsPage() {
@@ -30,6 +35,9 @@ export default function ProductsPage() {
       return products.filter((p) => p.spreadPct != null && p.spreadPct > 40);
     return products;
   }, [products, tab]);
+
+  const [page, setPage] = useTablePage(`${tab}|${q}|${brandId}`);
+  const pageRows = slicePage(rows, page);
 
   const counts = {
     all: products?.length ?? 0,
@@ -110,7 +118,7 @@ export default function ProductsPage() {
           <span className="ds-label-caps w-[88px] shrink-0">Min</span>
           <span className="ds-label-caps w-[72px] shrink-0">Spread</span>
         </div>
-        {rows.map((p) => (
+        {pageRows.map((p) => (
           <Link
             key={p._id}
             href={`/admin/products/${p._id}`}
@@ -157,6 +165,11 @@ export default function ProductsPage() {
             Nenhum produto canônico.
           </p>
         ) : null}
+        <TablePagination
+          page={page}
+          total={rows.length}
+          onPageChange={setPage}
+        />
       </section>
     </div>
   );

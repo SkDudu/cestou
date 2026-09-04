@@ -16,6 +16,11 @@ import {
 } from "@/components/admin/WorkerFilterModal";
 import { WorkerSetupModal } from "@/components/admin/WorkerSetupModal";
 import { WorkerHeatmapChart } from "@/components/admin/WorkerHeatmapChart";
+import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
 import { checkWorkerHealth } from "@/lib/browser-session";
 import { formatOpsStamp, formatPercent } from "@/lib/format";
 
@@ -87,6 +92,8 @@ function WorkersPage() {
   }, [workers, tab, q, filters]);
 
   const filterCount = countWorkerFilter(filters);
+  const [page, setPage] = useTablePage(`${tab}|${q}|${filterCount}`);
+  const pageRows = slicePage(rows, page);
 
   if (overview === undefined) return <p className="ds-meta">Carregando…</p>;
 
@@ -210,7 +217,7 @@ function WorkersPage() {
           <span className="ds-label-caps w-[72px] shrink-0">Parse</span>
           <span className="ds-label-caps w-[96px] shrink-0">Status</span>
         </div>
-        {rows.map((w) => (
+        {pageRows.map((w) => (
           <Link key={w._id} href={`/admin/scraper/${w._id}`} className="ds-table-row">
             <span className="flex min-w-0 flex-[3.1] items-center gap-2 font-mono text-sm">
               <span className="ds-dot" style={{ background: statusDot(w.status) }} />
@@ -231,6 +238,11 @@ function WorkersPage() {
             Nenhum worker neste filtro.
           </p>
         ) : null}
+        <TablePagination
+          page={page}
+          total={rows.length}
+          onPageChange={setPage}
+        />
       </section>
     </div>
   );

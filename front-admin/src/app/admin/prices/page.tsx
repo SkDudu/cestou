@@ -8,6 +8,11 @@ import type { Id } from "@convex/_generated/dataModel";
 import { OpsHeader, OpsKpi, OpsTabs } from "@/components/admin/ops";
 import { PriceSpreadChart } from "@/components/admin/PriceSpreadChart";
 import { PriceClubChart } from "@/components/admin/PriceClubChart";
+import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
 import { formatCurrency, formatPack } from "@/lib/format";
 
 export default function PricesComparePage() {
@@ -37,10 +42,16 @@ export default function PricesComparePage() {
   });
   const timeseries = useQuery(api.catalog.priceTimeseries, { days: 30 });
 
+  const list = rows ?? [];
+  const [page, setPage] = useTablePage(
+    `${coverage}|${brandId}|${onlyActive}|${onlyClub}|${marketA}|${marketB}|${marketC}`,
+  );
+  const pageRows = slicePage(list, page);
+
   const counts = {
-    any: rows?.length ?? 0,
-    multi: rows?.filter((r) => r.marketCount >= 2).length ?? 0,
-    single: rows?.filter((r) => r.marketCount === 1).length ?? 0,
+    any: list.length,
+    multi: list.filter((r) => r.marketCount >= 2).length,
+    single: list.filter((r) => r.marketCount === 1).length,
   };
 
   return (
@@ -150,7 +161,7 @@ export default function PricesComparePage() {
           <span className="ds-label-caps w-[72px] shrink-0">Spread</span>
           <span className="ds-label-caps min-w-0 flex-1">Por rede</span>
         </div>
-        {(rows ?? []).map((r) => (
+        {pageRows.map((r) => (
           <Link
             key={r.canonicalId}
             href={`/admin/products/${r.canonicalId}`}
@@ -193,11 +204,16 @@ export default function PricesComparePage() {
           <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
             Carregando…
           </p>
-        ) : !rows.length ? (
+        ) : !list.length ? (
           <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
             Nenhum produto no comparador.
           </p>
         ) : null}
+        <TablePagination
+          page={page}
+          total={list.length}
+          onPageChange={setPage}
+        />
       </section>
     </div>
   );

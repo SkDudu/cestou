@@ -7,6 +7,11 @@ import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
+import {
   calendarDaysUntil,
   formatDateTime,
   formatExpiryPill,
@@ -79,6 +84,11 @@ export default function FlyersPage() {
     rowsAll, tab, q, vigente, expiring, noParse, supermarketId, sourceId,
     status, duplicatesOnly, missingValidityOnly, from, until,
   ]);
+
+  const [page, setPage] = useTablePage(
+    `${tab}|${q}|${supermarketId}|${sourceId}|${status}|${from}|${until}|${duplicatesOnly}|${missingValidityOnly}`,
+  );
+  const pageRows = slicePage(rows, page);
 
   if (flyers === undefined) return <p className="ds-meta">Carregando…</p>;
 
@@ -221,7 +231,7 @@ export default function FlyersPage() {
           <span className="ds-label-caps w-[120px] shrink-0">Status</span>
           <span className="ds-label-caps w-[110px] shrink-0">Limpeza</span>
         </div>
-        {rows.map((f) => {
+        {pageRows.map((f) => {
           const daysLeft =
             f.validUntil !== undefined && f.validUntil > now
               ? calendarDaysUntil(f.validUntil, now)
@@ -284,6 +294,11 @@ export default function FlyersPage() {
             Nenhum encarte.
           </p>
         ) : null}
+        <TablePagination
+          page={page}
+          total={rows.length}
+          onPageChange={setPage}
+        />
       </section>
     </div>
   );

@@ -8,6 +8,11 @@ import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
 import { StoreCreateModal } from "@/components/admin/StoreCreateModal";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
 import { formatNumber } from "@/lib/format";
 
 const NETWORK_TYPE_LABEL: Record<string, string> = {
@@ -76,6 +81,9 @@ function StoresPage() {
       );
     });
   }, [networks, tab, q, workerFail]);
+
+  const [page, setPage] = useTablePage(`${tab}|${q}`);
+  const pageRows = slicePage(rows, page);
 
   if (list === undefined) return <p className="ds-meta">Carregando…</p>;
 
@@ -160,7 +168,7 @@ function StoresPage() {
           <span className="ds-label-caps w-[80px] shrink-0">Ofertas</span>
           <span className="ds-label-caps min-w-0 flex-1">Último ciclo</span>
         </div>
-        {rows.map((s) => {
+        {pageRows.map((s) => {
           const wrk = workersByNetwork.get(s._id) ?? 0;
           const branches = s.stores;
           return (
@@ -265,6 +273,11 @@ function StoresPage() {
             Nenhuma rede.
           </p>
         ) : null}
+        <TablePagination
+          page={page}
+          total={rows.length}
+          onPageChange={setPage}
+        />
       </section>
     </div>
   );

@@ -6,6 +6,11 @@ import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { OpsHeader, OpsKpi } from "@/components/admin/ops";
+import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
 import { formatCompact, formatNumber } from "@/lib/format";
 
 export default function BrandsPage() {
@@ -29,9 +34,13 @@ export default function BrandsPage() {
   const update = useMutation(api.brands.update);
   const merge = useMutation(api.brands.merge);
 
+  const list = brands ?? [];
+  const [page, setPage] = useTablePage(q);
+  const pageRows = slicePage(list, page);
+
   const totalOffers = useMemo(
-    () => (brands ?? []).reduce((n, b) => n + b.offerCount, 0),
-    [brands],
+    () => list.reduce((n, b) => n + b.offerCount, 0),
+    [list],
   );
 
   async function onCreate() {
@@ -128,7 +137,7 @@ export default function BrandsPage() {
             <span className="ds-label-caps w-[72px] shrink-0">Canônicos</span>
             <span className="ds-label-caps w-[72px] shrink-0">Ofertas</span>
           </div>
-          {(brands ?? []).map((b) => (
+          {pageRows.map((b) => (
             <button
               key={b._id}
               type="button"
@@ -158,11 +167,16 @@ export default function BrandsPage() {
             <p className="px-[18px] py-6 text-sm text-[var(--ds-color-muted-foreground)]">
               Carregando…
             </p>
-          ) : !brands.length ? (
+          ) : !list.length ? (
             <p className="px-[18px] py-6 text-sm text-[var(--ds-color-muted-foreground)]">
               Nenhuma marca.
             </p>
           ) : null}
+          <TablePagination
+            page={page}
+            total={list.length}
+            onPageChange={setPage}
+          />
         </section>
 
         <div className="space-y-4">

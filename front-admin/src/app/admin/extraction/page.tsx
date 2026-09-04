@@ -6,6 +6,11 @@ import Link from "next/link";
 import { api } from "@convex/_generated/api";
 import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import {
+  TablePagination,
+  slicePage,
+  useTablePage,
+} from "@/components/admin/TablePagination";
 import { formatOpsStamp, jobLabel } from "@/lib/format";
 
 export default function ExtractionPage() {
@@ -30,6 +35,9 @@ export default function ExtractionPage() {
       );
     });
   }, [runs, tab, q]);
+
+  const [page, setPage] = useTablePage(`${tab}|${q}`);
+  const pageRows = slicePage(rows, page);
 
   const fila = (runs ?? []).filter((r) => r.queue === "fila");
   const review = (runs ?? []).filter((r) => r.queue === "review");
@@ -96,7 +104,7 @@ export default function ExtractionPage() {
           <span className="ds-label-caps w-[72px] shrink-0">Pend.</span>
           <span className="ds-label-caps w-[96px] shrink-0">Status</span>
         </div>
-        {rows.map((r) => (
+        {pageRows.map((r) => (
           <Link
             key={r._id}
             href={`/admin/extraction/${r._id}`}
@@ -137,6 +145,11 @@ export default function ExtractionPage() {
             Nenhum job nesta fila.
           </p>
         ) : null}
+        <TablePagination
+          page={page}
+          total={rows.length}
+          onPageChange={setPage}
+        />
         {runs === undefined ? (
           <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
             Carregando…
