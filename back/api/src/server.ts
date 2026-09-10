@@ -170,6 +170,22 @@ export async function buildApp(options: BuildAppOptions = {}) {
     })));
   });
 
+  app.get("/api/v1/admin/scraper-runs", async (request, reply) => {
+    const session = await getAdminSession(
+      prisma,
+      request.cookies[ADMIN_SESSION_COOKIE],
+    );
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ code: "INVALID_LIMIT" });
+    return prisma.scraperRun.findMany({
+      take: query.data.limit,
+      orderBy: { startedAt: "desc" },
+      include: { flow: { include: { supermarket: { select: { id: true, name: true, slug: true } } } } },
+    });
+  });
+
   app.post("/api/v1/admin/scraper-runs/:runId/cancel", async (request, reply) => {
     const session = await getAdminSession(
       prisma,
