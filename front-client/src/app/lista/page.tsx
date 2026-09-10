@@ -2,157 +2,18 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Plus, Scales, Trash } from "@phosphor-icons/react";
-import { api } from "@convex/_generated/api";
-import type { Id } from "@convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
-import { ClubPrice } from "@/components/ClubPrice";
-import {
-  Button,
-  EmptyState,
-  Input,
-  ListSurface,
-  Skeleton,
-} from "@/components/ui";
-import { ConditionBadge } from "@/components/ConditionBadge";
-import { PaymentNote } from "@/components/PaymentNote";
+import { Button, EmptyState, Input, ListSurface, Skeleton } from "@/components/ui";
+import { clientApi } from "@/lib/api";
 
+type ListItem = { id: string; queryText: string; quantity: number; offer: { name: string; price: string; memberPrice: string | null; supermarket: { name: string } } | null };
+type List = { id: string; name: string; items: ListItem[] };
 export default function ListaPage() {
-  const { isAuthenticated } = useConvexAuth();
-  const location = useQuery(
-    api.clientLocation.getMyDefaultLocation,
-    isAuthenticated ? {} : "skip",
-  );
-  const ensureList = useMutation(api.clientLists.getOrCreateDefaultList);
-  const addItem = useMutation(api.clientLists.addListItem);
-  const removeItem = useMutation(api.clientLists.removeListItem);
-  const [listId, setListId] = useState<Id<"shoppingLists"> | null>(null);
-  const [draft, setDraft] = useState("");
-
-  useEffect(() => {
-    if (!isAuthenticated || listId) return;
-    void ensureList({}).then(setListId);
-  }, [isAuthenticated, listId, ensureList]);
-
-  const list = useQuery(
-    api.clientLists.getShoppingList,
-    listId ? { listId } : "skip",
-  );
-
-  async function onAdd(e: FormEvent) {
-    e.preventDefault();
-    if (!listId || !draft.trim()) return;
-    await addItem({ listId, queryText: draft.trim() });
-    setDraft("");
-  }
-
-  const locLabel = location ? `${location.city} — ${location.state}` : null;
-
-  return (
-    <AppShell
-      locationLabel={locLabel}
-      title={list?.name ?? "Minha lista"}
-      subtitle="Adicione itens e compare o custo total nos mercados da região."
-      actions={
-        listId ? (
-          <Link href={`/lista/comparar?listId=${listId}`}>
-            <Button type="button">
-              <Scales size={16} weight="bold" aria-hidden />
-              Comparar preços
-            </Button>
-          </Link>
-        ) : null
-      }
-    >
-      <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
-        <form onSubmit={onAdd} className="space-y-3">
-          <p className="ds-label-caps">Novo item</p>
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Ex.: leite 1L"
-            aria-label="Item da lista"
-          />
-          <Button type="submit" className="w-full sm:w-auto">
-            <Plus size={16} weight="bold" aria-hidden />
-            Adicionar
-          </Button>
-          <p className="text-xs leading-relaxed text-[var(--ds-color-muted-foreground)]">
-            Sem oferta fixada, a comparação usa o produto canônico quando
-            existir, senão o texto.
-          </p>
-        </form>
-
-        <div>
-          {!list ? (
-            <Skeleton className="h-64 w-full" />
-          ) : list.items.length === 0 ? (
-            <EmptyState
-              title="Lista vazia"
-              body="Busque ofertas ou digite um item ao lado para começar a comparar."
-              action={
-                <Link href="/busca">
-                  <Button variant="ghost" type="button">
-                    Ir para busca
-                  </Button>
-                </Link>
-              }
-            />
-          ) : (
-            <ListSurface className="stagger-in">
-              {list.items.map((item) => (
-                <li
-                  key={item._id}
-                  className="flex items-start justify-between gap-4 px-5 py-4"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium tracking-tight">
-                      {item.queryText}
-                    </p>
-                    {item.offer ? (
-                      <div className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
-                        <p>
-                          {item.offer.name} · {item.offer.supermarketName}
-                        </p>
-                        <ClubPrice
-                          publicPrice={item.offer.publicPrice}
-                          memberPrice={item.offer.memberPrice}
-                          membershipName={item.offer.membershipName}
-                        />
-                        <PaymentNote
-                          installmentCount={item.offer.installmentCount}
-                          installmentAmount={item.offer.installmentAmount}
-                          installmentInterestFree={
-                            item.offer.installmentInterestFree
-                          }
-                        />
-                        <ConditionBadge
-                          condition={item.offer.condition}
-                          showAll
-                        />
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
-                        Sem oferta fixada — match na comparação
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void removeItem({ itemId: item._id })}
-                    className="inline-flex cursor-pointer items-center gap-1 text-xs text-[var(--ds-color-danger)] transition-opacity hover:opacity-80 active:scale-[0.98]"
-                    aria-label={`Remover ${item.queryText}`}
-                  >
-                    <Trash size={14} aria-hidden />
-                    Remover
-                  </button>
-                </li>
-              ))}
-            </ListSurface>
-          )}
-        </div>
-      </div>
-    </AppShell>
-  );
+  const [list, setList] = useState<List | null>(null); const [draft, setDraft] = useState("");
+  const load = () => clientApi<List>("/lists/default").then(setList).catch(() => setList({ id: "", name: "Minha lista", items: [] }));
+  useEffect(() => { void load(); }, []);
+  async function add(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; await clientApi("/lists/default/items", { method: "POST", body: JSON.stringify({ queryText: draft.trim() }) }); setDraft(""); await load(); }
+  async function remove(id: string) { await clientApi(`/lists/items/${id}`, { method: "DELETE" }); await load(); }
+  return <AppShell title={list?.name ?? "Minha lista"} subtitle="Adicione itens e compare o custo total nos mercados da região." actions={<Link href="/lista/comparar"><Button><Scales size={16} />Comparar preços</Button></Link>}><div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]"><form onSubmit={(event) => void add(event)} className="space-y-3"><p className="ds-label-caps">Novo item</p><Input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ex.: leite 1L" /><Button type="submit"><Plus size={16} />Adicionar</Button></form>{!list ? <Skeleton className="h-64 w-full" /> : list.items.length === 0 ? <EmptyState title="Lista vazia" body="Busque ofertas ou digite um item para começar." /> : <ListSurface>{list.items.map((item) => <li key={item.id} className="flex justify-between gap-4 px-5 py-4"><div><p className="font-medium">{item.queryText}</p>{item.offer ? <p className="text-xs text-[var(--ds-color-muted-foreground)]">{item.offer.supermarket.name} · R$ {item.offer.memberPrice ?? item.offer.price}</p> : <p className="text-xs text-[var(--ds-color-muted-foreground)]">Sem oferta fixada</p>}</div><button type="button" onClick={() => void remove(item.id)} className="text-[var(--ds-color-danger)]"><Trash size={16} /></button></li>)}</ListSurface>}</div></AppShell>;
 }
