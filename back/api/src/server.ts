@@ -417,6 +417,20 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return [...groups.values()].map((rows) => { const prices = rows.map((offer) => Number(offer.memberPrice ?? offer.price)); return { productId: rows[0].canonicalProduct!.id, productName: rows[0].canonicalProduct!.canonicalName, marketCount: new Set(rows.map((offer) => offer.supermarketId)).size, minPrice: Math.min(...prices), maxPrice: Math.max(...prices), offers: rows.map((offer) => ({ id: offer.id, supermarketName: offer.supermarket.name, price: Number(offer.memberPrice ?? offer.price) })) }; }).filter((row) => row.marketCount > 1).sort((left, right) => (right.maxPrice - right.minPrice) - (left.maxPrice - left.minPrice));
   });
 
+  app.get("/api/v1/admin/catalog/health", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const [totalOffers, withBrand, withCanonical, pendingValidation, suspicious, singleMarket] = await Promise.all([
+      prisma.offer.count(),
+      prisma.offer.count({ where: { brandId: { not: null } } }),
+      prisma.offer.count({ where: { canonicalProductId: { not: null } } }),
+      prisma.offer.count({ where: { validationStatus: "PENDING" } }),
+      prisma.offer.count({ where: { validationStatus: "SUSPICIOUS" } }),
+      prisma.canonicalProduct.findMany({ select: { id: true, _count: { select: { offers: true } } } }),
+    ]);
+    return { totalOffers, withBrand, withCanonical, pendingValidation, suspicious, singleMarketProducts: singleMarket.filter((product) => product._count.offers === 1).length, pctWithBrand: totalOffers ? Math.round((withBrand / totalOffers) * 100) : 0, pctWithCanonical: totalOffers ? Math.round((withCanonical / totalOffers) * 100) : 0 };
+  });
+
   app.patch("/api/v1/admin/offers/:offerId/validation", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
