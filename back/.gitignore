@@ -8,5 +8,6 @@ scraper/node_modules/
 scraper/dist/
 scraper/debug/
 storage/
+generated/
 
 .env.local

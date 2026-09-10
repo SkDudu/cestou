@@ -2,10 +2,14 @@
   "name": "smart-grocery",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "api:dev": "tsx watch api/src/index.ts",
     "api:start": "tsx api/src/index.ts",
     "worker:start": "tsx worker/src/worker.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -26,7 +30,9 @@
     "scraper"
   ],
   "devDependencies": {
+    "@types/pg": "^8.23.1",
     "convex": "^1.21.0",
+    "prisma": "^7.10.0",
     "tsx": "^4.20.6",
     "typescript": "^5.7.0",
     "vitest": "^3.2.4"
@@ -34,6 +40,11 @@
   "dependencies": {
     "@auth/core": "^0.41.1",
     "@convex-dev/auth": "^0.0.95",
-    "fastify": "^5.3.3"
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "argon2": "^0.45.1",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.3.3",
+    "pg": "^8.23.0"
   }
 }
