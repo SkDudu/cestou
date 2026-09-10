@@ -7,6 +7,9 @@ import {
   createAdminSession,
   destroyAdminSession,
   getAdminSession,
+  CLIENT_SESSION_COOKIE,
+  createClientSession,
+  getClientSession,
 } from "./modules/auth/service.js";
 import { LocalStorage } from "./modules/storage/service.js";
 import {
@@ -76,6 +79,22 @@ export async function buildApp(options: BuildAppOptions = {}) {
     await destroyAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     reply.clearCookie(ADMIN_SESSION_COOKIE, { path: "/" });
     return reply.code(204).send();
+  });
+
+  app.post("/api/v1/client/auth/:mode", async (request, reply) => {
+    const params = z.object({ mode: z.enum(["login", "register"]) }).safeParse(request.params);
+    const input = z.object({ email: z.string().email(), password: z.string().min(8) }).safeParse(request.body);
+    if (!params.success || !input.success) return reply.code(400).send({ code: "INVALID_CREDENTIALS" });
+    const token = await createClientSession(prisma, input.data.email, input.data.password, params.data.mode === "register");
+    if (!token) return reply.code(401).send({ code: "INVALID_CREDENTIALS" });
+    reply.setCookie(CLIENT_SESSION_COOKIE, token, { httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production" });
+    return reply.code(204).send();
+  });
+
+  app.get("/api/v1/client/auth/me", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    return { id: session.user.id, email: session.user.email };
   });
 
   app.get("/api/v1/auth/me", async (request, reply) => {
