@@ -151,6 +151,25 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
   });
 
+  app.get("/api/v1/admin/scraper-flows", async (request, reply) => {
+    const session = await getAdminSession(
+      prisma,
+      request.cookies[ADMIN_SESSION_COOKIE],
+    );
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+
+    return prisma.scraperFlow.findMany({
+      orderBy: { updatedAt: "desc" },
+      include: {
+        supermarket: { select: { id: true, name: true, slug: true } },
+        runs: { orderBy: { startedAt: "desc" }, take: 1 },
+      },
+    }).then((flows) => flows.map(({ runs, ...flow }) => ({
+      ...flow,
+      latestRun: runs[0] ?? null,
+    })));
+  });
+
   app.post("/api/v1/admin/scraper-runs/:runId/cancel", async (request, reply) => {
     const session = await getAdminSession(
       prisma,

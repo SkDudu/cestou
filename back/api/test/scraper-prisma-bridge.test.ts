@@ -8,7 +8,7 @@ describe("scraper Prisma bridge", () => {
   });
 
   it("connects the scraper process to PostgreSQL using the generated Prisma client", async () => {
-    const prisma = await getScraperPrisma() as { supermarket: { count(): Promise<number> } };
+    const prisma = await getScraperPrisma() as unknown as { supermarket: { count(): Promise<number> } };
 
     await expect(prisma.supermarket.count()).resolves.toBeGreaterThanOrEqual(0);
   });
