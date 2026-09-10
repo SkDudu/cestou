@@ -33,4 +33,6 @@ export const adminApi = {
   offer: (offerId: string) => apiFetch<{ id: string; name: string; price: string | number; validationStatus: string; supermarket: { name: string }; flyer: { title: string | null } }>(`/admin/offers/${offerId}`),
   updateOfferValidation: (offerId: string, validationStatus: "PENDING" | "VALIDATED" | "REJECTED" | "SUSPICIOUS") => apiFetch(`/admin/offers/${offerId}/validation`, { method: "PATCH", body: JSON.stringify({ validationStatus }) }),
   supermarkets: () => apiFetch<Array<{ id: string; name: string; slug: string; city: string; state: string; active: boolean; _count: { stores: number; flyerSources: number; flyers: number; offers: number } }>>("/admin/supermarkets"),
+  brands: () => apiFetch<Array<{ id: string; name: string; _count: { offers: number; products: number } }>>("/admin/brands"),
+  products: () => apiFetch<Array<{ id: string; canonicalName: string; brand: { name: string } | null; _count: { offers: number } }>>("/admin/products"),
 };
