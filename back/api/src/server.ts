@@ -387,6 +387,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return prisma.canonicalProduct.findMany({ take: 100, orderBy: { updatedAt: "desc" }, include: { brand: true, _count: { select: { offers: true } } } });
   });
 
+  app.get("/api/v1/admin/products/:productId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    const params = z.object({ productId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_PRODUCT_ID" });
+    const product = await prisma.canonicalProduct.findUnique({ where: { id: params.data.productId }, include: { brand: true, offers: { orderBy: { updatedAt: "desc" }, include: { supermarket: { select: { name: true } } }, take: 100 }, priceHistory: { orderBy: { createdAt: "desc" }, include: { supermarket: { select: { name: true } } }, take: 100 } } });
+    if (!product) return reply.code(404).send({ code: "PRODUCT_NOT_FOUND" });
+    return product;
+  });
+
   app.get("/api/v1/admin/offers", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
