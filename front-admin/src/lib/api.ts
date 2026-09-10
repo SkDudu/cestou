@@ -24,4 +24,6 @@ export const adminApi = {
   login: (email: string, password: string) => apiFetch<void>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => apiFetch<{ id: string; email: string; role: "ADMIN_MASTER" }>("/auth/me"),
   overview: () => apiFetch<{ supermarkets: number; activeFlows: number; runningRuns: number; failedFlyers: number }>("/admin/dashboard/overview"),
+  scraperFlows: () => apiFetch<Array<{ id: string; name: string; startUrl: string; status: string; supermarket: { id: string; name: string; slug: string }; latestRun: null | { id: string; status: string; startedAt: string; finishedAt: string | null; flyersFound: number; stepsExecuted: number; error: string | null } }>>("/admin/scraper-flows"),
+  startScraperRun: (flowId: string) => apiFetch<{ id: string; status: string }>(`/admin/scraper-flows/${flowId}/runs`, { method: "POST" }),
 };

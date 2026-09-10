@@ -1,249 +1,45 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { api } from "@convex/_generated/api";
-import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
-import { OpsStatusPill } from "@/components/admin/OpsStatusPill";
-import { WorkerStartButton } from "@/components/admin/WorkerStartButton";
-import {
-  WorkerFilterPopover,
-  countWorkerFilter,
-  emptyWorkerFilter,
-  matchWorkerFilter,
-} from "@/components/admin/WorkerFilterModal";
-import { WorkerSetupModal } from "@/components/admin/WorkerSetupModal";
-import { WorkerHeatmapChart } from "@/components/admin/WorkerHeatmapChart";
-import {
-  TablePagination,
-  slicePage,
-  useTablePage,
-} from "@/components/admin/TablePagination";
-import { checkWorkerHealth } from "@/lib/browser-session";
-import { formatOpsStamp, formatPercent } from "@/lib/format";
+import { useEffect, useState } from "react";
+import { ApiError, adminApi } from "@/lib/api";
 
-export default function ScraperFlowsPage() {
-  return (
-    <Suspense fallback={<p className="ds-meta">Carregando…</p>}>
-      <WorkersPage />
-    </Suspense>
-  );
+type Flow = Awaited<ReturnType<typeof adminApi.scraperFlows>>[number];
+
+function runStatus(status?: string) {
+  if (!status) return "Sem execução";
+  return status.toLowerCase().replace("_", " ");
 }
 
-function WorkersPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const presetSupermarketId = searchParams.get("supermarketId") ?? "";
-  const overview = useQuery(api.dashboard.overview);
-  const markets = useQuery(api.supermarkets.listNames);
-  const [tab, setTab] = useState("all");
-  const [q, setQ] = useState("");
-  const [filters, setFilters] = useState(emptyWorkerFilter);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(Boolean(presetSupermarketId));
-  const [workerOnline, setWorkerOnline] = useState<boolean | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
+export default function ScraperFlowsPage() {
+  const [flows, setFlows] = useState<Flow[]>();
+  const [error, setError] = useState<string>();
+  const [starting, setStarting] = useState<string>();
 
-  useEffect(() => {
-    if (presetSupermarketId) setSetupOpen(true);
-  }, [presetSupermarketId]);
-
-  function closeSetup() {
-    setSetupOpen(false);
-    if (presetSupermarketId) router.replace("/admin/scraper");
+  async function load() {
+    try {
+      setError(undefined);
+      setFlows(await adminApi.scraperFlows());
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.status === 401 ? "Sua sessão expirou." : "Não foi possível carregar os fluxos.");
+    }
   }
 
   useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      const ok = await checkWorkerHealth();
-      if (alive) setWorkerOnline(ok);
-    };
-    void tick();
-    const t = setInterval(tick, 5000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
-  const workers = overview?.workers ?? [];
-  const fail = workers.filter((w) => w.status === "fail");
-  const counts = {
-    all: workers.length,
-    running: workers.filter((w) => w.status === "running").length,
-    queue: workers.filter((w) => w.status === "queue").length,
-    fail: fail.length,
-  };
+  async function start(flowId: string) {
+    setStarting(flowId);
+    try {
+      await adminApi.startScraperRun(flowId);
+      await load();
+    } catch {
+      setError("Não foi possível iniciar o worker.");
+    } finally {
+      setStarting(undefined);
+    }
+  }
 
-  const rows = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return workers.filter((w) => {
-      if (tab !== "all" && w.status !== tab) return false;
-      if (!matchWorkerFilter(w, filters)) return false;
-      if (!needle) return true;
-      return (
-        w.slug.includes(needle) ||
-        w.supermarketName.toLowerCase().includes(needle)
-      );
-    });
-  }, [workers, tab, q, filters]);
-
-  const filterCount = countWorkerFilter(filters);
-  const [page, setPage] = useTablePage(`${tab}|${q}|${filterCount}`);
-  const pageRows = slicePage(rows, page);
-
-  if (overview === undefined) return <p className="ds-meta">Carregando…</p>;
-
-  const failHint = fail[0];
-
-  return (
-    <div>
-      <OpsHeader
-        title="Workers"
-        stamp={`Atualizado ${formatOpsStamp(Date.now())}`}
-        filter={
-          <WorkerFilterPopover
-            open={filterOpen}
-            workers={workers}
-            markets={markets ?? []}
-            value={filters}
-            filterCount={filterCount}
-            onOpenChange={setFilterOpen}
-            onApply={(next) => {
-              setFilters(next);
-              setFilterOpen(false);
-            }}
-          />
-        }
-        primary={
-          <>
-            <span
-              className="text-[13px]"
-              style={{
-                color: workerOnline
-                  ? "var(--ds-color-success)"
-                  : "var(--ds-color-danger)",
-              }}
-            >
-              {workerOnline === null
-                ? "…"
-                : workerOnline
-                  ? "Worker online"
-                  : "Worker offline"}
-            </span>
-            <WorkerStartButton
-              online={workerOnline}
-              onStarted={() => setWorkerOnline(true)}
-              onStopped={() => setWorkerOnline(false)}
-            />
-            <button
-              type="button"
-              className="ds-btn ds-btn--primary"
-              onClick={() => setSetupOpen(true)}
-            >
-              Novo worker
-            </button>
-          </>
-        }
-      />
-
-      <WorkerSetupModal
-        open={setupOpen}
-        presetSupermarketId={presetSupermarketId || undefined}
-        onClose={closeSetup}
-      />
-
-      <section className="flex gap-4 pb-4">
-        <OpsKpi
-          label="Workers ativos"
-          value={overview.workersActive}
-          hint={
-            overview.workersDelta > 0 ? (
-              <p className="pb-1 text-[13px] font-medium text-[var(--ds-color-success)]">
-                rodaram hoje
-              </p>
-            ) : undefined
-          }
-          foot={`${overview.extractingNow} em extração agora`}
-        />
-        <OpsKpi
-          label="Falhas"
-          value={fail.length}
-          danger={fail.length > 0}
-          hint={
-            failHint ? (
-              <p className="pb-1 font-mono text-[13px] text-[var(--ds-color-muted-foreground)]">
-                {failHint.slug}
-              </p>
-            ) : undefined
-          }
-          foot={failHint ? failHint.supermarketName : "Nenhuma falha na frota"}
-        />
-      </section>
-
-      <section className="pb-4">
-        <WorkerHeatmapChart data={overview.heatmap} />
-      </section>
-
-      <OpsTabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "all", label: "Todos", count: counts.all },
-          { id: "running", label: "Rodando", count: counts.running },
-          { id: "queue", label: "Fila", count: counts.queue },
-          { id: "fail", label: "Falha", count: counts.fail, warn: true },
-        ]}
-      />
-
-      <section className="ds-table-card">
-        <div className="ds-table-head">
-          <h2 className="text-[15px] font-semibold">Frota</h2>
-          <input
-            ref={searchRef}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar worker"
-            className="ds-search"
-          />
-        </div>
-        <div className="ds-table-cols">
-          <span className="ds-label-caps min-w-0 flex-[3.1]">Id</span>
-          <span className="ds-label-caps w-[200px] shrink-0">Loja</span>
-          <span className="ds-label-caps w-[88px] shrink-0">Jobs 24h</span>
-          <span className="ds-label-caps w-[72px] shrink-0">Parse</span>
-          <span className="ds-label-caps w-[96px] shrink-0">Status</span>
-        </div>
-        {pageRows.map((w) => (
-          <Link key={w._id} href={`/admin/scraper/${w._id}`} className="ds-table-row">
-            <span className="flex min-w-0 flex-[3.1] items-center gap-2 font-mono text-sm">
-              <span className="ds-dot" style={{ background: statusDot(w.status) }} />
-              {w.slug}
-            </span>
-            <span className="w-[200px] shrink-0 truncate">{w.supermarketName}</span>
-            <span className="w-[88px] shrink-0 font-mono">{w.jobs24h}</span>
-            <span className="w-[72px] shrink-0 font-mono">
-              {w.taxa === null ? "—" : formatPercent(w.taxa)}
-            </span>
-            <span className="w-[96px] shrink-0">
-              <OpsStatusPill status={w.status} />
-            </span>
-          </Link>
-        ))}
-        {!rows.length ? (
-          <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
-            Nenhum worker neste filtro.
-          </p>
-        ) : null}
-        <TablePagination
-          page={page}
-          total={rows.length}
-          onPageChange={setPage}
-        />
-      </section>
-    </div>
-  );
+  return <section className="mx-auto max-w-6xl space-y-6"><header className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-medium text-emerald-700">Operação</p><h1 className="text-3xl font-semibold">Workers de scraper</h1><p className="mt-1 text-sm text-slate-500">Fluxos persistidos no PostgreSQL e executados pela fila pg-boss.</p></div><button onClick={() => void load()} className="rounded-md border border-slate-300 px-3 py-2 text-sm">Atualizar</button></header>{error && <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}{!flows ? <p className="text-sm text-slate-500">Carregando fluxos…</p> : flows.length === 0 ? <p className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Nenhum fluxo configurado.</p> : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-4 py-3">Fluxo</th><th className="px-4 py-3">Rede</th><th className="px-4 py-3">Última execução</th><th className="px-4 py-3">Resultado</th><th className="px-4 py-3" /></tr></thead><tbody>{flows.map((flow) => <tr key={flow.id} className="border-t border-slate-100"><td className="px-4 py-3"><p className="font-medium">{flow.name}</p><p className="truncate text-xs text-slate-500">{flow.startUrl}</p></td><td className="px-4 py-3">{flow.supermarket.name}</td><td className="px-4 py-3">{flow.latestRun ? new Date(flow.latestRun.startedAt).toLocaleString("pt-BR") : "—"}</td><td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium">{runStatus(flow.latestRun?.status)}</span></td><td className="px-4 py-3 text-right"><button disabled={starting === flow.id} onClick={() => void start(flow.id)} className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{starting === flow.id ? "Iniciando…" : "Executar"}</button></td></tr>)}</tbody></table></div>}</section>;
 }
