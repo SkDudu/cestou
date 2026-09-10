@@ -30,4 +30,5 @@ export const adminApi = {
   flyers: () => apiFetch<Array<{ id: string; title: string | null; originalUrl: string; status: string; createdAt: string; validFrom: string | null; validUntil: string | null; supermarket: { name: string }; source: { type: string; url: string } }>>("/admin/flyers?limit=100"),
   offers: () => apiFetch<{ items: Array<{ id: string; name: string; price: string | number; validationStatus: string; supermarket: { name: string }; flyer: { title: string | null } }>; hasMore: boolean; nextCursor: string | null }>("/admin/offers?limit=50"),
   updateOfferValidation: (offerId: string, validationStatus: "PENDING" | "VALIDATED" | "REJECTED" | "SUSPICIOUS") => apiFetch(`/admin/offers/${offerId}/validation`, { method: "PATCH", body: JSON.stringify({ validationStatus }) }),
+  supermarkets: () => apiFetch<Array<{ id: string; name: string; slug: string; city: string; state: string; active: boolean; _count: { stores: number; flyerSources: number; flyers: number; offers: number } }>>("/admin/supermarkets"),
 };
