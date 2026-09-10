@@ -1,10 +1,53 @@
 services:
-  scraper:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: smart_grocery
+      POSTGRES_USER: smart_grocery
+      POSTGRES_PASSWORD: smart_grocery
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smart_grocery -d smart_grocery"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  api:
     build:
-      context: ./scraper
+      context: .
+    command: npm run api:start
     env_file:
       - .env
     environment:
-      # container → host Convex (`npx convex dev`)
-      CONVEX_URL: http://host.docker.internal:3210
-    restart: "no"
+      API_PORT: 4000
+      DATABASE_URL: postgresql://smart_grocery:smart_grocery@postgres:5432/smart_grocery?schema=public
+      STORAGE_ROOT: /data/storage
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - storage-data:/data/storage
+
+  worker:
+    build:
+      context: .
+    command: npm run worker:start
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://smart_grocery:smart_grocery@postgres:5432/smart_grocery?schema=public
+      STORAGE_ROOT: /data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - storage-data:/data/storage
+
+volumes:
+  postgres-data:
+  storage-data:

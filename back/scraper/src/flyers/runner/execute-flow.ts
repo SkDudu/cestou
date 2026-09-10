@@ -18,6 +18,7 @@ export type ExecuteFlowOpts = {
   onLog?: FlowLogFn;
   signal?: AbortSignal;
   pipeline?: "discovery" | "full";
+  runId?: string;
 };
 
 export async function executeFlowById(
@@ -44,9 +45,17 @@ export async function executeFlowById(
   );
 
   if (pipeline === "discovery") {
-    steps = steps.filter(
-      (s) => s.type !== "download-flyers" && s.type !== "extract-offers",
-    );
+    steps = steps.filter((s) => s.type !== "extract-offers");
+    if (
+      steps.some((s) => s.type === "discover-flyer") &&
+      !steps.some((s) => s.type === "download-flyers")
+    ) {
+      steps.push({
+        order: steps.length,
+        type: "download-flyers",
+        config: {},
+      });
+    }
   } else if (steps.some((s) => s.type === "discover-flyer")) {
     if (!steps.some((s) => s.type === "download-flyers")) {
       steps.push({
@@ -72,7 +81,7 @@ export async function executeFlowById(
     ...ctx,
   };
 
-  const runId = (await startScraperRun(flowId)) as string;
+  const runId = opts.runId ?? (await startScraperRun(flowId)) as string;
   const lines: string[] = [];
   let lastFlush = 0;
   const snapLog = () => lines.join("\n").slice(-48_000);
@@ -95,17 +104,15 @@ export async function executeFlowById(
   };
 
   if (pipeline === "discovery") {
-    log("pipeline=discovery — só navegação/discover (sem download/extract)");
+    log("pipeline=discovery — site (novo) + validade dos salvos + download (sem MiMo)");
   } else if (steps.some((s) => s.type === "download-flyers")) {
     log("pipeline=full — download-flyers + extract-offers");
   }
 
   log(`run ${runId} — ${flow.name} v${flow.version} pipeline=${pipeline}`);
-  if (pipeline === "full") {
-    const expired = (await markExpired()) as { expired?: number };
-    if (expired.expired) {
-      log(`expire imediato: ${expired.expired} flyer(s) com validUntil < now`);
-    }
+  const expired = (await markExpired()) as { expired?: number };
+  if (expired.expired) {
+    log(`validade: ${expired.expired} flyer(s) com validUntil < now → expired`);
   }
   log(`ctx ${JSON.stringify(fullCtx)}`);
   log(`steps ${steps.length}: ${steps.map((s) => s.type).join(" → ")}`);

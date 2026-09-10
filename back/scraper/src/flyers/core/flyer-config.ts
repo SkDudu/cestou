@@ -1,5 +1,4 @@
 export const flyerConfig = {
-  convexUrl: process.env.CONVEX_URL ?? "",
   downloadTimeout: Number(process.env.FLYER_DOWNLOAD_TIMEOUT ?? 30000),
   downloadRetries: Number(process.env.FLYER_DOWNLOAD_RETRIES ?? 3),
   maxSizeMb: Number(process.env.FLYER_MAX_SIZE_MB ?? 50),

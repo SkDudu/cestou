@@ -1,19 +1,98 @@
-import { ConvexHttpClient } from "convex/browser";
-import { anyApi } from "convex/server";
-import { flyerConfig } from "./flyer-config.js";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { getScraperPrisma } from "./postgres-client.js";
 import { flyerLog } from "./flyer-logger.js";
 import type { ParsedOffer } from "./flyer-types.js";
 
-const api = anyApi;
+type Endpoint = { __path: string };
+const endpoint = (path = ""): Endpoint => new Proxy({ __path: path }, {
+  get(target, property) {
+    if (property === "__path") return target.__path;
+    return endpoint(path ? `${path}.${String(property)}` : String(property));
+  },
+}) as Endpoint;
+const api: any = endpoint();
 
-let client: ConvexHttpClient | null = null;
+const toDate = (value?: number) => value === undefined ? undefined : new Date(value);
+const toMs = (value: Date | null | undefined) => value?.getTime();
+const enumValue = (value: string) => value.toUpperCase();
 
-function getClient(): ConvexHttpClient {
-  if (!flyerConfig.convexUrl) {
-    throw new Error("CONVEX_URL missing — set in .env");
+async function invoke(path: string, args: Record<string, unknown>) {
+  const prisma = await getScraperPrisma() as any;
+  switch (path) {
+    case "supermarkets.ensure": {
+      const row = await prisma.supermarket.upsert({ where: { slug: args.slug }, update: { name: args.name, city: args.city, state: args.state, country: args.country, websiteUrl: args.websiteUrl }, create: { ...args, active: true } });
+      return row.id;
+    }
+    case "supermarkets.get": return prisma.supermarket.findUnique({ where: { id: args.id } });
+    case "supermarkets.getBySlug": return prisma.supermarket.findUnique({ where: { slug: args.slug } });
+    case "flyerSources.ensure": {
+      const existing = await prisma.flyerSource.findFirst({ where: { supermarketId: args.supermarketId, url: args.url } });
+      if (existing) return existing.id;
+      const row = await prisma.flyerSource.create({ data: { supermarketId: args.supermarketId, type: enumValue(args.type as string), url: args.url, active: args.active ?? true } });
+      return row.id;
+    }
+    case "flyerSources.listActive": return prisma.flyerSource.findMany({ where: { active: true }, select: { id: true, supermarketId: true, type: true, url: true } }).then((rows: any[]) => rows.map(({ id, ...row }) => ({ _id: id, ...row, type: row.type.toLowerCase() })));
+    case "flyerSources.getStoreIds": return prisma.flyerSourceStore.findMany({ where: { sourceId: args.id }, select: { storeId: true } }).then((rows: any[]) => rows.map((row) => row.storeId));
+    case "scraperFlows.get": {
+      const flow = await prisma.scraperFlow.findUnique({ where: { id: args.id }, include: { steps: { orderBy: { order: "asc" } } } });
+      if (!flow) return null;
+      return { ...flow, _id: flow.id, supermarketId: flow.supermarketId, storeId: flow.storeId, scope: flow.scope?.toLowerCase(), steps: flow.steps.map((step: any) => ({ ...step, config: JSON.stringify(step.config) })) };
+    }
+    case "scraperFlows.list": return prisma.scraperFlow.findMany({ where: args.supermarketId ? { supermarketId: args.supermarketId } : undefined, include: { steps: { orderBy: { order: "asc" } } } });
+    case "scraperFlows.create": return prisma.scraperFlow.create({ data: { supermarketId: args.supermarketId, name: args.name, startUrl: args.startUrl, config: args.config ? JSON.parse(args.config as string) : undefined, status: "DRAFT", version: 1 } }).then((row: any) => row.id);
+    case "scraperSteps.replaceAll": return prisma.$transaction(async (tx: any) => { await tx.scraperStep.deleteMany({ where: { flowId: args.flowId } }); return tx.scraperStep.createMany({ data: (args.steps as any[]).map((step) => ({ flowId: args.flowId, order: step.order, type: step.type, config: JSON.parse(step.config) })) }); });
+    case "scraperRuns.start": return prisma.scraperRun.create({ data: { flowId: args.flowId, status: "RUNNING" } }).then((row: any) => row.id);
+    case "scraperRuns.progress": return prisma.scraperRun.update({ where: { id: args.id }, data: { stepsExecuted: args.stepsExecuted, flyersFound: args.flyersFound, storesFound: args.storesFound, log: args.log } });
+    case "scraperRuns.finish": return prisma.scraperRun.update({ where: { id: args.id }, data: { status: enumValue(args.status as string), stepsExecuted: args.stepsExecuted, flyersFound: args.flyersFound, storesFound: args.storesFound, error: args.error, log: args.log, finishedAt: new Date() } });
+    case "scraperFlows.scheduleNextCheck": return prisma.scraperFlow.update({ where: { id: args.flowId }, data: { lastRunAt: new Date() } });
+    case "scraperFlows.listDue": return prisma.scraperFlow.findMany({ where: { status: "ACTIVE", OR: [{ nextRunAt: null }, { nextRunAt: { lte: new Date() } }] } });
+    case "scraperFlows.recordDiscoveryResult": return prisma.scraperFlow.update({ where: { id: args.flowId }, data: { discoveryAttempts: { increment: 1 }, lastRunAt: new Date() } });
+    case "flyers.createDiscovered": {
+      const existing = args.externalId ? await prisma.flyer.findFirst({ where: { supermarketId: args.supermarketId, externalId: args.externalId } }) : null;
+      if (existing) return { id: existing.id, created: false };
+      const row = await prisma.flyer.create({ data: { supermarketId: args.supermarketId, sourceId: args.sourceId, title: args.title, originalUrl: args.originalUrl, externalId: args.externalId, validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined), status: "DISCOVERED" } });
+      if (Array.isArray(args.storeIds) && args.storeIds.length) await prisma.flyerStore.createMany({ data: args.storeIds.map((storeId: string) => ({ flyerId: row.id, storeId })), skipDuplicates: true });
+      return { id: row.id, created: true };
+    }
+    case "flyers.findByHash": return prisma.flyer.findFirst({ where: { supermarketId: args.supermarketId, fileHash: args.fileHash } });
+    case "flyers.setStatus": return prisma.flyer.update({ where: { id: args.id }, data: { status: enumValue(args.status as string) } });
+    case "flyers.discardFlyer": return prisma.flyer.delete({ where: { id: args.id } });
+    case "flyers.attachFile": {
+      const duplicate = args.fileHash ? await prisma.flyer.findFirst({ where: { fileHash: args.fileHash, NOT: { id: args.id } } }) : null;
+      await prisma.flyer.update({ where: { id: args.id }, data: { filePath: args.storageId, fileType: args.fileType, fileSize: args.fileSize, fileHash: args.fileHash, status: duplicate ? "DUPLICATE" : "DOWNLOADED" } });
+      return { duplicateOf: duplicate?.id ?? null };
+    }
+    case "flyerPages.upsertPage": return prisma.flyerPage.upsert({ where: { flyerId_pageNumber: { flyerId: args.flyerId, pageNumber: args.pageNumber } }, update: { filePath: args.storageId }, create: { flyerId: args.flyerId, pageNumber: args.pageNumber, filePath: args.storageId } }).then((row: any) => row.id);
+    case "flyers.listPendingDownload": return prisma.flyer.findMany({ where: { status: "DISCOVERED" } });
+    case "flyers.listPendingExtract": return prisma.flyer.findMany({ where: { status: "DOWNLOADED" }, include: { pages: true } });
+    case "flyers.listForExtract": return prisma.flyer.findMany({ where: args.includeProcessed ? undefined : { status: { in: ["DOWNLOADED", "PARTIALLY_PROCESSED"] } }, include: { pages: true } });
+    case "flyers.get": return prisma.flyer.findUnique({ where: { id: args.id }, include: { pages: true, stores: true } });
+    case "flyers.markExpired": return prisma.flyer.updateMany({ where: { validUntil: { lt: new Date() }, status: { not: "EXPIRED" } }, data: { status: "EXPIRED", expiredAt: new Date() } }).then((result: any) => ({ expired: result.count }));
+    case "flyers.patchValidity": return prisma.flyer.update({ where: { id: args.id }, data: { validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined) } });
+    case "offers.insertBatch": {
+      if (args.replace) await prisma.offer.deleteMany({ where: { flyerId: args.flyerId, ...(Array.isArray(args.replacePageNumbers) ? { pageNumber: { in: args.replacePageNumbers } } : {}) } });
+      const offers = (args.offers as any[]).map((offer) => ({ flyerId: args.flyerId, supermarketId: args.supermarketId, validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined), name: offer.name, brand: offer.brand, quantity: offer.quantity, unit: offer.unit, price: offer.price, originalPrice: offer.originalPrice, cashPrice: offer.cashPrice, installmentCount: offer.installmentCount, installmentAmount: offer.installmentAmount, installmentInterestFree: offer.installmentInterestFree, discountPercentage: offer.discountPercentage, pageNumber: offer.pageNumber, rawText: offer.rawText, extractionConfidence: offer.extractionConfidence, eligibility: offer.eligibility ? enumValue(offer.eligibility) : undefined, conditions: offer.conditions, eligibilityConfidence: offer.eligibilityConfidence, eligibilityEvidence: offer.eligibilityEvidence, eligibilityStatus: offer.eligibilityStatus ? enumValue(offer.eligibilityStatus) : undefined, validationStatus: "PENDING" }));
+      return prisma.offer.createMany({ data: offers });
+    }
+    case "normalization.processFlyer": return prisma.offer.updateMany({ where: { flyerId: args.flyerId }, data: {} });
+    case "flyerErrors.insert": return prisma.flyerError.create({ data: { flyerId: args.flyerId, supermarketId: args.supermarketId, stage: args.stage, message: args.message, stack: args.stack } });
+    case "flyerExtractions.insert": return prisma.flyerExtraction.create({ data: { flyerId: args.flyerId, pageId: args.pageId, pageNumber: args.pageNumber, provider: args.provider, model: args.model, promptVersion: args.promptVersion, status: enumValue(args.status as string), rawResponse: args.rawResponse, offerCount: args.offerCount, extractionConfidence: args.extractionConfidence, error: args.error, inputTokens: args.inputTokens, outputTokens: args.outputTokens, totalTokens: args.totalTokens, durationMs: args.durationMs } });
+    case "flyerExtractions.findCompleted": return prisma.flyerExtraction.findFirst({ where: { pageId: args.pageId, model: args.model, promptVersion: args.promptVersion, status: "COMPLETED" }, orderBy: { createdAt: "desc" } });
+    case "scraperSetupEvents.append": {
+      const previous = await prisma.scraperSetupEvent.findFirst({ where: { flowId: args.flowId }, orderBy: { order: "desc" } });
+      return prisma.scraperSetupEvent.create({ data: { flowId: args.flowId, sessionId: args.sessionId, order: (previous?.order ?? 0) + 1, at: new Date(), kind: args.kind, label: args.label, payload: args.payload ? JSON.parse(args.payload as string) : undefined } });
+    }
+    default: throw new Error(`PostgreSQL scraper adapter has no handler for ${path}`);
   }
-  if (!client) client = new ConvexHttpClient(flyerConfig.convexUrl);
-  return client;
+}
+
+function getClient() {
+  return {
+    mutation: (target: Endpoint, args: Record<string, unknown>) => invoke(target.__path, args),
+    query: (target: Endpoint, args: Record<string, unknown>) => invoke(target.__path, args),
+  };
 }
 
 export async function ensureSupermarket(args: {
@@ -65,9 +144,9 @@ export async function createDiscoveredFlyer(args: {
   validUntil?: number;
   externalId?: string;
   storeIds?: string[];
-}): Promise<{ id: string; created: boolean }> {
+}): Promise<{ id: string; created: boolean; retired?: number }> {
   const res = (await getClient().mutation(api.flyers.createDiscovered, args)) as
-    | { id: string; created: boolean }
+    | { id: string; created: boolean; retired?: number }
     | string;
   // ponytail: old mutation returned id string
   if (typeof res === "string") return { id: res, created: true };
@@ -115,15 +194,14 @@ export async function uploadBuffer(
   buffer: Buffer,
   contentType: string,
 ): Promise<string> {
-  const uploadUrl = await getClient().mutation(api.flyers.generateUploadUrl, {});
-  const res = await fetch(uploadUrl, {
-    method: "POST",
-    headers: { "Content-Type": contentType },
-    body: new Uint8Array(buffer),
-  });
-  if (!res.ok) throw new Error(`Upload failed: HTTP ${res.status}`);
-  const json = (await res.json()) as { storageId: string };
-  return json.storageId;
+  const extension = contentType.includes("pdf") ? ".pdf" : contentType.split("/")[1] ? `.${contentType.split("/")[1]}` : ".bin";
+  const filename = `${createHash("sha256").update(buffer).digest("hex")}-${randomUUID()}${extension}`;
+  const relativePath = join("flyers", filename);
+  const root = process.env.STORAGE_ROOT ?? join(process.cwd(), "storage");
+  const destination = join(root, relativePath);
+  await mkdir(dirname(destination), { recursive: true });
+  await writeFile(destination, buffer);
+  return relativePath;
 }
 
 export async function attachFlyerFile(args: {

@@ -1,70 +1,7 @@
 "use client";
-
-import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { api } from "@convex/_generated/api";
-import type { Id } from "@convex/_generated/dataModel";
-import { PageHeader } from "@/components/admin/PageHeader";
-import { StatusBadge } from "@/components/admin/StatusBadge";
-import { formatDateTime } from "@/lib/format";
-
-export default function ExtractionErrorDetailPage() {
-  const params = useParams();
-  const id = params.id as Id<"flyerErrors">;
-  const err = useQuery(api.flyerErrors.get, { id });
-  const resolve = useMutation(api.flyerErrors.resolve);
-
-  if (err === undefined) {
-    return <p className="ds-meta">Carregando…</p>;
-  }
-  if (!err) {
-    return (
-      <p className="text-sm text-[var(--ds-color-danger)]">Não encontrado</p>
-    );
-  }
-
-  return (
-    <div>
-      <p className="mb-1 text-xs font-medium text-[var(--ds-color-muted-foreground)]">
-        <Link href="/admin/extraction" className="hover:underline">
-          Extração
-        </Link>
-        {" / "}
-        Erro
-      </p>
-      <PageHeader title={err.stage} description={err.supermarket?.name}>
-        <StatusBadge status={err.status} />
-      </PageHeader>
-      {err.status === "open" ? (
-        <button
-          type="button"
-          onClick={() => resolve({ id })}
-          className="mb-4 rounded-md border border-[var(--ds-color-border)] px-3 py-1.5 text-sm"
-        >
-          Resolver
-        </button>
-      ) : null}
-      <p className="mb-2 text-sm">{err.message}</p>
-      <p className="mb-4 text-xs text-[var(--ds-color-muted-foreground)]">
-        {formatDateTime(err.createdAt)}
-      </p>
-      {err.flyerId ? (
-        <p className="mb-4 text-sm">
-          Encarte:{" "}
-          <Link
-            href={`/admin/flyers/${err.flyerId}`}
-            className="hover:underline"
-          >
-            {err.flyer?.title ?? err.flyerId}
-          </Link>
-        </p>
-      ) : null}
-      {err.stack ? (
-        <pre className="overflow-auto rounded-lg border border-[var(--ds-color-border)] bg-zinc-950 p-3 text-xs text-[var(--ds-color-muted-foreground)]">
-          {err.stack}
-        </pre>
-      ) : null}
-    </div>
-  );
-}
+import { useEffect, useState } from "react";
+import { adminApi } from "@/lib/api";
+type ErrorRow = Awaited<ReturnType<typeof adminApi.extractionError>>;
+export default function ErrorPage() { const { id } = useParams<{ id: string }>(); const [error, setError] = useState<ErrorRow | null>(null); const [busy, setBusy] = useState(false); useEffect(() => { void adminApi.extractionError(id).then(setError).catch(() => setError(null)); }, [id]); async function resolve() { setBusy(true); await adminApi.updateExtractionError(id, "resolved"); setError((current) => current ? { ...current, status: "resolved" } : current); setBusy(false); } if (!error) return <p className="p-6 text-sm text-[var(--ds-color-muted-foreground)]">Carregando erro…</p>; return <section className="space-y-5 p-6"><Link href="/admin/extraction" className="text-sm text-[var(--ds-color-primary)]">← Extração</Link><div><p className="ds-label-caps">Erro de extração</p><h1 className="text-2xl font-bold">{error.stage}</h1><p className="text-sm text-[var(--ds-color-muted-foreground)]">{error.supermarket.name} · {error.status} · {new Date(error.createdAt).toLocaleString("pt-BR")}</p></div><p className="rounded border border-[var(--ds-color-border)] p-4 text-sm">{error.message}</p>{error.stack ? <pre className="overflow-auto rounded bg-[var(--ds-color-muted)] p-4 text-xs">{error.stack}</pre> : null}{error.status === "open" ? <button type="button" disabled={busy} onClick={() => void resolve()} className="rounded bg-[var(--ds-color-primary)] px-4 py-2 text-sm text-white">{busy ? "Resolvendo…" : "Marcar como resolvido"}</button> : null}</section>; }

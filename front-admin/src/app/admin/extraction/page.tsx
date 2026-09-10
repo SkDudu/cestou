@@ -1,161 +1,17 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
-import Link from "next/link";
-import { api } from "@convex/_generated/api";
-import { OpsHeader, OpsKpi, OpsTabs, statusDot } from "@/components/admin/ops";
-import { StatusBadge } from "@/components/admin/StatusBadge";
-import {
-  TablePagination,
-  slicePage,
-  useTablePage,
-} from "@/components/admin/TablePagination";
-import { formatOpsStamp, jobLabel } from "@/lib/format";
+import { useEffect, useState } from "react";
+import { ApiError, adminApi } from "@/lib/api";
+
+type Run = Awaited<ReturnType<typeof adminApi.scraperRuns>>[number];
 
 export default function ExtractionPage() {
-  const runs = useQuery(api.scraperRuns.listRecent, { limit: 60 });
-  const [tab, setTab] = useState("all");
-  const [q, setQ] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  const rows = useMemo(() => {
-    const list = runs ?? [];
-    const needle = q.trim().toLowerCase();
-    return list.filter((r) => {
-      if (tab === "fila" && r.queue !== "fila") return false;
-      if (tab === "review" && r.queue !== "review") return false;
-      if (tab === "blocked" && r.queue !== "blocked") return false;
-      if (!needle) return true;
-      return (
-        jobLabel(r._id).includes(needle) ||
-        r.supermarketName.toLowerCase().includes(needle) ||
-        r.flowName.toLowerCase().includes(needle) ||
-        r.status.toLowerCase().includes(needle)
-      );
-    });
-  }, [runs, tab, q]);
-
-  const [page, setPage] = useTablePage(`${tab}|${q}`);
-  const pageRows = slicePage(rows, page);
-
-  const fila = (runs ?? []).filter((r) => r.queue === "fila");
-  const review = (runs ?? []).filter((r) => r.queue === "review");
-  const blocked = (runs ?? []).filter((r) => r.queue === "blocked");
-  const pendingSkus = fila.reduce((n, r) => n + r.pendingCount, 0);
-
-  return (
-    <div>
-      <OpsHeader
-        title="Extração"
-        stamp={`Atualizado ${formatOpsStamp(Date.now())}`}
-        filterTarget={() => searchRef.current?.focus()}
-      />
-
-      <section className="flex gap-4 pb-4">
-        <OpsKpi
-          label="Na fila"
-          value={fila.length}
-          foot={
-            pendingSkus > 0
-              ? `${pendingSkus} ofertas pendentes`
-              : "jobs com ofertas pendentes"
-          }
-        />
-        <OpsKpi
-          label="Bloqueados"
-          value={blocked.length}
-          danger={blocked.length > 0}
-          foot={blocked[0]?.supermarketName ?? "nenhum bloqueio"}
-        />
-      </section>
-
-      <OpsTabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "all", label: "Todos", count: runs?.length ?? 0 },
-          { id: "fila", label: "Fila", count: fila.length },
-          { id: "review", label: "Revisão", count: review.length },
-          {
-            id: "blocked",
-            label: "Bloqueado",
-            count: blocked.length,
-            warn: true,
-          },
-        ]}
-      />
-
-      <section className="ds-table-card">
-        <div className="ds-table-head">
-          <h2 className="text-[15px] font-semibold">Fila</h2>
-          <input
-            ref={searchRef}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar job"
-            className="ds-search"
-          />
-        </div>
-        <div className="ds-table-cols">
-          <span className="ds-label-caps min-w-0 flex-1">Job</span>
-          <span className="ds-label-caps w-[200px] shrink-0">Loja</span>
-          <span className="ds-label-caps w-[88px] shrink-0">SKUs</span>
-          <span className="ds-label-caps w-[72px] shrink-0">Pend.</span>
-          <span className="ds-label-caps w-[96px] shrink-0">Status</span>
-        </div>
-        {pageRows.map((r) => (
-          <Link
-            key={r._id}
-            href={`/admin/extraction/${r._id}`}
-            className="ds-table-row"
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-2 font-mono text-xs">
-              <span
-                className="ds-dot"
-                style={{
-                  background:
-                    r.queue === "blocked"
-                      ? statusDot("fail")
-                      : r.queue === "review"
-                        ? statusDot("review")
-                        : r.queue === "fila"
-                          ? statusDot("queue")
-                          : statusDot("ok"),
-                }}
-              />
-              {jobLabel(r._id)}
-            </span>
-            <span className="w-[200px] shrink-0 truncate">
-              {r.supermarketName}
-            </span>
-            <span className="w-[88px] shrink-0 font-mono text-xs">
-              {r.offerCount}
-            </span>
-            <span className="w-[72px] shrink-0 font-mono text-xs">
-              {r.pendingCount}
-            </span>
-            <span className="w-[96px] shrink-0">
-              <StatusBadge status={r.queue === "done" ? r.status : r.queue} />
-            </span>
-          </Link>
-        ))}
-        {!rows.length && runs !== undefined ? (
-          <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
-            Nenhum job nesta fila.
-          </p>
-        ) : null}
-        <TablePagination
-          page={page}
-          total={rows.length}
-          onPageChange={setPage}
-        />
-        {runs === undefined ? (
-          <p className="px-[18px] py-8 text-center text-sm text-[var(--ds-color-muted-foreground)]">
-            Carregando…
-          </p>
-        ) : null}
-      </section>
-    </div>
-  );
+  const [runs, setRuns] = useState<Run[]>();
+  const [error, setError] = useState<string>();
+  async function load() {
+    try { setError(undefined); setRuns(await adminApi.scraperRuns()); }
+    catch (cause) { setError(cause instanceof ApiError && cause.status === 401 ? "Sua sessão expirou." : "Não foi possível carregar as execuções."); }
+  }
+  useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, []);
+  return <section className="mx-auto max-w-6xl space-y-6"><header className="flex items-end justify-between gap-3"><div><p className="text-sm font-medium text-emerald-700">Operação</p><h1 className="text-3xl font-semibold">Execuções e extração</h1><p className="mt-1 text-sm text-slate-500">Histórico persistido dos jobs do scraper.</p></div><button onClick={() => void load()} className="rounded-md border border-slate-300 px-3 py-2 text-sm">Atualizar</button></header>{error && <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}{!runs ? <p className="text-sm text-slate-500">Carregando execuções…</p> : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-4 py-3">Fluxo</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Início</th><th className="px-4 py-3">Etapas</th><th className="px-4 py-3">Flyers</th><th className="px-4 py-3">Erro</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id} className="border-t border-slate-100"><td className="px-4 py-3"><p className="font-medium">{run.flow.name}</p><p className="text-xs text-slate-500">{run.flow.supermarket.name}</p></td><td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{run.status.toLowerCase()}</span></td><td className="px-4 py-3">{new Date(run.startedAt).toLocaleString("pt-BR")}</td><td className="px-4 py-3">{run.stepsExecuted}</td><td className="px-4 py-3">{run.flyersFound}</td><td className="max-w-xs truncate px-4 py-3 text-red-700">{run.error ?? "—"}</td></tr>)}</tbody></table></div>}</section>;
 }

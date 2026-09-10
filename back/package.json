@@ -2,7 +2,20 @@
   "name": "smart-grocery",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
+    "api:dev": "tsx watch api/src/index.ts",
+    "api:start": "tsx api/src/index.ts",
+    "worker:start": "tsx worker/src/worker.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify:no-convex": "tsx scripts/verify-no-convex.ts",
+    "benchmark:api": "tsx scripts/benchmark-api.ts",
+    "data:reconcile": "tsx scripts/reconcile-postgres-data.ts",
     "flyers:download": "npm run flyers:download --workspace=scraper",
     "flyers:extract": "npm run flyers:extract --workspace=scraper --",
     "flyers:reextract": "npm run flyers:reextract --workspace=scraper --",
@@ -12,19 +25,28 @@
     "flows:record": "npm run flows:record --workspace=scraper --",
     "flows:codegen": "npm run flows:codegen --workspace=scraper --",
     "flows:session-worker": "npm run flows:session-worker --workspace=scraper",
-    "flows:scheduler": "npm run flows:scheduler --workspace=scraper",
-    "convex:dev": "npx convex dev",
-    "convex:deploy": "npx convex deploy"
+    "flows:scheduler": "npm run flows:scheduler --workspace=scraper"
   },
   "workspaces": [
     "scraper"
   ],
   "devDependencies": {
-    "convex": "^1.21.0",
-    "typescript": "^5.7.0"
+    "@types/pg": "^8.23.1",
+    "prisma": "^7.10.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@auth/core": "^0.41.1",
-    "@convex-dev/auth": "^0.0.95"
+    "@fastify/cookie": "^11.1.2",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "argon2": "^0.45.1",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.3.3",
+    "pg": "^8.23.0",
+    "pg-boss": "^12.30.0",
+    "zod": "^4.6.1"
   }
 }

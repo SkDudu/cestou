@@ -1,63 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useConvexAuth, useQuery } from "convex/react";
-import { api } from "@convex/_generated/api";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState, Panel, Skeleton } from "@/components/ui";
+import { clientApi } from "@/lib/api";
 import { formatDay } from "@/lib/format";
 
+type Flyer = { id: string; title: string | null; validFrom: string | null; validUntil: string | null; supermarket: { name: string }; _count: { offers: number } };
+const day = (value: string | null) => formatDay(value ? new Date(value).getTime() : null);
 export default function EncartesPage() {
-  const { isAuthenticated } = useConvexAuth();
-  const location = useQuery(
-    api.clientLocation.getMyDefaultLocation,
-    isAuthenticated ? {} : "skip",
-  );
-  const flyers = useQuery(
-    api.clientOffers.listNearbyFlyers,
-    isAuthenticated ? {} : "skip",
-  );
-  const locLabel = location ? `${location.city} — ${location.state}` : null;
-
-  return (
-    <AppShell
-      locationLabel={locLabel}
-      title="Encartes"
-      subtitle="Todos os encartes publicados e vigentes no sistema."
-    >
-      {!flyers ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          <Skeleton className="h-28 w-full" />
-          <Skeleton className="h-28 w-full" />
-        </div>
-      ) : flyers.length === 0 ? (
-        <EmptyState
-          title="Nenhum encarte publicado"
-          body="Quando houver encartes processados e vigentes, eles aparecem aqui."
-        />
-      ) : (
-        <ul className="grid gap-3 md:grid-cols-2 stagger-in">
-          {flyers.map((f) => (
-            <li key={f._id}>
-              <Link href={`/encartes/${f._id}`}>
-                <Panel className="transition-colors hover:border-[var(--ds-color-primary)]">
-                  <p className="ds-label-caps text-[var(--ds-color-primary)]">
-                    {f.supermarketName}
-                    {f.storeName ? ` · ${f.storeName}` : ""}
-                  </p>
-                  <p className="mt-1 text-lg font-semibold tracking-tight">
-                    {f.title ?? "Encarte"}
-                  </p>
-                  <p className="text-sm text-[var(--ds-color-muted-foreground)]">
-                    {formatDay(f.validFrom)} → {formatDay(f.validUntil)} ·{" "}
-                    {f.offerCount} ofertas
-                  </p>
-                </Panel>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </AppShell>
-  );
+  const [flyers, setFlyers] = useState<Flyer[] | null>(null);
+  useEffect(() => { void clientApi<Flyer[]>("/flyers").then(setFlyers).catch(() => setFlyers([])); }, []);
+  return <AppShell title="Encartes" subtitle="Todos os encartes publicados e vigentes no sistema.">{!flyers ? <div className="grid gap-3 md:grid-cols-2"><Skeleton className="h-28 w-full" /><Skeleton className="h-28 w-full" /></div> : flyers.length === 0 ? <EmptyState title="Nenhum encarte publicado" body="Quando houver encartes processados e vigentes, eles aparecem aqui." /> : <ul className="grid gap-3 md:grid-cols-2 stagger-in">{flyers.map((flyer) => <li key={flyer.id}><Link href={`/encartes/${flyer.id}`}><Panel className="transition-colors hover:border-[var(--ds-color-primary)]"><p className="ds-label-caps text-[var(--ds-color-primary)]">{flyer.supermarket.name}</p><p className="mt-1 text-lg font-semibold tracking-tight">{flyer.title ?? "Encarte"}</p><p className="text-sm text-[var(--ds-color-muted-foreground)]">{day(flyer.validFrom)} → {day(flyer.validUntil)} · {flyer._count.offers} ofertas</p></Panel></Link></li>)}</ul>}</AppShell>;
 }

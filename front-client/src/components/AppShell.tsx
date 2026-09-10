@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useAuthActions } from "@convex-dev/auth/react";
 import type { Icon } from "@phosphor-icons/react";
 import {
   House,
@@ -54,13 +53,14 @@ export function AppShell({
   actions?: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { signOut } = useAuthActions();
+  const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = moreLinks.some((l) => isActive(pathname, l.href));
 
-  useEffect(() => {
-    setMoreOpen(false);
-  }, [pathname]);
+  async function signOut() {
+    await fetch("/api/v1/client/auth/logout", { method: "POST", credentials: "include" });
+    router.push("/login");
+  }
 
   useEffect(() => {
     if (!moreOpen) return;

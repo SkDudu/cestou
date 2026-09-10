@@ -2,10 +2,9 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useConvexAuth, useMutation } from "convex/react";
 import { ArrowRight, GpsFix } from "@phosphor-icons/react";
-import { api } from "@convex/_generated/api";
 import { Button, Field, Input, Select } from "@/components/ui";
+import { clientApi } from "@/lib/api";
 
 const STATES = [
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
@@ -13,8 +12,6 @@ const STATES = [
 ];
 
 export default function OnboardingPage() {
-  const { isAuthenticated, isLoading } = useConvexAuth();
-  const upsert = useMutation(api.clientLocation.upsertLocation);
   const router = useRouter();
   const [city, setCity] = useState("Fortaleza");
   const [state, setState] = useState("CE");
@@ -46,27 +43,19 @@ export default function OnboardingPage() {
     setBusy(true);
     setError(null);
     try {
-      await upsert({
+      await clientApi("/location", { method: "PUT", body: JSON.stringify({
         city,
         state,
         neighborhood: neighborhood || undefined,
         lat,
         lng,
-      });
+      }) });
       router.replace("/mercados");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao salvar");
     } finally {
       setBusy(false);
     }
-  }
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="grid min-h-[100dvh] place-items-center bg-[var(--ds-color-muted)] text-[var(--ds-color-muted-foreground)]">
-        Preparando sessão…
-      </div>
-    );
   }
 
   return (

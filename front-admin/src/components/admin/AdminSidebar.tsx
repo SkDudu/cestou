@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@convex/_generated/api";
+import { useAdminOverview } from "@/lib/use-admin-overview";
 
 const operacao = [
   { href: "/admin", label: "Visão geral", icon: "overview" },
@@ -116,7 +115,7 @@ function NavIcon({ name }: { name: string }) {
 export function AdminSidebar() {
   const pathname = usePathname();
   const [q, setQ] = useState("");
-  const overview = useQuery(api.dashboard.overview);
+  const { data: overview } = useAdminOverview();
   const query = q.trim().toLowerCase();
 
   const match = (label: string, href: string) =>
@@ -124,8 +123,8 @@ export function AdminSidebar() {
     label.toLowerCase().includes(query) ||
     href.toLowerCase().includes(query);
 
-  const workerCount = overview?.workersActive ?? 0;
-  const extractAlert = (overview?.extractionErrors ?? 0) > 0;
+  const workerCount = overview?.runningRuns ?? 0;
+  const extractAlert = (overview?.failedFlyers ?? 0) > 0;
 
   const items = useMemo(() => {
     const active = (href: string) =>

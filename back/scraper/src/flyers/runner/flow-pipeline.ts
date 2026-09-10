@@ -455,8 +455,11 @@ export async function persistDiscovered(
       );
     } else {
       duplicates++;
+      say?.(`[DISCOVER] já existia → ${c.title ?? originalUrl}`);
+    }
+    if (res.retired) {
       say?.(
-        `[DISCOVER] já existia → ${c.title ?? originalUrl}`,
+        `[DISCOVER] validade: aposentou ${res.retired} edição(ões) do mesmo slot`,
       );
     }
   }

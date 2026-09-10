@@ -1,25 +1,13 @@
 "use client";
 
-import { Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { WorkerSetupModal } from "@/components/admin/WorkerSetupModal";
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { adminApi } from "@/lib/api";
 
-export default function WorkerSetupPage() {
-  return (
-    <Suspense fallback={<p className="ds-meta">Carregando…</p>}>
-      <WorkerSetupFromRoute />
-    </Suspense>
-  );
-}
-
-function WorkerSetupFromRoute() {
-  const router = useRouter();
-  const search = useSearchParams();
-  return (
-    <WorkerSetupModal
-      open
-      presetSupermarketId={search.get("supermarketId") ?? undefined}
-      onClose={() => router.push("/admin/scraper")}
-    />
-  );
+type Supermarket = { id: string; name: string };
+export default function NewScraperPage() {
+  const router = useRouter(); const [supermarkets, setSupermarkets] = useState<Supermarket[]>([]); const [name, setName] = useState(""); const [startUrl, setStartUrl] = useState(""); const [supermarketId, setSupermarketId] = useState(""); const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  useEffect(() => { void adminApi.supermarkets().then((items) => { setSupermarkets(items); setSupermarketId(items[0]?.id ?? ""); }).catch(() => setError("Não foi possível carregar as redes.")); }, []);
+  async function submit(event: FormEvent) { event.preventDefault(); setSaving(true); setError(null); try { await adminApi.createScraperFlow({ supermarketId, name, startUrl }); router.push("/admin/scraper"); } catch { setError("Não foi possível criar o fluxo."); } finally { setSaving(false); } }
+  return <section className="mx-auto max-w-xl space-y-5 p-6"><div><p className="ds-label-caps">Scraper / Prisma</p><h1 className="text-2xl font-bold tracking-tight">Novo fluxo</h1><p className="text-sm text-[var(--ds-color-muted-foreground)]">O fluxo será persistido no Postgres e executado pelo worker pg-boss.</p></div><form onSubmit={(event) => void submit(event)} className="space-y-4 rounded-xl border border-[var(--ds-color-border)] p-5"><label className="block text-sm font-medium">Rede<select required value={supermarketId} onChange={(event) => setSupermarketId(event.target.value)} className="mt-1 block w-full rounded border p-2">{supermarkets.map((market) => <option key={market.id} value={market.id}>{market.name}</option>)}</select></label><label className="block text-sm font-medium">Nome<input required value={name} onChange={(event) => setName(event.target.value)} className="mt-1 block w-full rounded border p-2" placeholder="Encarte semanal" /></label><label className="block text-sm font-medium">URL inicial<input required type="url" value={startUrl} onChange={(event) => setStartUrl(event.target.value)} className="mt-1 block w-full rounded border p-2" placeholder="https://..." /></label>{error ? <p className="text-sm text-[var(--ds-color-danger)]">{error}</p> : null}<button type="submit" disabled={saving || !supermarketId} className="rounded bg-[var(--ds-color-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{saving ? "Criando…" : "Criar fluxo"}</button></form></section>;
 }

@@ -17,6 +17,9 @@ function parseCtx(): Record<string, string> {
   return {};
 }
 
+/** ponytail: hung Playwright used to leave scraperRuns `running` for days */
+const SCHEDULER_RUN_MS = 20 * 60 * 1000;
+
 export async function runSchedulerTick() {
   const due = (await listDueFlows()) as Array<{
     _id: string;
@@ -25,9 +28,12 @@ export async function runSchedulerTick() {
   flyerLog.info("SCHEDULER", `due flows=${due.length}`);
   const withNew: string[] = [];
   for (const flow of due) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), SCHEDULER_RUN_MS);
     try {
       const result = await executeFlowById(flow._id, parseCtx(), {
         pipeline: "discovery",
+        signal: ac.signal,
       });
       await recordDiscoveryResult({
         flowId: flow._id,
@@ -44,6 +50,8 @@ export async function runSchedulerTick() {
         newFlyers: 0,
         error: String(err),
       });
+    } finally {
+      clearTimeout(t);
     }
   }
   await downloadPending();
