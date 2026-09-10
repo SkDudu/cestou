@@ -25,6 +25,7 @@ export const adminApi = {
   me: () => apiFetch<{ id: string; email: string; role: "ADMIN_MASTER" }>("/auth/me"),
   overview: () => apiFetch<{ supermarkets: number; activeFlows: number; runningRuns: number; failedFlyers: number }>("/admin/dashboard/overview"),
   scraperFlows: () => apiFetch<Array<{ id: string; name: string; startUrl: string; status: string; supermarket: { id: string; name: string; slug: string }; latestRun: null | { id: string; status: string; startedAt: string; finishedAt: string | null; flyersFound: number; stepsExecuted: number; error: string | null } }>>("/admin/scraper-flows"),
+  createScraperFlow: (data: { supermarketId: string; name: string; startUrl: string; status?: "DRAFT" | "TESTING" | "ACTIVE" | "DISABLED" }) => apiFetch<{ id: string }>("/admin/scraper-flows", { method: "POST", body: JSON.stringify(data) }),
   startScraperRun: (flowId: string) => apiFetch<{ id: string; status: string }>(`/admin/scraper-flows/${flowId}/runs`, { method: "POST" }),
   scraperRuns: () => apiFetch<Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; flyersFound: number; stepsExecuted: number; storesFound: number; error: string | null; flow: { id: string; name: string; supermarket: { name: string } } }>>("/admin/scraper-runs?limit=60"),
   flyers: () => apiFetch<Array<{ id: string; title: string | null; originalUrl: string; status: string; createdAt: string; validFrom: string | null; validUntil: string | null; supermarket: { name: string }; source: { type: string; url: string } }>>("/admin/flyers?limit=100"),
