@@ -7,6 +7,7 @@ dist
 scraper/dist
 .convex
 storage
+generated
 scraper/debug
 *.log
 .DS_Store
