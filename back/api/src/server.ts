@@ -365,6 +365,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return prisma.supermarket.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { stores: true, flyerSources: true, flyers: true, offers: true } } } });
   });
 
+  app.get("/api/v1/admin/supermarkets/:supermarketId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    const params = z.object({ supermarketId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_SUPERMARKET_ID" });
+    const supermarket = await prisma.supermarket.findUnique({ where: { id: params.data.supermarketId }, include: { stores: { orderBy: { name: "asc" } }, flyerSources: { orderBy: { createdAt: "desc" } }, scraperFlows: { orderBy: { updatedAt: "desc" } }, _count: { select: { flyers: true, offers: true } } } });
+    if (!supermarket) return reply.code(404).send({ code: "SUPERMARKET_NOT_FOUND" });
+    return supermarket;
+  });
+
   app.get("/api/v1/admin/brands", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
