@@ -26,4 +26,14 @@ describe("admin offer listing", () => {
     expect(response.json()).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ name: "Arroz" })]), hasMore: expect.any(Boolean) });
     await app.close();
   });
+
+  it("updates offer validation status", async () => {
+    const offer = await prisma.offer.findFirstOrThrow({ where: { supermarketId } });
+    const app = await buildApp({ prisma });
+    const login = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { email: credentials.ADMIN_MASTER_EMAIL, password: credentials.ADMIN_SEED_PASSWORD } });
+    const response = await app.inject({ method: "PATCH", url: `/api/v1/admin/offers/${offer.id}/validation`, headers: { cookie: login.headers["set-cookie"] as string }, payload: { validationStatus: "VALIDATED" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ validationStatus: "VALIDATED" });
+    await app.close();
+  });
 });
