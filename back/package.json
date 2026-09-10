@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "verify:no-convex": "tsx scripts/verify-no-convex.ts",
+    "benchmark:api": "tsx scripts/benchmark-api.ts",
     "flyers:download": "npm run flyers:download --workspace=scraper",
     "flyers:extract": "npm run flyers:extract --workspace=scraper --",
     "flyers:reextract": "npm run flyers:reextract --workspace=scraper --",
