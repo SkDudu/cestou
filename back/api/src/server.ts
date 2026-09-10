@@ -182,6 +182,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
   });
 
+  app.get("/api/v1/admin/flyers/:flyerId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const params = z.object({ flyerId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ code: "INVALID_FLYER_ID" });
+    const flyer = await prisma.flyer.findUnique({ where: { id: params.data.flyerId }, include: { supermarket: true, source: true, pages: { orderBy: { pageNumber: "asc" } }, offers: { orderBy: { createdAt: "desc" } } } });
+    if (!flyer) return reply.code(404).send({ code: "FLYER_NOT_FOUND" });
+    return flyer;
+  });
+
   app.get("/api/v1/admin/supermarkets", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
