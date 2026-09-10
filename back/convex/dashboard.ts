@@ -1,4 +1,5 @@
 import { query } from "./_generated/server";
+import { isStaleScraperRun } from "./scraperRuns";
 
 export const metrics = query({
   args: {},
@@ -234,7 +235,9 @@ export const overview = query({
     const parseDenom = parsed + review + failed;
     const parseRate = parseDenom ? parsed / parseDenom : 0;
 
-    const extractingNow = runs.filter((r) => r.status === "running").length;
+    const extractingNow = runs.filter(
+      (r) => r.status === "running" && !isStaleScraperRun(r, now),
+    ).length;
     const flowsActive = flows.filter((f) => f.status === "active").length;
     const startToday = dayStart(now);
     const workersDelta = flows.filter(
@@ -278,11 +281,13 @@ export const overview = query({
         taxa,
         status: opsStatus(
           flow.status,
-          last?.status === "failed" && last.error === "cancelled"
+          last?.status === "running" && isStaleScraperRun(last, now)
             ? "cancelled"
-            : last?.error === "duplicate"
-              ? "duplicate"
-              : last?.status,
+            : last?.status === "failed" && last.error === "cancelled"
+              ? "cancelled"
+              : last?.error === "duplicate"
+                ? "duplicate"
+                : last?.status,
           last24.length,
         ),
         flowStatus: flow.status,
@@ -323,7 +328,8 @@ export const overview = query({
         byDay.set(key, agg);
       }
       agg.count += 1;
-      if (run.status === "running") agg.running += 1;
+      if (run.status === "running" && !isStaleScraperRun(run, now))
+        agg.running += 1;
       const slug = flowSlug.get(run.flowId);
       if (slug) agg.workers.add(slug);
     }

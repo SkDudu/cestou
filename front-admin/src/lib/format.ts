@@ -130,6 +130,16 @@ export function formatRelative(ts: number | null | undefined) {
   return `há ${days}d`;
 }
 
+/** Keep in sync with back/convex/scraperRuns.ts STALE_RUN_MS */
+const STALE_RUN_MS = 6 * 60 * 60 * 1000;
+
+export function isLiveScraperRun(
+  run: { status?: string; startedAt: number },
+  now = Date.now(),
+) {
+  return run.status === "running" && now - run.startedAt < STALE_RUN_MS;
+}
+
 export function isRunCancelled(run: {
   status?: string;
   error?: string | null;

@@ -1,5 +1,40 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+
+/** ponytail: 6h; a real extract that long is a hung worker, not a run */
+export const STALE_RUN_MS = 6 * 60 * 60 * 1000;
+
+export function isStaleScraperRun(
+  run: { status: string; startedAt: number },
+  now = Date.now(),
+): boolean {
+  return run.status === "running" && now - run.startedAt >= STALE_RUN_MS;
+}
+
+async function markCancelled(
+  ctx: MutationCtx,
+  id: Id<"scraperRuns">,
+  error: string,
+) {
+  await ctx.db.patch(id, {
+    status: "cancelled",
+    finishedAt: Date.now(),
+    error,
+  });
+}
+
+export async function reapStaleRuns(ctx: MutationCtx, now = Date.now()) {
+  const runs = await ctx.db.query("scraperRuns").collect();
+  let n = 0;
+  for (const r of runs) {
+    if (isStaleScraperRun(r, now)) {
+      await markCancelled(ctx, r._id, "stale");
+      n++;
+    }
+  }
+  return n;
+}
 
 const runStatus = v.union(
   v.literal("running"),
@@ -192,6 +227,14 @@ export const start = mutation({
   handler: async (ctx, args) => {
     const flow = await ctx.db.get(args.flowId);
     if (!flow) throw new Error("Flow not found");
+    await reapStaleRuns(ctx);
+    const open = await ctx.db
+      .query("scraperRuns")
+      .withIndex("by_flow", (q) => q.eq("flowId", args.flowId))
+      .collect();
+    for (const r of open) {
+      if (r.status === "running") await markCancelled(ctx, r._id, "superseded");
+    }
     return ctx.db.insert("scraperRuns", {
       flowId: args.flowId,
       status: "running",
@@ -200,6 +243,16 @@ export const start = mutation({
       flyersFound: 0,
       storesFound: 0,
     });
+  },
+});
+
+export const cancel = mutation({
+  args: { id: v.id("scraperRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.id);
+    if (!run || run.status !== "running") return { ok: false };
+    await markCancelled(ctx, args.id, "cancelled");
+    return { ok: true };
   },
 });
 

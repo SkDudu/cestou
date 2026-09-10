@@ -65,9 +65,9 @@ export async function createDiscoveredFlyer(args: {
   validUntil?: number;
   externalId?: string;
   storeIds?: string[];
-}): Promise<{ id: string; created: boolean }> {
+}): Promise<{ id: string; created: boolean; retired?: number }> {
   const res = (await getClient().mutation(api.flyers.createDiscovered, args)) as
-    | { id: string; created: boolean }
+    | { id: string; created: boolean; retired?: number }
     | string;
   // ponytail: old mutation returned id string
   if (typeof res === "string") return { id: res, created: true };

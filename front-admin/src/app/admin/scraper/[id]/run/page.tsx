@@ -7,7 +7,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { useFlowRun } from "@/components/admin/FlowRunPanel";
-import { formatOpsStamp, isRunCancelled, isRunDuplicate } from "@/lib/format";
+import { formatOpsStamp, isLiveScraperRun, isRunCancelled, isRunDuplicate } from "@/lib/format";
 
 export default function WorkerRunPage() {
   return (
@@ -24,6 +24,7 @@ function WorkerRunInner() {
   const search = useSearchParams();
   const data = useQuery(api.scraperFlows.get, { id });
   const updateFlow = useMutation(api.scraperFlows.update);
+  const cancelRun = useMutation(api.scraperRuns.cancel);
   const navAfterRun = useRef(false);
   const run = useFlowRun(id, (ev) => {
     if (navAfterRun.current) return;
@@ -37,7 +38,7 @@ function WorkerRunInner() {
   const boot = useRef(false);
   const tailRef = useRef<HTMLDivElement>(null);
   const jobParam = search.get("job");
-  const liveHist = data?.recentRuns?.find((r) => r.status === "running");
+  const liveHist = data?.recentRuns?.find((r) => isLiveScraperRun(r));
   const hist =
     (jobParam
       ? data?.recentRuns?.find((r) => r._id === jobParam)
@@ -46,7 +47,7 @@ function WorkerRunInner() {
   const fromDb = Boolean(hist) && !(run.running && run.lines.length > 0);
   const lines = fromDb && hist ? histLines(hist) : run.lines;
   const watchingLive =
-    run.running || hist?.status === "running" || Boolean(liveHist);
+    run.running || (hist ? isLiveScraperRun(hist) : false) || Boolean(liveHist);
 
   useEffect(() => {
     if (boot.current) return;
@@ -191,7 +192,16 @@ function WorkerRunInner() {
             type="button"
             className="ds-btn ds-btn--danger"
             disabled={!live && !run.stopping && hist?.status !== "running"}
-            onClick={() => void run.onStop()}
+            onClick={() => {
+              void (async () => {
+                if (hist?._id) {
+                  await cancelRun({
+                    id: hist._id as Id<"scraperRuns">,
+                  });
+                }
+                await run.onStop();
+              })();
+            }}
           >
             {run.stopping ? "Parando…" : "Cancelar run"}
           </button>
@@ -461,7 +471,8 @@ function histLines(h: HistRun) {
 }
 
 function phaseFromHist(h: HistRun) {
-  if (isRunCancelled(h)) return "STOP";
+  if (isRunCancelled(h) || (h.status === "running" && !isLiveScraperRun(h)))
+    return "STOP";
   if (isRunDuplicate(h)) return "DUPLICATA";
   if (h.status === "success") return "OFERTAS";
   if (h.status === "failed") return "FALHA";
@@ -471,7 +482,7 @@ function phaseFromHist(h: HistRun) {
 }
 
 function pillFromStatus(h: HistRun) {
-  if (isRunCancelled(h))
+  if (isRunCancelled(h) || (h.status === "running" && !isLiveScraperRun(h)))
     return {
       label: "Parado",
       bg: "var(--ds-color-pill-review-bg)",

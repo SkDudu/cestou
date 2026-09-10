@@ -74,7 +74,7 @@ Admin Flow Builder: `/admin/scraper`. **Iniciar worker** no dashboard sobe o Pla
 
 Pipeline manual (dashboard / `flows:run`): `discover-flyer` → `download-flyers` → `extract-offers` (MiMo) → `nextRunAt = validUntil` do flyer.
 
-Na data final, o mesmo worker faz discovery-only. Flyer igual (URL/hash) → skip. Flyer novo → baixa + MiMo → novo `validUntil`.
+Na data final, o mesmo worker faz discovery + download (sem MiMo). Flyer igual (URL/hash) → skip. Flyer novo → baixa; `extractPending` no mesmo tick → MiMo → novo `validUntil`. Check periódico: no máximo a cada 6h.
 
 `npm run flows:scheduler` só se quiser poller sem o worker do dashboard.
 

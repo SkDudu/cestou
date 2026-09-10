@@ -2,6 +2,7 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { resolveSourceStoreIds } from "./flyerSources";
+import { sameFlyerEdition } from "./flyerEdition";
 
 const flyerStatus = v.union(
   v.literal("discovered"),
@@ -89,7 +90,39 @@ function discoveredPatch(
   ) {
     patch.status = "discovered";
   }
+  if (args.validUntil !== undefined && args.validUntil < Date.now()) {
+    patch.status = "expired";
+    patch.expiredAt = Date.now();
+  }
   return patch;
+}
+
+async function expireOtherEditions(
+  ctx: MutationCtx,
+  rows: Array<{ _id: Id<"flyers">; status: string }>,
+  keep: Id<"flyers">,
+) {
+  const now = Date.now();
+  let n = 0;
+  for (const f of rows) {
+    if (f._id === keep) continue;
+    if (
+      f.status === "expired" ||
+      f.status === "failed" ||
+      f.status === "duplicate" ||
+      f.status === "downloading" ||
+      f.status === "processing"
+    ) {
+      continue;
+    }
+    await ctx.db.patch(f._id, {
+      status: "expired",
+      expiredAt: now,
+      updatedAt: now,
+    });
+    n++;
+  }
+  return n;
 }
 
 export const createDiscovered = mutation({
@@ -111,33 +144,39 @@ export const createDiscovered = mutation({
       undefined;
     const withStores = { ...args, storeIds };
 
-    // Dedupe by originalUrl per store — date-only identity collided Açougue/Peixaria
-    const byUrl = await ctx.db
+    // Slot URL (#oferta-N) is reused when a new jornal replaces an expired one.
+    const byUrlAll = await ctx.db
       .query("flyers")
       .withIndex("by_supermarket", (q) =>
         q.eq("supermarketId", args.supermarketId),
       )
       .filter((q) => q.eq(q.field("originalUrl"), args.originalUrl))
-      .first();
+      .collect();
+    const byExtAll = args.externalId
+      ? await ctx.db
+          .query("flyers")
+          .withIndex("by_supermarket_externalId", (q) =>
+            q
+              .eq("supermarketId", args.supermarketId)
+              .eq("externalId", args.externalId),
+          )
+          .collect()
+      : [];
+    const siblings = [...byUrlAll, ...byExtAll];
+
+    const byUrl = byUrlAll.find((f) => sameFlyerEdition(f, args));
     if (byUrl) {
       const patch = discoveredPatch(withStores, byUrl);
       if (Object.keys(patch).length > 1) await ctx.db.patch(byUrl._id, patch);
-      return { id: byUrl._id, created: false };
+      const retired = await expireOtherEditions(ctx, siblings, byUrl._id);
+      return { id: byUrl._id, created: false, retired };
     }
 
-    if (args.externalId) {
-      const byExt = await ctx.db
-        .query("flyers")
-        .withIndex("by_supermarket_externalId", (q) =>
-          q
-            .eq("supermarketId", args.supermarketId)
-            .eq("externalId", args.externalId),
-        )
-        .first();
-      if (byExt) {
-        await ctx.db.patch(byExt._id, discoveredPatch(withStores, byExt));
-        return { id: byExt._id, created: false };
-      }
+    const byExt = byExtAll.find((f) => sameFlyerEdition(f, args));
+    if (byExt) {
+      await ctx.db.patch(byExt._id, discoveredPatch(withStores, byExt));
+      const retired = await expireOtherEditions(ctx, siblings, byExt._id);
+      return { id: byExt._id, created: false, retired };
     }
 
     const now = Date.now();
@@ -155,7 +194,8 @@ export const createDiscovered = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    return { id, created: true };
+    const retired = await expireOtherEditions(ctx, siblings, id);
+    return { id, created: true, retired };
   },
 });
 

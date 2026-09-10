@@ -9,18 +9,19 @@ import {
   armDiscoveryForSupermarket,
   armPeriodicDiscovery,
 } from "./scraperFlows";
+import { reapStaleRuns } from "./scraperRuns";
 
 const DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Hourly lifecycle: expire finished flyers and purge evidence after 30 days.
- * Offers are deliberately retained as historical data by the purge.
- * Also caps nextRunAt so active flows recheck pages at least every 6h.
+ * Hourly lifecycle: expire flyers by validUntil, purge evidence after 30 days,
+ * and arm site checks (new flyers + validade) at least every 6h.
  */
 export const checkFlyerLifecycle = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
+    await reapStaleRuns(ctx, now);
     const flyers = await ctx.db.query("flyers").collect();
     let expired = 0;
     const marketsToDiscover = new Set<Id<"supermarkets">>();

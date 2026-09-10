@@ -22,6 +22,7 @@ import type * as clientOffers from "../clientOffers.js";
 import type * as clientStores from "../clientStores.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
+import type * as flyerEdition from "../flyerEdition.js";
 import type * as flyerErrors from "../flyerErrors.js";
 import type * as flyerExtractions from "../flyerExtractions.js";
 import type * as flyerPages from "../flyerPages.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   clientStores: typeof clientStores;
   crons: typeof crons;
   dashboard: typeof dashboard;
+  flyerEdition: typeof flyerEdition;
   flyerErrors: typeof flyerErrors;
   flyerExtractions: typeof flyerExtractions;
   flyerPages: typeof flyerPages;

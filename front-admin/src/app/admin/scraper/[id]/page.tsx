@@ -14,7 +14,7 @@ import { TeachPanel } from "@/components/admin/TeachPanel";
 import { WorkerEditStepsModal } from "@/components/admin/WorkerEditStepsModal";
 import { WorkerSetupTracePanel } from "@/components/admin/WorkerSetupTracePanel";
 import type { SetupTraceEvent } from "@/components/admin/WorkerSetupTracePanel";
-import { formatOpsStamp, isRunCancelled, isRunDuplicate } from "@/lib/format";
+import { formatOpsStamp, isLiveScraperRun, isRunCancelled, isRunDuplicate } from "@/lib/format";
 import {
   TablePagination,
   slicePage,
@@ -155,7 +155,8 @@ export default function ScraperFlowDetailPage() {
     ? compactDuration((last.finishedAt ?? Date.now()) - last.startedAt)
     : "—";
   const lastClock = last ? clock(last.startedAt) : "—";
-  const cron = data.schedule ?? "—";
+  const nextAt = data.nextRunAt;
+  const nextDue = Boolean(nextAt && nextAt <= Date.now());
   const fonte = sourceKind(data.startUrl);
 
   return (
@@ -169,7 +170,7 @@ export default function ScraperFlowDetailPage() {
       </p>
       <OpsHeader
         title={data.supermarket?.name ?? data.name}
-        subtitle={`${slug} · ${fonte} · ${cronHint(data.schedule)}`}
+        subtitle={`${slug} · ${fonte} · ${nextAt ? `próximo ${nextCheckLabel(nextAt)}` : "sem agendamento"}`}
         stamp={`Atualizado ${formatOpsStamp(data.updatedAt)}`}
         primary={
           <>
@@ -279,6 +280,29 @@ export default function ScraperFlowDetailPage() {
           }
           icon={<ListIcon />}
         />
+        <OpsKpi
+          label="Próximo check"
+          value={nextAt ? clock(nextAt) : "—"}
+          hint={
+            <p
+              className="pb-1 text-[13px] font-medium"
+              style={{
+                color: nextDue
+                  ? "var(--ds-color-buoy)"
+                  : "var(--ds-color-muted-foreground)",
+              }}
+            >
+              {nextAt ? nextCheckHint(nextAt) : "não agendado"}
+            </p>
+          }
+          foot={
+            paused
+              ? "pausado — não dispara"
+              : nextDue
+                ? "due — worker pega no poll"
+                : "site + validade · teto 6h"
+          }
+        />
       </section>
 
       <div className="flex flex-wrap items-center gap-2 pb-4">
@@ -288,13 +312,15 @@ export default function ScraperFlowDetailPage() {
             ? `${data.supermarket.state} · ${data.supermarket.city}`
             : "—"}
         </span>
-        <span className="ds-chip font-mono">{cron}</span>
+        <span className="ds-chip font-mono">
+          {nextAt ? nextCheckLabel(nextAt) : "sem cron"}
+        </span>
         <span className="ds-chip ds-chip--outline">{fonte}</span>
       </div>
 
       <JobFlow
         run={activeRun}
-        runningNow={activeRun?.status === "running"}
+        runningNow={Boolean(activeRun && isLiveScraperRun(activeRun))}
       />
 
       <section className="ds-table-card">
@@ -323,11 +349,13 @@ export default function ScraperFlowDetailPage() {
               ? "review"
               : r.status === "success"
                 ? "ok"
-                : r.status === "running"
+                : isLiveScraperRun(r)
                   ? "running"
                   : r.status === "partial"
                     ? "review"
-                    : "fail";
+                    : r.status === "running"
+                      ? "stop"
+                      : "fail";
           return (
             <Link
               key={r._id}
@@ -826,10 +854,26 @@ function estadoLabel(status: string) {
   };
 }
 
-function cronHint(schedule?: string) {
-  if (!schedule) return "manual";
-  if (schedule.includes("*/6")) return "cron 6h";
-  return "cron";
+function nextCheckLabel(ts: number) {
+  const d = new Date(ts);
+  const now = new Date();
+  const start = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = (start(d) - start(now)) / 86400000;
+  const t = clock(ts);
+  if (diff === 0) return `hoje ${t}`;
+  if (diff === 1) return `amanhã ${t}`;
+  if (diff === -1) return `ontem ${t}`;
+  return `${d.getDate()} ${d.toLocaleDateString("pt-BR", { month: "short" })} ${t}`;
+}
+
+function nextCheckHint(ts: number, now = Date.now()) {
+  const m = Math.round((ts - now) / 60_000);
+  if (m <= 0) return "agora";
+  if (m < 60) return `em ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `em ${h}h`;
+  return `em ${Math.floor(h / 24)}d`;
 }
 
 function sourceKind(url: string) {
@@ -841,7 +885,7 @@ function runStatusLabel(run: Run) {
   if (isRunCancelled(run)) return "parado";
   if (isRunDuplicate(run)) return "duplicata";
   if (run.status === "success") return "ok";
-  if (run.status === "running") return "rodando";
+  if (run.status === "running") return isLiveScraperRun(run) ? "rodando" : "parado";
   if (run.status === "partial") return "parcial";
   return "falha";
 }
