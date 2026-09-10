@@ -198,6 +198,18 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return prisma.supermarket.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { stores: true, flyerSources: true, flyers: true, offers: true } } } });
   });
 
+  app.get("/api/v1/admin/brands", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    return prisma.brand.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { offers: true, products: true } } } });
+  });
+
+  app.get("/api/v1/admin/products", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    return prisma.canonicalProduct.findMany({ take: 100, orderBy: { updatedAt: "desc" }, include: { brand: true, _count: { select: { offers: true } } } });
+  });
+
   app.get("/api/v1/admin/offers", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
