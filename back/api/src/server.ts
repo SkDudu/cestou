@@ -408,6 +408,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { items, hasMore, nextCursor: hasMore ? items.at(-1)?.id ?? null : null };
   });
 
+  app.get("/api/v1/admin/prices/compare", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const offers = await prisma.offer.findMany({ where: { validationStatus: "VALIDATED", canonicalProductId: { not: null } }, take: 500, orderBy: { updatedAt: "desc" }, include: { canonicalProduct: { select: { id: true, canonicalName: true } }, supermarket: { select: { id: true, name: true } } } });
+    const groups = new Map<string, typeof offers>();
+    for (const offer of offers) { const rows = groups.get(offer.canonicalProductId!) ?? []; rows.push(offer); groups.set(offer.canonicalProductId!, rows); }
+    return [...groups.values()].map((rows) => { const prices = rows.map((offer) => Number(offer.memberPrice ?? offer.price)); return { productId: rows[0].canonicalProduct!.id, productName: rows[0].canonicalProduct!.canonicalName, marketCount: new Set(rows.map((offer) => offer.supermarketId)).size, minPrice: Math.min(...prices), maxPrice: Math.max(...prices), offers: rows.map((offer) => ({ id: offer.id, supermarketName: offer.supermarket.name, price: Number(offer.memberPrice ?? offer.price) })) }; }).filter((row) => row.marketCount > 1).sort((left, right) => (right.maxPrice - right.minPrice) - (left.maxPrice - left.minPrice));
+  });
+
   app.patch("/api/v1/admin/offers/:offerId/validation", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
