@@ -18,7 +18,8 @@
     "selfcheck": "tsc && node dist/flyers/selfcheck.js"
   },
   "dependencies": {
-    "convex": "^1.21.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "pg": "^8.16.3",
     "playwright": "^1.50.0"
   },
   "devDependencies": {
