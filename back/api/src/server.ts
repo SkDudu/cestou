@@ -103,6 +103,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return reply.code(204).send();
   });
 
+  app.put("/api/v1/client/location", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    const body = z.object({ city: z.string().min(1).max(120), state: z.string().length(2), neighborhood: z.string().max(120).optional(), lat: z.number().finite().optional(), lng: z.number().finite().optional() }).safeParse(request.body);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!body.success) return reply.code(400).send({ code: "INVALID_LOCATION" });
+    await prisma.location.updateMany({ where: { userId: session.user.id, isDefault: true }, data: { isDefault: false } });
+    return prisma.location.create({ data: { userId: session.user.id, label: `${body.data.city} — ${body.data.state}`, city: body.data.city, state: body.data.state.toUpperCase(), neighborhood: body.data.neighborhood, lat: body.data.lat, lng: body.data.lng, isDefault: true } });
+  });
+
   app.get("/api/v1/client/flyers", async (request, reply) => {
     const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
@@ -201,6 +210,29 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!item) return reply.code(404).send({ code: "LIST_ITEM_NOT_FOUND" });
     await prisma.shoppingListItem.delete({ where: { id: item.id } });
     return reply.code(204).send();
+  });
+
+  app.get("/api/v1/client/lists/default/comparison", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const list = await prisma.shoppingList.findFirst({ where: { userId: session.user.id }, orderBy: { createdAt: "asc" }, include: { items: true } });
+    if (!list || list.items.length === 0) return { itemCount: 0, markets: [] };
+    const productIds = list.items.flatMap((item) => item.canonicalProductId ? [item.canonicalProductId] : []);
+    const pinnedOfferIds = list.items.flatMap((item) => item.offerId ? [item.offerId] : []);
+    const offers = await prisma.offer.findMany({ where: { validationStatus: "VALIDATED", OR: [{ canonicalProductId: { in: productIds } }, { id: { in: pinnedOfferIds } }] }, include: { supermarket: { select: { id: true, name: true } } } });
+    const favoriteStores = await prisma.favoriteStore.findMany({ where: { userId: session.user.id }, select: { storeId: true } });
+    const favoriteIds = new Set(favoriteStores.map((favorite) => favorite.storeId));
+    const candidateOffers = favoriteIds.size ? offers.filter((offer) => favoriteIds.has(offer.supermarketId)) : offers;
+    const markets = [...new Map(candidateOffers.map((offer) => [offer.supermarketId, offer.supermarket])).entries()].map(([supermarketId, supermarket]) => {
+      const lines = list.items.map((item) => {
+        const matches = candidateOffers.filter((offer) => offer.supermarketId === supermarketId && (offer.id === item.offerId || (!!item.canonicalProductId && offer.canonicalProductId === item.canonicalProductId)));
+        const offer = matches.sort((left, right) => Number(left.memberPrice ?? left.price) - Number(right.memberPrice ?? right.price))[0];
+        return { itemId: item.id, queryText: item.queryText, offerId: offer?.id ?? null, price: offer ? Number(offer.memberPrice ?? offer.price) * item.quantity : null };
+      });
+      const coverage = lines.filter((line) => line.price !== null).length;
+      return { supermarketId, supermarketName: supermarket.name, coverage, complete: coverage === lines.length, total: lines.reduce((sum, line) => sum + (line.price ?? 0), 0), lines };
+    }).sort((left, right) => left.total - right.total || right.coverage - left.coverage);
+    return { itemCount: list.items.length, markets, bestSingle: markets.find((market) => market.complete) ?? null };
   });
 
   app.get("/api/v1/auth/me", async (request, reply) => {

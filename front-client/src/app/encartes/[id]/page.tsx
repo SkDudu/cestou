@@ -1,103 +1,18 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Plus } from "@phosphor-icons/react";
-import { api } from "@convex/_generated/api";
-import type { Id } from "@convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
-import { ClubPrice } from "@/components/ClubPrice";
-import { ConditionBadge } from "@/components/ConditionBadge";
-import {
-  Button,
-  EmptyState,
-  Input,
-  ListSurface,
-  Skeleton,
-} from "@/components/ui";
+import { Button, EmptyState, Input, ListSurface, Skeleton } from "@/components/ui";
+import { clientApi } from "@/lib/api";
 
-export default function EncarteDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  const flyerId = id as Id<"flyers">;
-  const [q, setQ] = useState("");
-  const data = useQuery(api.clientOffers.listFlyerOffers, {
-    flyerId,
-    q: q.trim().length >= 2 ? q : undefined,
-  });
-  const ensureList = useMutation(api.clientLists.getOrCreateDefaultList);
-  const addItem = useMutation(api.clientLists.addListItem);
-
-  async function add(name: string, offerId: Id<"offers">) {
-    const listId = await ensureList({});
-    await addItem({ listId, queryText: name, offerId });
-  }
-
-  return (
-    <AppShell
-      title={data?.supermarket?.name ?? "Encarte"}
-      subtitle={data?.flyer?.title ?? "Ofertas validadas deste encarte."}
-      actions={
-        <Link
-          href="/encartes"
-          className="inline-flex items-center gap-2 text-sm text-[var(--ds-color-muted-foreground)] hover:text-[var(--ds-color-foreground)]"
-        >
-          <ArrowLeft size={16} aria-hidden />
-          Voltar
-        </Link>
-      }
-    >
-      <Input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Filtrar ofertas…"
-        aria-label="Filtrar ofertas do encarte"
-        className="mb-6 max-w-md"
-      />
-      {!data ? (
-        <Skeleton className="h-64 w-full" />
-      ) : data.offers.length === 0 ? (
-        <EmptyState
-          title="Nenhuma oferta vigente"
-          body="Este encarte não tem ofertas validadas no momento."
-        />
-      ) : (
-        <ListSurface>
-          {data.offers.map((o) => (
-            <li
-              key={o._id}
-              className="flex items-start justify-between gap-4 px-5 py-4"
-            >
-              <div className="min-w-0">
-                <p className="font-medium tracking-tight">{o.name}</p>
-                <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
-                  {[o.brand, o.quantity, o.unit].filter(Boolean).join(" · ")}
-                </p>
-                <ConditionBadge condition={o.condition} />
-              </div>
-              <div className="flex items-center gap-3">
-                <ClubPrice
-                  publicPrice={o.publicPrice}
-                  memberPrice={o.memberPrice}
-                  membershipName={o.membershipName}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void add(o.name, o._id)}
-                >
-                  <Plus size={14} weight="bold" aria-hidden />
-                  Lista
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ListSurface>
-      )}
-    </AppShell>
-  );
+type Offer = { id: string; name: string; brand: string | null; quantity: string | null; unit: string | null; price: string; memberPrice: string | null };
+type Flyer = { title: string | null; supermarket: { name: string }; offers: Offer[] };
+export default function EncarteDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params); const [data, setData] = useState<Flyer | null>(null); const [query, setQuery] = useState("");
+  useEffect(() => { void clientApi<Flyer>(`/flyers/${id}`).then(setData).catch(() => setData({ title: null, supermarket: { name: "Encarte" }, offers: [] })); }, [id]);
+  const offers = useMemo(() => data?.offers.filter((offer) => offer.name.toLowerCase().includes(query.trim().toLowerCase())) ?? [], [data, query]);
+  async function add(offer: Offer) { await clientApi("/lists/default/items", { method: "POST", body: JSON.stringify({ queryText: offer.name, offerId: offer.id }) }); }
+  return <AppShell title={data?.supermarket.name ?? "Encarte"} subtitle={data?.title ?? "Ofertas validadas deste encarte."} actions={<Link href="/encartes" className="inline-flex items-center gap-2 text-sm text-[var(--ds-color-muted-foreground)]"><ArrowLeft size={16} />Voltar</Link>}><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar ofertas…" className="mb-6 max-w-md" />{!data ? <Skeleton className="h-64 w-full" /> : offers.length === 0 ? <EmptyState title="Nenhuma oferta vigente" body="Este encarte não tem ofertas validadas no momento." /> : <ListSurface>{offers.map((offer) => <li key={offer.id} className="flex items-start justify-between gap-4 px-5 py-4"><div><p className="font-medium">{offer.name}</p><p className="text-xs text-[var(--ds-color-muted-foreground)]">{[offer.brand, offer.quantity, offer.unit].filter(Boolean).join(" · ")}</p></div><div className="flex items-center gap-3"><strong>R$ {offer.memberPrice ?? offer.price}</strong><Button type="button" variant="outline" onClick={() => void add(offer)}><Plus size={14} />Lista</Button></div></li>)}</ListSurface>}</AppShell>;
 }
