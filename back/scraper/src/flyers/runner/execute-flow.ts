@@ -18,6 +18,7 @@ export type ExecuteFlowOpts = {
   onLog?: FlowLogFn;
   signal?: AbortSignal;
   pipeline?: "discovery" | "full";
+  runId?: string;
 };
 
 export async function executeFlowById(
@@ -80,7 +81,7 @@ export async function executeFlowById(
     ...ctx,
   };
 
-  const runId = (await startScraperRun(flowId)) as string;
+  const runId = opts.runId ?? (await startScraperRun(flowId)) as string;
   const lines: string[] = [];
   let lastFlush = 0;
   const snapLog = () => lines.join("\n").slice(-48_000);

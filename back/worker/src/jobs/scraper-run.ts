@@ -10,9 +10,9 @@ export async function processScraperRun(prisma: PrismaClient, runId: string) {
 
   await appendRunEvent(prisma, run.id, "worker.started", { flowId: run.flowId });
   try {
-    // The legacy Playwright pipeline is invoked in the next adapter step with this persisted run ID.
-    await prisma.scraperRun.update({ where: { id: run.id }, data: { status: "SUCCESS", finishedAt: new Date() } });
-    await appendRunEvent(prisma, run.id, "worker.completed", {});
+    const { executeFlowById } = await import("../../../scraper/src/flyers/runner/execute-flow.js");
+    const result = await executeFlowById(run.flowId, {}, { runId: run.id, onLog: (line: string) => appendRunEvent(prisma, run.id, "worker.log", { line }).catch(() => undefined) });
+    await appendRunEvent(prisma, run.id, "worker.completed", { status: result.ok ? "SUCCESS" : "FAILED" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown worker failure";
     await prisma.scraperRun.update({ where: { id: run.id }, data: { status: "FAILED", error: message, finishedAt: new Date() } });
