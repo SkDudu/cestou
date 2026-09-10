@@ -210,6 +210,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return prisma.offer.update({ where: { id: offer.id }, data: { validationStatus: body.data.validationStatus } });
   });
 
+  app.get("/api/v1/admin/offers/:offerId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const params = z.object({ offerId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ code: "INVALID_OFFER_ID" });
+    const offer = await prisma.offer.findUnique({ where: { id: params.data.offerId }, include: { supermarket: true, flyer: true } });
+    if (!offer) return reply.code(404).send({ code: "OFFER_NOT_FOUND" });
+    return offer;
+  });
+
   app.get("/api/v1/admin/scraper-runs", async (request, reply) => {
     const session = await getAdminSession(
       prisma,
