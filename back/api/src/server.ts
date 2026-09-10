@@ -9,12 +9,19 @@ import {
   getAdminSession,
 } from "./modules/auth/service.js";
 import { LocalStorage } from "./modules/storage/service.js";
+import {
+  cancelScraperRun,
+  startScraperRun,
+  type ScraperQueue,
+} from "./modules/scraper/service.js";
+import { formatSseEvent, readRunEvents } from "./modules/scraper/events.js";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
 
 type BuildAppOptions = {
   prisma?: PrismaClient;
   storageRoot?: string;
+  queue?: ScraperQueue;
 };
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -24,6 +31,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const storage = new LocalStorage(
     options.storageRoot ?? process.env.STORAGE_ROOT ?? "/data/storage",
   );
+  const queue = options.queue;
 
   await app.register(cookie);
   app.addContentTypeParser(
@@ -112,6 +120,94 @@ export async function buildApp(options: BuildAppOptions = {}) {
       body: request.body,
     });
     return reply.code(201).send(stored);
+  });
+
+  app.post("/api/v1/admin/scraper-flows/:flowId/runs", async (request, reply) => {
+    const session = await getAdminSession(
+      prisma,
+      request.cookies[ADMIN_SESSION_COOKIE],
+    );
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!queue) return reply.code(503).send({ code: "QUEUE_UNAVAILABLE" });
+
+    const params = z.object({ flowId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ code: "INVALID_FLOW_ID" });
+
+    try {
+      const run = await startScraperRun(prisma, queue, params.data.flowId);
+      return reply.code(201).send(run);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Scraper flow not found") {
+        return reply.code(404).send({ code: "SCRAPER_FLOW_NOT_FOUND" });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/api/v1/admin/scraper-runs/:runId/cancel", async (request, reply) => {
+    const session = await getAdminSession(
+      prisma,
+      request.cookies[ADMIN_SESSION_COOKIE],
+    );
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+
+    const params = z.object({ runId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ code: "INVALID_RUN_ID" });
+
+    const existing = await prisma.scraperRun.findUnique({ where: { id: params.data.runId } });
+    if (!existing) return reply.code(404).send({ code: "SCRAPER_RUN_NOT_FOUND" });
+    if (existing.status !== "RUNNING") {
+      return reply.code(409).send({ code: "SCRAPER_RUN_NOT_RUNNING" });
+    }
+
+    return reply.send(await cancelScraperRun(prisma, existing.id));
+  });
+
+  app.get("/api/v1/admin/scraper-runs/:runId/events", async (request, reply) => {
+    const session = await getAdminSession(
+      prisma,
+      request.cookies[ADMIN_SESSION_COOKIE],
+    );
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+
+    const params = z.object({ runId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ code: "INVALID_RUN_ID" });
+    const run = await prisma.scraperRun.findUnique({ where: { id: params.data.runId } });
+    if (!run) return reply.code(404).send({ code: "SCRAPER_RUN_NOT_FOUND" });
+
+    const header = request.headers["last-event-id"];
+    const parsedSequence = Number.parseInt(Array.isArray(header) ? header[0] : header ?? "0", 10);
+    let latestSequence = Number.isFinite(parsedSequence) && parsedSequence >= 0 ? parsedSequence : 0;
+    let closed = false;
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "content-type": "text/event-stream; charset=utf-8",
+      "x-accel-buffering": "no",
+    });
+
+    const publishNewEvents = async () => {
+      const events = await readRunEvents(prisma, run.id, latestSequence);
+      for (const event of events) {
+        latestSequence = event.sequence;
+        reply.raw.write(formatSseEvent(event));
+      }
+    };
+
+    await publishNewEvents();
+    const heartbeat = setInterval(() => {
+      if (!closed) reply.raw.write(": keepalive\n\n");
+    }, 15_000);
+    const poll = setInterval(() => {
+      void publishNewEvents().catch(() => reply.raw.end());
+    }, 1_000);
+    request.raw.on("close", () => {
+      closed = true;
+      clearInterval(heartbeat);
+      clearInterval(poll);
+    });
   });
 
   return app;
