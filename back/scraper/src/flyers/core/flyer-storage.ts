@@ -71,6 +71,19 @@ async function invoke(path: string, args: Record<string, unknown>) {
     case "flyers.get": return prisma.flyer.findUnique({ where: { id: args.id }, include: { pages: true, stores: true } });
     case "flyers.markExpired": return prisma.flyer.updateMany({ where: { validUntil: { lt: new Date() }, status: { not: "EXPIRED" } }, data: { status: "EXPIRED", expiredAt: new Date() } }).then((result: any) => ({ expired: result.count }));
     case "flyers.patchValidity": return prisma.flyer.update({ where: { id: args.id }, data: { validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined) } });
+    case "offers.insertBatch": {
+      if (args.replace) await prisma.offer.deleteMany({ where: { flyerId: args.flyerId, ...(Array.isArray(args.replacePageNumbers) ? { pageNumber: { in: args.replacePageNumbers } } : {}) } });
+      const offers = (args.offers as any[]).map((offer) => ({ flyerId: args.flyerId, supermarketId: args.supermarketId, validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined), name: offer.name, brand: offer.brand, quantity: offer.quantity, unit: offer.unit, price: offer.price, originalPrice: offer.originalPrice, cashPrice: offer.cashPrice, installmentCount: offer.installmentCount, installmentAmount: offer.installmentAmount, installmentInterestFree: offer.installmentInterestFree, discountPercentage: offer.discountPercentage, pageNumber: offer.pageNumber, rawText: offer.rawText, extractionConfidence: offer.extractionConfidence, eligibility: offer.eligibility ? enumValue(offer.eligibility) : undefined, conditions: offer.conditions, eligibilityConfidence: offer.eligibilityConfidence, eligibilityEvidence: offer.eligibilityEvidence, eligibilityStatus: offer.eligibilityStatus ? enumValue(offer.eligibilityStatus) : undefined, validationStatus: "PENDING" }));
+      return prisma.offer.createMany({ data: offers });
+    }
+    case "normalization.processFlyer": return prisma.offer.updateMany({ where: { flyerId: args.flyerId }, data: {} });
+    case "flyerErrors.insert": return prisma.flyerError.create({ data: { flyerId: args.flyerId, supermarketId: args.supermarketId, stage: args.stage, message: args.message, stack: args.stack } });
+    case "flyerExtractions.insert": return prisma.flyerExtraction.create({ data: { flyerId: args.flyerId, pageId: args.pageId, pageNumber: args.pageNumber, provider: args.provider, model: args.model, promptVersion: args.promptVersion, status: enumValue(args.status as string), rawResponse: args.rawResponse, offerCount: args.offerCount, extractionConfidence: args.extractionConfidence, error: args.error, inputTokens: args.inputTokens, outputTokens: args.outputTokens, totalTokens: args.totalTokens, durationMs: args.durationMs } });
+    case "flyerExtractions.findCompleted": return prisma.flyerExtraction.findFirst({ where: { pageId: args.pageId, model: args.model, promptVersion: args.promptVersion, status: "COMPLETED" }, orderBy: { createdAt: "desc" } });
+    case "scraperSetupEvents.append": {
+      const previous = await prisma.scraperSetupEvent.findFirst({ where: { flowId: args.flowId }, orderBy: { order: "desc" } });
+      return prisma.scraperSetupEvent.create({ data: { flowId: args.flowId, sessionId: args.sessionId, order: (previous?.order ?? 0) + 1, at: new Date(), kind: args.kind, label: args.label, payload: args.payload ? JSON.parse(args.payload as string) : undefined } });
+    }
     default: throw new Error(`PostgreSQL scraper adapter has no handler for ${path}`);
   }
 }
