@@ -93,7 +93,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
       request.cookies[ADMIN_SESSION_COOKIE],
     );
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
-    return { status: "authorized" };
+    const [supermarkets, activeFlows, runningRuns, failedFlyers] =
+      await Promise.all([
+        prisma.supermarket.count({ where: { active: true } }),
+        prisma.scraperFlow.count({ where: { status: "ACTIVE" } }),
+        prisma.scraperRun.count({ where: { status: "RUNNING" } }),
+        prisma.flyer.count({ where: { status: "FAILED" } }),
+      ]);
+    return { supermarkets, activeFlows, runningRuns, failedFlyers };
   });
 
   app.post("/api/v1/admin/storage/uploads", async (request, reply) => {
