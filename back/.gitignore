@@ -7,5 +7,6 @@ dist/
 scraper/node_modules/
 scraper/dist/
 scraper/debug/
+storage/
 
 .env.local

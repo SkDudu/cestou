@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules
+scraper/node_modules
+dist
+scraper/dist
+.convex
+storage
+scraper/debug
+*.log
+.DS_Store
