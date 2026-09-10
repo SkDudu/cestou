@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { AdminSessionGuard } from "@/components/admin/AdminSessionGuard";
 
 /** Trava scroll do documento — só o <main> rola (evita scrollbar dupla). */
 function useLockDocumentScroll() {
@@ -27,11 +28,13 @@ export default function AdminLayout({
   useLockDocumentScroll();
 
   return (
+    <AdminSessionGuard>
     <div className="flex h-dvh overflow-hidden bg-[var(--ds-color-muted)] text-[var(--ds-color-foreground)]">
       <AdminSidebar />
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-8 py-7">
         {children}
       </main>
     </div>
+    </AdminSessionGuard>
   );
 }

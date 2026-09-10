@@ -1,11 +1,12 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, adminApi } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
@@ -17,7 +18,7 @@ export default function LoginPage() {
     setError(undefined);
     try {
       await adminApi.login(email, password);
-      router.replace("/admin");
+      router.replace(searchParams.get("next") ?? "/admin");
     } catch (cause) {
       setError(cause instanceof ApiError && cause.status === 401 ? "E-mail ou senha inválidos." : "Não foi possível entrar. Tente novamente.");
     } finally {
