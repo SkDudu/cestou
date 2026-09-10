@@ -10,11 +10,15 @@ let client: PrismaClient | null = null;
 
 function generatedClientPath() {
   const root = process.env.SMART_GROCERY_ROOT;
-  const candidates = [
-    root ? resolve(root, "generated/prisma/client.js") : "",
-    resolve(process.cwd(), "generated/prisma/client.js"),
-    resolve(process.cwd(), "../generated/prisma/client.js"),
-  ].filter(Boolean);
+  const roots = [
+    root,
+    process.cwd(),
+    resolve(process.cwd(), ".."),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const candidates = roots.flatMap((candidate) => [
+    resolve(candidate, "generated/prisma/client.js"),
+    resolve(candidate, "generated/prisma/client.ts"),
+  ]);
   const path = candidates.find((candidate) => existsSync(candidate));
   if (!path) throw new Error("Prisma client was not generated; run npm run prisma:generate");
   return path;
