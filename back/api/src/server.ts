@@ -468,6 +468,41 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
   });
 
+  app.get("/api/v1/admin/scraper-runs/:runId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    const params = z.object({ runId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_RUN_ID" });
+    const run = await prisma.scraperRun.findUnique({ where: { id: params.data.runId }, include: { flow: { include: { supermarket: { select: { name: true } } } }, events: { orderBy: { sequence: "asc" } } } });
+    if (!run) return reply.code(404).send({ code: "SCRAPER_RUN_NOT_FOUND" });
+    return run;
+  });
+
+  app.get("/api/v1/admin/extraction/errors", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    return prisma.flyerError.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { supermarket: { select: { name: true } }, flyer: { select: { id: true, title: true } } } });
+  });
+
+  app.get("/api/v1/admin/extraction/errors/:errorId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    const params = z.object({ errorId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_ERROR_ID" });
+    const error = await prisma.flyerError.findUnique({ where: { id: params.data.errorId }, include: { supermarket: { select: { name: true } }, flyer: { select: { id: true, title: true } } } });
+    if (!error) return reply.code(404).send({ code: "FLYER_ERROR_NOT_FOUND" });
+    return error;
+  });
+
+  app.patch("/api/v1/admin/extraction/errors/:errorId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    const params = z.object({ errorId: z.string().uuid() }).safeParse(request.params);
+    const body = z.object({ status: z.string().min(1).max(32) }).safeParse(request.body);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success || !body.success) return reply.code(400).send({ code: "INVALID_ERROR_UPDATE" });
+    return prisma.flyerError.update({ where: { id: params.data.errorId }, data: { status: body.data.status } });
+  });
+
   app.post("/api/v1/admin/scraper-runs/:runId/cancel", async (request, reply) => {
     const session = await getAdminSession(
       prisma,
