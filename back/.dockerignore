@@ -5,7 +5,6 @@ node_modules
 scraper/node_modules
 dist
 scraper/dist
-.convex
 storage
 generated
 scraper/debug
