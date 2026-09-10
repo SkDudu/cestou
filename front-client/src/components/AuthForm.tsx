@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { ArrowRight } from "@phosphor-icons/react";
 import { Button, Field, Input } from "@/components/ui";
 
@@ -11,7 +10,6 @@ export function AuthForm({
 }: {
   flow: "signIn" | "signUp";
 }) {
-  const { signIn } = useAuthActions();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,7 +21,9 @@ export function AuthForm({
     setBusy(true);
     setError(null);
     try {
-      await signIn("password", { email, password, flow });
+      const response = await fetch(`/api/v1/client/auth/${isSignUp ? "register" : "login"}`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+      if (!response.ok) throw new Error("E-mail ou senha inválidos");
+      window.location.assign("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha na autenticação");
     } finally {
