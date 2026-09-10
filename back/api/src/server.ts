@@ -8,19 +8,34 @@ import {
   destroyAdminSession,
   getAdminSession,
 } from "./modules/auth/service.js";
+import { LocalStorage } from "./modules/storage/service.js";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
 
 type BuildAppOptions = {
   prisma?: PrismaClient;
+  storageRoot?: string;
 };
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: true });
   const prisma =
     options.prisma ?? createPrismaClient(process.env.DATABASE_URL ?? "");
+  const storage = new LocalStorage(
+    options.storageRoot ?? process.env.STORAGE_ROOT ?? "/data/storage",
+  );
 
   await app.register(cookie);
+  app.addContentTypeParser(
+    ["application/octet-stream", "application/pdf"],
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body),
+  );
+  app.addContentTypeParser(
+    /^image\/.+$/,
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body),
+  );
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -71,6 +86,32 @@ export async function buildApp(options: BuildAppOptions = {}) {
     );
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
     return { status: "authorized" };
+  });
+
+  app.post("/api/v1/admin/storage/uploads", async (request, reply) => {
+    const session = await getAdminSession(
+      prisma,
+      request.cookies[ADMIN_SESSION_COOKIE],
+    );
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+
+    const input = z
+      .object({
+        scope: z.enum(["flyers", "logos"]),
+        filename: z.string().min(1),
+      })
+      .safeParse(request.query);
+    if (!input.success || !Buffer.isBuffer(request.body)) {
+      return reply.code(400).send({ code: "INVALID_UPLOAD" });
+    }
+
+    const stored = await storage.writeFile({
+      scope: input.data.scope,
+      filename: input.data.filename,
+      mimeType: request.headers["content-type"] ?? "application/octet-stream",
+      body: request.body,
+    });
+    return reply.code(201).send(stored);
   });
 
   return app;
