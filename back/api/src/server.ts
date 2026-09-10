@@ -442,12 +442,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return prisma.offer.update({ where: { id: offer.id }, data: { validationStatus: body.data.validationStatus } });
   });
 
+  app.patch("/api/v1/admin/offers/:offerId/catalog", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    const params = z.object({ offerId: z.string().uuid() }).safeParse(request.params);
+    const body = z.object({ brandId: z.string().uuid().nullable().optional(), canonicalProductId: z.string().uuid().nullable().optional() }).safeParse(request.body);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success || !body.success) return reply.code(400).send({ code: "INVALID_CATALOG_UPDATE" });
+    const offer = await prisma.offer.findUnique({ where: { id: params.data.offerId } });
+    if (!offer) return reply.code(404).send({ code: "OFFER_NOT_FOUND" });
+    return prisma.offer.update({ where: { id: offer.id }, data: body.data });
+  });
+
   app.get("/api/v1/admin/offers/:offerId", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
     const params = z.object({ offerId: z.string().uuid() }).safeParse(request.params);
     if (!params.success) return reply.code(400).send({ code: "INVALID_OFFER_ID" });
-    const offer = await prisma.offer.findUnique({ where: { id: params.data.offerId }, include: { supermarket: true, flyer: true } });
+    const offer = await prisma.offer.findUnique({ where: { id: params.data.offerId }, include: { supermarket: true, flyer: true, brandRecord: true, canonicalProduct: true } });
     if (!offer) return reply.code(404).send({ code: "OFFER_NOT_FOUND" });
     return offer;
   });
