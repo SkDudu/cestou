@@ -22,16 +22,13 @@
     "flows:record": "npm run flows:record --workspace=scraper --",
     "flows:codegen": "npm run flows:codegen --workspace=scraper --",
     "flows:session-worker": "npm run flows:session-worker --workspace=scraper",
-    "flows:scheduler": "npm run flows:scheduler --workspace=scraper",
-    "convex:dev": "npx convex dev",
-    "convex:deploy": "npx convex deploy"
+    "flows:scheduler": "npm run flows:scheduler --workspace=scraper"
   },
   "workspaces": [
     "scraper"
   ],
   "devDependencies": {
     "@types/pg": "^8.23.1",
-    "convex": "^1.21.0",
     "prisma": "^7.10.0",
     "tsx": "^4.20.6",
     "typescript": "^5.7.0",
@@ -39,7 +36,6 @@
   },
   "dependencies": {
     "@auth/core": "^0.41.1",
-    "@convex-dev/auth": "^0.0.95",
     "@fastify/cookie": "^11.1.2",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",

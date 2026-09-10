@@ -3,7 +3,6 @@ dist/
 .env
 *.log
 .DS_Store
-.convex/
 scraper/node_modules/
 scraper/dist/
 scraper/debug/

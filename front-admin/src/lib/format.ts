@@ -130,7 +130,7 @@ export function formatRelative(ts: number | null | undefined) {
   return `há ${days}d`;
 }
 
-/** Keep in sync with back/convex/scraperRuns.ts STALE_RUN_MS */
+/** Threshold used by the Postgres-backed scraper run monitor. */
 const STALE_RUN_MS = 6 * 60 * 60 * 1000;
 
 export function isLiveScraperRun(

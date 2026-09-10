@@ -1,25 +1,2 @@
-"use client";
-
-import { Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { WorkerSetupModal } from "@/components/admin/WorkerSetupModal";
-
-export default function WorkerSetupPage() {
-  return (
-    <Suspense fallback={<p className="ds-meta">Carregando…</p>}>
-      <WorkerSetupFromRoute />
-    </Suspense>
-  );
-}
-
-function WorkerSetupFromRoute() {
-  const router = useRouter();
-  const search = useSearchParams();
-  return (
-    <WorkerSetupModal
-      open
-      presetSupermarketId={search.get("supermarketId") ?? undefined}
-      onClose={() => router.push("/admin/scraper")}
-    />
-  );
-}
+import { MigrationNotice } from "@/components/admin/MigrationNotice";
+export default function NewScraperPage() { return <MigrationNotice title="Novo fluxo de scraper" body="Crie e execute fluxos pela API de scraper já conectada ao pg-boss. A interface de configuração detalhada será retomada sobre o novo modelo Prisma." backHref="/admin/scraper" />; }
