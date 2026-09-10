@@ -182,6 +182,17 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
   });
 
+  app.get("/api/v1/admin/offers", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().uuid().optional() }).safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ code: "INVALID_PAGINATION" });
+    const rows = await prisma.offer.findMany({ take: query.data.limit + 1, ...(query.data.cursor ? { cursor: { id: query.data.cursor }, skip: 1 } : {}), orderBy: { createdAt: "desc" }, include: { supermarket: { select: { id: true, name: true } }, flyer: { select: { id: true, title: true } } } });
+    const hasMore = rows.length > query.data.limit;
+    const items = hasMore ? rows.slice(0, -1) : rows;
+    return { items, hasMore, nextCursor: hasMore ? items.at(-1)?.id ?? null : null };
+  });
+
   app.get("/api/v1/admin/scraper-runs", async (request, reply) => {
     const session = await getAdminSession(
       prisma,
