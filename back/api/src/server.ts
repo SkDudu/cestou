@@ -182,6 +182,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     });
   });
 
+  app.get("/api/v1/admin/supermarkets", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    return prisma.supermarket.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { stores: true, flyerSources: true, flyers: true, offers: true } } } });
+  });
+
   app.get("/api/v1/admin/offers", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
