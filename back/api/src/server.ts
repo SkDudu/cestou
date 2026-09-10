@@ -97,6 +97,112 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return { id: session.user.id, email: session.user.email };
   });
 
+  app.post("/api/v1/client/auth/logout", async (request, reply) => {
+    await destroyAdminSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    reply.clearCookie(CLIENT_SESSION_COOKIE, { path: "/" });
+    return reply.code(204).send();
+  });
+
+  app.get("/api/v1/client/flyers", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const now = new Date();
+    return prisma.flyer.findMany({
+      where: { status: { in: ["PROCESSED", "PARTIALLY_PROCESSED"] }, OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
+      orderBy: { createdAt: "desc" }, take: 100,
+      include: { supermarket: { select: { id: true, name: true } }, _count: { select: { offers: true } } },
+    });
+  });
+
+  app.get("/api/v1/client/flyers/:flyerId", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    const params = z.object({ flyerId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_FLYER_ID" });
+    const flyer = await prisma.flyer.findUnique({ where: { id: params.data.flyerId }, include: { supermarket: { select: { id: true, name: true } }, offers: { where: { validationStatus: "VALIDATED" }, orderBy: { price: "asc" } } } });
+    if (!flyer) return reply.code(404).send({ code: "FLYER_NOT_FOUND" });
+    return flyer;
+  });
+
+  app.get("/api/v1/client/stores", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const [location, stores, favorites] = await Promise.all([
+      prisma.location.findFirst({ where: { userId: session.user.id, isDefault: true } }),
+      prisma.store.findMany({ where: { active: true }, orderBy: [{ supermarket: { name: "asc" } }, { name: "asc" }], include: { supermarket: { select: { id: true, name: true } }, _count: { select: { favoriteBy: true } } } }),
+      prisma.favoriteStore.findMany({ where: { userId: session.user.id }, select: { storeId: true } }),
+    ]);
+    const favoriteIds = new Set(favorites.map((favorite) => favorite.storeId));
+    return { location, stores: stores.map((store) => ({ ...store, isFavorite: favoriteIds.has(store.id) })) };
+  });
+
+  app.put("/api/v1/client/stores/:storeId/favorite", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    const params = z.object({ storeId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_STORE_ID" });
+    const existing = await prisma.favoriteStore.findUnique({ where: { userId_storeId: { userId: session.user.id, storeId: params.data.storeId } } });
+    if (existing) await prisma.favoriteStore.delete({ where: { userId_storeId: { userId: session.user.id, storeId: params.data.storeId } } });
+    else await prisma.favoriteStore.create({ data: { userId: session.user.id, storeId: params.data.storeId } });
+    return { isFavorite: !existing };
+  });
+
+  app.get("/api/v1/client/products/favorites", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    return prisma.favoriteProduct.findMany({ where: { userId: session.user.id }, include: { canonicalProduct: { include: { brand: true } } }, orderBy: { createdAt: "desc" } });
+  });
+
+  app.put("/api/v1/client/products/:productId/favorite", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    const params = z.object({ productId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_PRODUCT_ID" });
+    const key = { userId: session.user.id, canonicalProductId: params.data.productId };
+    const existing = await prisma.favoriteProduct.findUnique({ where: { userId_canonicalProductId: key } });
+    if (existing) await prisma.favoriteProduct.delete({ where: { userId_canonicalProductId: key } });
+    else await prisma.favoriteProduct.create({ data: key });
+    return { isFavorite: !existing };
+  });
+
+  app.get("/api/v1/client/search", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    const query = z.object({ q: z.string().min(2).max(120) }).safeParse(request.query);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!query.success) return reply.code(400).send({ code: "INVALID_QUERY" });
+    const needle = query.data.q.trim();
+    return prisma.offer.findMany({ where: { validationStatus: "VALIDATED", OR: [{ name: { contains: needle, mode: "insensitive" } }, { normalizedName: { contains: needle, mode: "insensitive" } }] }, orderBy: { price: "asc" }, take: 100, include: { supermarket: { select: { id: true, name: true } }, canonicalProduct: { select: { id: true, canonicalName: true, brand: { select: { name: true } } } } } });
+  });
+
+  app.get("/api/v1/client/lists/default", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const list = await prisma.shoppingList.findFirst({ where: { userId: session.user.id }, orderBy: { createdAt: "asc" } })
+      ?? await prisma.shoppingList.create({ data: { userId: session.user.id, name: "Minha lista" } });
+    return prisma.shoppingList.findUniqueOrThrow({ where: { id: list.id }, include: { items: { orderBy: { createdAt: "desc" }, include: { offer: { include: { supermarket: true } }, canonicalProduct: true } } } });
+  });
+
+  app.post("/api/v1/client/lists/default/items", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    const body = z.object({ queryText: z.string().min(1).max(200), offerId: z.string().uuid().optional(), canonicalProductId: z.string().uuid().optional(), quantity: z.number().int().min(1).max(99).default(1) }).safeParse(request.body);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!body.success) return reply.code(400).send({ code: "INVALID_LIST_ITEM" });
+    const list = await prisma.shoppingList.findFirst({ where: { userId: session.user.id }, orderBy: { createdAt: "asc" } })
+      ?? await prisma.shoppingList.create({ data: { userId: session.user.id, name: "Minha lista" } });
+    return reply.code(201).send(await prisma.shoppingListItem.create({ data: { listId: list.id, ...body.data } }));
+  });
+
+  app.delete("/api/v1/client/lists/items/:itemId", async (request, reply) => {
+    const session = await getClientSession(prisma, request.cookies[CLIENT_SESSION_COOKIE]);
+    const params = z.object({ itemId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_LIST_ITEM" });
+    const item = await prisma.shoppingListItem.findFirst({ where: { id: params.data.itemId, list: { userId: session.user.id } } });
+    if (!item) return reply.code(404).send({ code: "LIST_ITEM_NOT_FOUND" });
+    await prisma.shoppingListItem.delete({ where: { id: item.id } });
+    return reply.code(204).send();
+  });
+
   app.get("/api/v1/auth/me", async (request, reply) => {
     const session = await getAdminSession(
       prisma,
