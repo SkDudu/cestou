@@ -31,4 +31,15 @@ describe("appendRunEvent", () => {
 
     expect([first.sequence, second.sequence]).toEqual([1, 2]);
   });
+
+  it("serializes concurrent appends without unique collisions", async () => {
+    const extra = await prisma.scraperRun.create({
+      data: { flowId: (await prisma.scraperRun.findUniqueOrThrow({ where: { id: runId } })).flowId, status: "RUNNING" },
+    });
+    const written = await Promise.all(
+      Array.from({ length: 20 }, (_, i) => appendRunEvent(prisma, extra.id, "worker.log", { i })),
+    );
+    const sequences = written.map((row) => row.sequence).sort((a, b) => a - b);
+    expect(sequences).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+  });
 });

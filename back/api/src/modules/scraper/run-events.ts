@@ -9,6 +9,7 @@ export async function appendRunEvent(
   payload: Record<string, unknown>,
 ) {
   return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${runId}), 0)`;
     const previous = await transaction.scraperRunEvent.findFirst({
       where: { runId },
       orderBy: { sequence: "desc" },

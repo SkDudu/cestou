@@ -14,6 +14,14 @@ const DENIED_PERMISSIONS = [
   "clipboard-write",
 ] as const;
 
+/** tsx keepNames wraps evaluate() fns with __name; Chromium does not define it. */
+export const TSX_KEEP_NAMES_SHIM =
+  "globalThis.__name=globalThis.__name||function(fn){return fn};";
+
+export async function installTsxKeepNamesShim(context: BrowserContext) {
+  await context.addInitScript(TSX_KEEP_NAMES_SHIM);
+}
+
 export function buildLaunchOptions(
   opts: { headless: boolean } & LaunchOptions = { headless: true },
 ): LaunchOptions {

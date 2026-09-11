@@ -1,4 +1,5 @@
 import { chromium, type Browser } from "playwright";
+import { TSX_KEEP_NAMES_SHIM } from "../browser/context.js";
 import { flyerLog } from "./flyer-logger.js";
 
 /** Render PDF pages to JPEG via Chromium + pdf.js (no extra native deps). */
@@ -11,6 +12,7 @@ export async function rasterizePdf(
   try {
     const page = await br.newPage({ viewport: { width: 1200, height: 1600 } });
     page.setDefaultTimeout(90_000);
+    await page.evaluate(TSX_KEEP_NAMES_SHIM);
     const dataUrls = await page.evaluate(
       async ({
         b64,

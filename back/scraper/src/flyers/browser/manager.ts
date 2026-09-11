@@ -2,6 +2,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import {
   buildContextOptions,
   buildLaunchOptions,
+  installTsxKeepNamesShim,
 } from "./context.js";
 // ponytail: shared Chromium for flow-runner / flow-record only
 
@@ -22,6 +23,7 @@ export class BrowserManager {
       buildLaunchOptions({ headless: this.opts.headless }),
     );
     this.context = await this.browser.newContext(buildContextOptions());
+    await installTsxKeepNamesShim(this.context);
     this.context.setDefaultTimeout(this.opts.timeoutMs);
     this.context.setDefaultNavigationTimeout(this.opts.timeoutMs);
     // permissions denied after first http(s) navigate — boot page is about:blank

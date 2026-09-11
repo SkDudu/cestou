@@ -12,6 +12,7 @@ import {
   buildContextOptions,
   buildLaunchOptions,
   denyNativePermissionPrompts,
+  installTsxKeepNamesShim,
 } from "../browser/context.js";
 import { normalizeAction } from "../recorder/action-normalizer.js";
 import { replaceScraperSteps } from "../core/flyer-storage.js";
@@ -272,6 +273,7 @@ export async function createSession(args: {
     ...buildContextOptions(),
     viewport,
   });
+  await installTsxKeepNamesShim(context);
   context.setDefaultTimeout(c.timeoutMs);
   const page = await context.newPage();
   // deny after goto — about:blank is opaque origin

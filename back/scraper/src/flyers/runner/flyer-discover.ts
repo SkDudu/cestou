@@ -1282,6 +1282,7 @@ async function discoverOpenEachItem(
         const limit = Math.min(n, 48);
         const moreNav = limit > 1 || Boolean(source.pagerSelectors?.length);
         for (let i = 0; i < limit && out.length < 48; i++) {
+        try {
         if (moreNav) {
           await closeFlyerOverlay(page);
           await page.waitForTimeout(200);
@@ -1509,14 +1510,21 @@ async function discoverOpenEachItem(
         }
         for (const u of got.pageUrls) seenUrls.add(u);
         out.push(got);
+        } catch (err) {
+          say?.(
+            `[FLYER] item ${i} erro ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
         }
         if (out.length >= 12) break;
         const grew = await loadMoreListing(page, source, scopeSel, sel);
         if (!grew) break;
       }
       if (out.length) break;
-    } catch {
-      /* bad selector */
+    } catch (err) {
+      say?.(
+        `[FLYER] selector "${sel}" erro ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
