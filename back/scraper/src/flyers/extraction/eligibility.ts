@@ -94,6 +94,8 @@ const PHRASES: Array<{
   { type: "COUPON_REQUIRED", re: /\bcupom\s+[a-z0-9]{3,}/i },
   { type: "PAYMENT_METHOD", re: /pagando\s+com\b/i },
   { type: "PAYMENT_METHOD", re: /\bno\s+pix\b/i },
+  { type: "QUANTITY_REQUIRED", re: /leve\s+\d+\s*\w*\s+pague\s+\d+\s*\w*/i },
+  { type: "QUANTITY_REQUIRED", re: /leve\s+\d+[^\n]{0,24}pague/i },
   { type: "QUANTITY_REQUIRED", re: /leve\s+\d+/i },
   { type: "QUANTITY_REQUIRED", re: /a\s+partir\s+de\s+\d+/i },
   { type: "QUANTITY_REQUIRED", re: /na\s+compra\s+de\b/i },

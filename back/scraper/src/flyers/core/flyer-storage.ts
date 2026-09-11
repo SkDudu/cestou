@@ -17,6 +17,64 @@ const api: any = endpoint();
 const toDate = (value?: number) => value === undefined ? undefined : new Date(value);
 const toMs = (value: Date | null | undefined) => value?.getTime();
 const enumValue = (value: string) => value.toUpperCase();
+const compact = (row: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined));
+// ponytail: extractor still says ai_validated; Prisma EligibilityStatus does not
+const offerEligibilityStatus = (value?: string) => {
+  if (!value) return undefined;
+  const v = enumValue(value);
+  return v === "AI_VALIDATED" ? "CONFIRMED" : v;
+};
+const MEMBER_ELIGIBILITY = new Set([
+  "MEMBERS_ONLY",
+  "LOYALTY_PROGRAM",
+  "STORE_CARD",
+  "CPF_REQUIRED",
+  "APP_ONLY",
+  "COUPON_REQUIRED",
+  "PAYMENT_METHOD",
+]);
+// ponytail: quantity/coupon detail stays in conditions Json
+const offerEligibility = (value?: string) => {
+  if (!value) return undefined;
+  const v = enumValue(value);
+  if (v === "ALL_CUSTOMERS") return "ALL_CUSTOMERS";
+  if (MEMBER_ELIGIBILITY.has(v)) return "MEMBERS_ONLY";
+  return "UNKNOWN";
+};
+
+function asFlyer(row: any) {
+  if (!row) return null;
+  const pages = [...(row.pages ?? [])]
+    .sort((a: any, b: any) => a.pageNumber - b.pageNumber)
+    .map((page: any) => ({
+      ...page,
+      _id: page.id,
+      url: page.filePath,
+      storageId: page.filePath,
+    }));
+  return {
+    ...row,
+    _id: row.id,
+    storageId: row.filePath ?? undefined,
+    validFrom: toMs(row.validFrom),
+    validUntil: toMs(row.validUntil),
+    pageUrls: pages.map((page: any) => page.filePath).filter(Boolean),
+    pages,
+  };
+}
+
+async function writeDiscoveredPages(prisma: any, flyerId: string, pageUrls: unknown) {
+  const urls = (Array.isArray(pageUrls) ? pageUrls : []).filter((url): url is string =>
+    typeof url === "string" && /^https?:\/\//i.test(url),
+  );
+  if (!urls.length) return;
+  const count = await prisma.flyerPage.count({ where: { flyerId } });
+  if (count) return;
+  await prisma.flyerPage.createMany({
+    data: urls.map((filePath, index) => ({ flyerId, pageNumber: index + 1, filePath })),
+  });
+}
 
 async function invoke(path: string, args: Record<string, unknown>) {
   const prisma = await getScraperPrisma() as any;
@@ -51,12 +109,16 @@ async function invoke(path: string, args: Record<string, unknown>) {
     case "scraperFlows.recordDiscoveryResult": return prisma.scraperFlow.update({ where: { id: args.flowId }, data: { discoveryAttempts: { increment: 1 }, lastRunAt: new Date() } });
     case "flyers.createDiscovered": {
       const existing = args.externalId ? await prisma.flyer.findFirst({ where: { supermarketId: args.supermarketId, externalId: args.externalId } }) : null;
-      if (existing) return { id: existing.id, created: false };
+      if (existing) {
+        await writeDiscoveredPages(prisma, existing.id, args.pageUrls);
+        return { id: existing.id, created: false };
+      }
       const row = await prisma.flyer.create({ data: { supermarketId: args.supermarketId, sourceId: args.sourceId, title: args.title, originalUrl: args.originalUrl, externalId: args.externalId, validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined), status: "DISCOVERED" } });
       if (Array.isArray(args.storeIds) && args.storeIds.length) await prisma.flyerStore.createMany({ data: args.storeIds.map((storeId: string) => ({ flyerId: row.id, storeId })), skipDuplicates: true });
+      await writeDiscoveredPages(prisma, row.id, args.pageUrls);
       return { id: row.id, created: true };
     }
-    case "flyers.findByHash": return prisma.flyer.findFirst({ where: { supermarketId: args.supermarketId, fileHash: args.fileHash } });
+    case "flyers.findByHash": return asFlyer(await prisma.flyer.findFirst({ where: { supermarketId: args.supermarketId, fileHash: args.fileHash } }));
     case "flyers.setStatus": return prisma.flyer.update({ where: { id: args.id }, data: { status: enumValue(args.status as string) } });
     case "flyers.discardFlyer": return prisma.flyer.delete({ where: { id: args.id } });
     case "flyers.attachFile": {
@@ -65,15 +127,40 @@ async function invoke(path: string, args: Record<string, unknown>) {
       return { duplicateOf: duplicate?.id ?? null };
     }
     case "flyerPages.upsertPage": return prisma.flyerPage.upsert({ where: { flyerId_pageNumber: { flyerId: args.flyerId, pageNumber: args.pageNumber } }, update: { filePath: args.storageId }, create: { flyerId: args.flyerId, pageNumber: args.pageNumber, filePath: args.storageId } }).then((row: any) => row.id);
-    case "flyers.listPendingDownload": return prisma.flyer.findMany({ where: { status: "DISCOVERED" } });
-    case "flyers.listPendingExtract": return prisma.flyer.findMany({ where: { status: "DOWNLOADED" }, include: { pages: true } });
-    case "flyers.listForExtract": return prisma.flyer.findMany({ where: args.includeProcessed ? undefined : { status: { in: ["DOWNLOADED", "PARTIALLY_PROCESSED"] } }, include: { pages: true } });
-    case "flyers.get": return prisma.flyer.findUnique({ where: { id: args.id }, include: { pages: true, stores: true } });
+    case "flyers.listPendingDownload": return prisma.flyer.findMany({ where: { status: "DISCOVERED" }, include: { pages: { orderBy: { pageNumber: "asc" } } } }).then((rows: any[]) => rows.map(asFlyer));
+    case "flyers.listPendingExtract": return prisma.flyer.findMany({ where: { status: "DOWNLOADED" }, include: { pages: { orderBy: { pageNumber: "asc" } } } }).then((rows: any[]) => rows.map(asFlyer));
+    case "flyers.listForExtract": return prisma.flyer.findMany({ where: args.includeProcessed ? undefined : { status: { in: ["DOWNLOADED", "PARTIALLY_PROCESSED"] } }, include: { pages: { orderBy: { pageNumber: "asc" } } } }).then((rows: any[]) => rows.map(asFlyer));
+    case "flyers.get": return asFlyer(await prisma.flyer.findUnique({ where: { id: args.id }, include: { pages: { orderBy: { pageNumber: "asc" } }, stores: true } }));
     case "flyers.markExpired": return prisma.flyer.updateMany({ where: { validUntil: { lt: new Date() }, status: { not: "EXPIRED" } }, data: { status: "EXPIRED", expiredAt: new Date() } }).then((result: any) => ({ expired: result.count }));
     case "flyers.patchValidity": return prisma.flyer.update({ where: { id: args.id }, data: { validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined) } });
     case "offers.insertBatch": {
       if (args.replace) await prisma.offer.deleteMany({ where: { flyerId: args.flyerId, ...(Array.isArray(args.replacePageNumbers) ? { pageNumber: { in: args.replacePageNumbers } } : {}) } });
-      const offers = (args.offers as any[]).map((offer) => ({ flyerId: args.flyerId, supermarketId: args.supermarketId, validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined), name: offer.name, brand: offer.brand, quantity: offer.quantity, unit: offer.unit, price: offer.price, originalPrice: offer.originalPrice, cashPrice: offer.cashPrice, installmentCount: offer.installmentCount, installmentAmount: offer.installmentAmount, installmentInterestFree: offer.installmentInterestFree, discountPercentage: offer.discountPercentage, pageNumber: offer.pageNumber, rawText: offer.rawText, extractionConfidence: offer.extractionConfidence, eligibility: offer.eligibility ? enumValue(offer.eligibility) : undefined, conditions: offer.conditions, eligibilityConfidence: offer.eligibilityConfidence, eligibilityEvidence: offer.eligibilityEvidence, eligibilityStatus: offer.eligibilityStatus ? enumValue(offer.eligibilityStatus) : undefined, validationStatus: "PENDING" }));
+      const offers = (args.offers as any[]).map((offer) => compact({
+        flyerId: args.flyerId,
+        supermarketId: args.supermarketId,
+        validFrom: toDate(args.validFrom as number | undefined),
+        validUntil: toDate(args.validUntil as number | undefined),
+        name: offer.name,
+        brand: offer.brand,
+        quantity: offer.quantity,
+        unit: offer.unit,
+        price: offer.price,
+        originalPrice: offer.originalPrice,
+        cashPrice: offer.cashPrice,
+        installmentCount: offer.installmentCount,
+        installmentAmount: offer.installmentAmount,
+        installmentInterestFree: offer.installmentInterestFree,
+        discountPercentage: offer.discountPercentage,
+        pageNumber: offer.pageNumber,
+        rawText: offer.rawText,
+        extractionConfidence: offer.extractionConfidence,
+        eligibility: offerEligibility(offer.eligibility),
+        conditions: offer.conditions,
+        eligibilityConfidence: offer.eligibilityConfidence,
+        eligibilityEvidence: offer.eligibilityEvidence,
+        eligibilityStatus: offerEligibilityStatus(offer.eligibilityStatus),
+        validationStatus: "PENDING",
+      }));
       return prisma.offer.createMany({ data: offers });
     }
     case "normalization.processFlyer": return prisma.offer.updateMany({ where: { flyerId: args.flyerId }, data: {} });

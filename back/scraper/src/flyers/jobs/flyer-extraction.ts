@@ -6,6 +6,8 @@ import { flyerConfig } from "../core/flyer-config.js";
 import { flyerLog } from "../core/flyer-logger.js";
 import { detectContentType } from "../core/flyer-downloader.js";
 import { rasterizePdf } from "../core/pdf-raster.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   discardFailedFlyer,
   findCompletedExtraction,
@@ -50,9 +52,13 @@ function parsePageFilter(argv = process.argv): Set<number> | undefined {
 }
 
 async function downloadPageBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Page fetch HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  if (/^https?:\/\//i.test(url)) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Page fetch HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  const root = process.env.STORAGE_ROOT ?? join(process.cwd(), "storage");
+  return readFile(join(root, url));
 }
 
 async function mapLimit<T, R>(

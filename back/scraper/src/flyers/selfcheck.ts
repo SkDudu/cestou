@@ -329,6 +329,11 @@ R$ 1.299,00 à vista
     ),
     "leve N",
   );
+  const levePague = detectEligibilityPhrases("LEVE 210G PAGUE 180G");
+  assert(
+    levePague.some((h) => /pague\s+180/i.test(h.text)),
+    `leve pague ${levePague[0]?.text}`,
+  );
   assert(
     !detectEligibilityPhrases("cartão de crédito").some(
       (h) => h.type === "STORE_CARD",
