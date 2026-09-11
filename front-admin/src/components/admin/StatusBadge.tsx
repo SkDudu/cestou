@@ -1,7 +1,8 @@
 const pills: Record<string, { className: string; label: string }> = {
   running: { className: "ds-pill ds-pill--running", label: "Rodando" },
   success: { className: "ds-pill ds-pill--running", label: "Publicado" },
-  processed: { className: "ds-pill ds-pill--running", label: "Publicado" },
+  processed: { className: "ds-pill ds-pill--queue", label: "Processado" },
+  published: { className: "ds-pill ds-pill--running", label: "Publicado" },
   validated: { className: "ds-pill ds-pill--running", label: "Ativa" },
   active: { className: "ds-pill ds-pill--queue", label: "Ativa" },
   downloading: { className: "ds-pill ds-pill--queue", label: "Em extração" },
@@ -10,6 +11,7 @@ const pills: Record<string, { className: string; label: string }> = {
   discovered: { className: "ds-pill ds-pill--queue", label: "Fila" },
   pending: { className: "ds-pill ds-pill--queue", label: "Fila" },
   ai_validated: { className: "ds-pill ds-pill--running", label: "IA ok" },
+  confirmed: { className: "ds-pill ds-pill--running", label: "IA ok" },
   review_required: { className: "ds-pill ds-pill--review", label: "Revisar condição" },
   human_validated: { className: "ds-pill ds-pill--running", label: "Humano" },
   fila: { className: "ds-pill ds-pill--queue", label: "Fila" },
