@@ -250,14 +250,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
       request.cookies[ADMIN_SESSION_COOKIE],
     );
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
-    const [supermarkets, activeFlows, runningRuns, failedFlyers] =
+    const [supermarkets, activeFlows, runningRuns, failedFlyers, pendingOffers, workerCount] =
       await Promise.all([
         prisma.supermarket.count({ where: { active: true } }),
         prisma.scraperFlow.count({ where: { status: "ACTIVE" } }),
         prisma.scraperRun.count({ where: { status: "RUNNING" } }),
         prisma.flyer.count({ where: { status: "FAILED" } }),
+        prisma.offer.count({ where: { validationStatus: "PENDING" } }),
+        prisma.scraperFlow.count({ where: { status: { not: "DISABLED" } } }),
       ]);
-    return { supermarkets, activeFlows, runningRuns, failedFlyers };
+    return { supermarkets, activeFlows, runningRuns, failedFlyers, pendingOffers, workerCount };
   });
 
   app.post("/api/v1/admin/storage/uploads", async (request, reply) => {
@@ -320,10 +322,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
       include: {
         supermarket: { select: { id: true, name: true, slug: true } },
         runs: { orderBy: { startedAt: "desc" }, take: 1 },
+        _count: { select: { steps: true } },
       },
-    }).then((flows) => flows.map(({ runs, ...flow }) => ({
+    }).then((flows) => flows.map(({ runs, _count, ...flow }) => ({
       ...flow,
       latestRun: runs[0] ?? null,
+      stepCount: _count.steps,
     })));
   });
 
@@ -345,8 +349,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return prisma.flyer.findMany({
       take: query.data.limit,
       orderBy: { createdAt: "desc" },
-      include: { supermarket: { select: { id: true, name: true, slug: true } }, source: { select: { id: true, type: true, url: true } } },
-    });
+      include: {
+        supermarket: { select: { id: true, name: true, slug: true } },
+        source: { select: { id: true, type: true, url: true } },
+        _count: { select: { offers: { where: { validationStatus: "VALIDATED" } } } },
+      },
+    }).then((rows) => rows.map(({ _count, ...flyer }) => ({ ...flyer, validatedOfferCount: _count.offers })));
   });
 
   app.get("/api/v1/admin/flyers/:flyerId", async (request, reply) => {
@@ -363,6 +371,41 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
     return prisma.supermarket.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { stores: true, flyerSources: true, flyers: true, offers: true } } } });
+  });
+
+  app.post("/api/v1/admin/supermarkets", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const body = z.object({
+      name: z.string().min(2).max(160),
+      websiteUrl: z.string().url().optional(),
+      networkType: z.enum(["SUPERMARKET", "WHOLESALE", "DISTRIBUTOR"]).optional(),
+    }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ code: "INVALID_SUPERMARKET" });
+    const base = body.data.name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "market";
+    let slug = base;
+    for (let n = 0; await prisma.supermarket.findUnique({ where: { slug } }); n += 1) {
+      slug = `${base}-${n + 1}`;
+    }
+    return reply.code(201).send(await prisma.supermarket.create({
+      data: {
+        name: body.data.name,
+        slug,
+        city: "Fortaleza",
+        state: "CE",
+        country: "BR",
+        active: true,
+        timezone: "America/Fortaleza",
+        websiteUrl: body.data.websiteUrl,
+        networkType: body.data.networkType,
+      },
+    }));
   });
 
   app.get("/api/v1/admin/supermarkets/:supermarketId", async (request, reply) => {
@@ -400,9 +443,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/api/v1/admin/offers", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
-    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().uuid().optional() }).safeParse(request.query);
+    const query = z.object({
+      limit: z.coerce.number().int().min(1).max(100).default(50),
+      cursor: z.string().uuid().optional(),
+      validationStatus: z.enum(["PENDING", "VALIDATED", "REJECTED", "SUSPICIOUS"]).optional(),
+      flyerId: z.string().uuid().optional(),
+    }).safeParse(request.query);
     if (!query.success) return reply.code(400).send({ code: "INVALID_PAGINATION" });
-    const rows = await prisma.offer.findMany({ take: query.data.limit + 1, ...(query.data.cursor ? { cursor: { id: query.data.cursor }, skip: 1 } : {}), orderBy: { createdAt: "desc" }, include: { supermarket: { select: { id: true, name: true } }, flyer: { select: { id: true, title: true } } } });
+    const rows = await prisma.offer.findMany({
+      take: query.data.limit + 1,
+      ...(query.data.cursor ? { cursor: { id: query.data.cursor }, skip: 1 } : {}),
+      where: {
+        ...(query.data.validationStatus ? { validationStatus: query.data.validationStatus } : {}),
+        ...(query.data.flyerId ? { flyerId: query.data.flyerId } : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      include: { supermarket: { select: { id: true, name: true } }, flyer: { select: { id: true, title: true } } },
+    });
     const hasMore = rows.length > query.data.limit;
     const items = hasMore ? rows.slice(0, -1) : rows;
     return { items, hasMore, nextCursor: hasMore ? items.at(-1)?.id ?? null : null };
@@ -429,6 +486,21 @@ export async function buildApp(options: BuildAppOptions = {}) {
       prisma.canonicalProduct.findMany({ select: { id: true, _count: { select: { offers: true } } } }),
     ]);
     return { totalOffers, withBrand, withCanonical, pendingValidation, suspicious, singleMarketProducts: singleMarket.filter((product) => product._count.offers === 1).length, pctWithBrand: totalOffers ? Math.round((withBrand / totalOffers) * 100) : 0, pctWithCanonical: totalOffers ? Math.round((withCanonical / totalOffers) * 100) : 0 };
+  });
+
+  app.patch("/api/v1/admin/offers/bulk-validation", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const body = z.object({
+      flyerId: z.string().uuid(),
+      validationStatus: z.enum(["PENDING", "VALIDATED", "REJECTED", "SUSPICIOUS"]),
+    }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ code: "INVALID_OFFER_VALIDATION" });
+    const result = await prisma.offer.updateMany({
+      where: { flyerId: body.data.flyerId, validationStatus: "PENDING" },
+      data: { validationStatus: body.data.validationStatus },
+    });
+    return { count: result.count };
   });
 
   app.patch("/api/v1/admin/offers/:offerId/validation", async (request, reply) => {

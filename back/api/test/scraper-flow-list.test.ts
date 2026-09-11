@@ -30,7 +30,7 @@ describe("admin scraper flow listing", () => {
     const response = await app.inject({ method: "GET", url: "/api/v1/admin/scraper-flows", headers: { cookie: login.headers["set-cookie"] as string } });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Main flow", supermarket: expect.objectContaining({ name: "Flow List" }), latestRun: expect.objectContaining({ status: "SUCCESS" }) })]));
+    expect(response.json()).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Main flow", stepCount: 0, supermarket: expect.objectContaining({ name: "Flow List" }), latestRun: expect.objectContaining({ status: "SUCCESS" }) })]));
     await app.close();
   });
 });
