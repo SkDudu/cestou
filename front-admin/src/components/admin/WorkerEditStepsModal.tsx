@@ -30,7 +30,7 @@ export function WorkerEditStepsModal({
   startUrl: string;
   flowVersion: number;
   flowSlug: string;
-  onSaved: () => void;
+  onSaved: (stepCount: number) => void;
   onClose: () => void;
 }) {
   const recordRef = useRef<WorkerSetupRecordHandle>(null);
@@ -125,8 +125,8 @@ export function WorkerEditStepsModal({
     setBusy(true);
     setError(null);
     try {
-      await recordRef.current.persist();
-      onSaved();
+      const stepCount = await recordRef.current.persist();
+      onSaved(stepCount);
     } catch (err) {
       setError(String(err).replace(/^Error:\s*/, ""));
       setBusy(false);
@@ -207,11 +207,11 @@ export function WorkerEditStepsModal({
         ) : null}
 
         <div className="ds-setup-footer">
-          <span className="font-mono text-[13px] text-[var(--ds-color-muted-foreground)]">
+          <span className="min-w-0 truncate font-mono text-[13px] text-[var(--ds-color-muted-foreground)]">
             {flowSlug} · v{flowVersion}
           </span>
           {phase === "record" ? (
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 className="ds-btn ds-btn--outline"

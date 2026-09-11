@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useAdminOverview } from "@/lib/use-admin-overview";
+import { adminApi } from "@/lib/api";
 
 const operacao = [
   { href: "/admin", label: "Visão geral", icon: "overview" },
   { href: "/admin/scraper", label: "Workers", icon: "workers", badge: "workers" },
   { href: "/admin/extraction", label: "Extração", icon: "extract", alert: true },
+  { href: "/admin/validation", label: "Validação", icon: "review", badge: "pending" },
 ] as const;
 
 const catalogo = [
@@ -55,6 +57,14 @@ function NavIcon({ name }: { name: string }) {
       <svg {...common}>
         <path d="M3 12.5V3.5h7l3 3v6H3z" />
         <path d="M10 3.5V7h3" />
+      </svg>
+    );
+  }
+  if (name === "review") {
+    return (
+      <svg {...common}>
+        <path d="M3 3.5h10v9H3z" />
+        <path d="M5.5 7.5l1.6 1.6 3.4-3.6" />
       </svg>
     );
   }
@@ -123,7 +133,8 @@ export function AdminSidebar() {
     label.toLowerCase().includes(query) ||
     href.toLowerCase().includes(query);
 
-  const workerCount = overview?.runningRuns ?? 0;
+  const workerCount = overview?.workerCount ?? 0;
+  const pendingOffers = overview?.pendingOffers ?? 0;
   const extractAlert = (overview?.failedFlyers ?? 0) > 0;
 
   const items = useMemo(() => {
@@ -174,9 +185,14 @@ export function AdminSidebar() {
                 <NavIcon name={item.icon} />
               </span>
               <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
-              {"badge" in item ? (
+              {"badge" in item && item.badge === "workers" ? (
                 <span className="font-mono text-[11px] text-[var(--ds-color-muted-foreground)]">
                   {workerCount}
+                </span>
+              ) : null}
+              {"badge" in item && item.badge === "pending" && pendingOffers > 0 ? (
+                <span className="font-mono text-[11px] text-[var(--ds-color-muted-foreground)]">
+                  {pendingOffers}
                 </span>
               ) : null}
               {"alert" in item && extractAlert ? (
@@ -213,12 +229,23 @@ export function AdminSidebar() {
           className="h-8 w-8 shrink-0 rounded-full"
           style={{ background: "var(--ds-color-secondary)" }}
         />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">Cestou</p>
           <p className="truncate text-xs text-[var(--ds-color-muted-foreground)]">
             Operações
           </p>
         </div>
+        <button
+          type="button"
+          className="shrink-0 text-[12px] text-[var(--ds-color-muted-foreground)] hover:text-[var(--ds-color-foreground)]"
+          onClick={() => {
+            void adminApi.logout().finally(() => {
+              window.location.href = "/login";
+            });
+          }}
+        >
+          Sair
+        </button>
       </div>
     </aside>
   );

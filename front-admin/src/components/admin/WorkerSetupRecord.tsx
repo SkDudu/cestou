@@ -709,7 +709,7 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
                   sozinho.
                 </p>
               ) : null}
-              <div className="flex gap-1.5">
+              <div className="sticky bottom-0 z-[1] flex gap-1.5 bg-[var(--ds-color-muted)] pb-0.5 pt-1">
                 {pick.ancestors?.length ? (
                   <button
                     type="button"

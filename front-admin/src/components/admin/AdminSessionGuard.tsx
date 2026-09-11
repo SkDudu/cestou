@@ -15,9 +15,17 @@ export function AdminSessionGuard({ children }: { children: React.ReactNode }) {
       () => active && setReady(true),
       () => router.replace(`/login?next=${encodeURIComponent(pathname)}`),
     );
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [pathname, router]);
 
-  if (!ready) return <p className="grid min-h-screen place-items-center bg-slate-950 text-slate-100">Verificando sessão…</p>;
+  if (!ready) {
+    return (
+      <p className="grid min-h-dvh place-items-center bg-[var(--ds-color-muted)] text-sm text-[var(--ds-color-muted-foreground)]">
+        Verificando sessão…
+      </p>
+    );
+  }
   return <>{children}</>;
 }
