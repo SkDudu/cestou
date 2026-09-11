@@ -137,7 +137,7 @@ export function isLiveScraperRun(
   run: { status?: string; startedAt: number },
   now = Date.now(),
 ) {
-  return run.status === "running" && now - run.startedAt < STALE_RUN_MS;
+  return (run.status ?? "").toLowerCase() === "running" && now - run.startedAt < STALE_RUN_MS;
 }
 
 export function isRunCancelled(run: {
@@ -145,8 +145,9 @@ export function isRunCancelled(run: {
   error?: string | null;
   log?: string | null;
 }) {
+  const status = (run.status ?? "").toLowerCase();
   return (
-    run.status === "cancelled" ||
+    status === "cancelled" ||
     run.error === "cancelled" ||
     (run.log ?? "").startsWith("cancelled")
   );
@@ -157,8 +158,9 @@ export function isRunDuplicate(run: {
   error?: string | null;
   log?: string | null;
 }) {
+  const status = (run.status ?? "").toLowerCase();
   return (
-    run.status === "duplicate" ||
+    status === "duplicate" ||
     run.error === "duplicate" ||
     (run.log ?? "").startsWith("duplicate")
   );

@@ -74,20 +74,38 @@ export function draftsFromOffer(o: {
 }
 
 export function conditionNote(o: {
-  eligibility?: string;
+  eligibility?: string | null;
+  membershipName?: string | null;
   conditions?: {
     name?: string;
     description?: string;
     requirement?: string;
-  }[];
+  }[] | null;
 }): string | null {
-  const el = o.eligibility ?? "ALL_CUSTOMERS";
-  if (el === "ALL_CUSTOMERS") return null;
   const parts = (o.conditions ?? [])
     .flatMap((c) => [c.name, c.description, c.requirement])
     .map((s) => s?.trim())
     .filter((s): s is string => Boolean(s));
   const text = [...new Set(parts)].join(" · ");
   if (text) return text;
+  const el = (o.eligibility ?? "ALL_CUSTOMERS").toUpperCase();
+  if (el === "ALL_CUSTOMERS") return null;
+  if (el === "MEMBERS_ONLY") return o.membershipName || "Clube";
   return ELIGIBILITY_OPTIONS.find((x) => x.id === el)?.label ?? el;
+}
+
+export function offerCondition(o: {
+  eligibility?: string | null;
+  membershipName?: string | null;
+  conditions?: {
+    name?: string;
+    description?: string;
+    requirement?: string;
+  }[] | null;
+}) {
+  const note = conditionNote(o);
+  if (note) return { kind: "ok" as const, text: note };
+  const el = (o.eligibility ?? "ALL_CUSTOMERS").toUpperCase();
+  if (el === "UNKNOWN") return { kind: "unknown" as const, text: "Desconhecida" };
+  return { kind: "none" as const, text: "Todos" };
 }
