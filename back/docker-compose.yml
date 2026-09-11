@@ -18,6 +18,7 @@ services:
   api:
     build:
       context: .
+      target: api
     command: npm run api:start
     env_file:
       - .env
@@ -36,6 +37,7 @@ services:
   worker:
     build:
       context: .
+      target: worker
     command: npm run worker:start
     env_file:
       - .env
@@ -45,6 +47,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    shm_size: "1gb"
     volumes:
       - storage-data:/data/storage
 
