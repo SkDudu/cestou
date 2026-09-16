@@ -12,6 +12,9 @@ cd back
 cp .env.example .env
 npm install
 npx playwright install chromium
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:seed
 
 # Frontend admin
 cd ../front-admin
@@ -22,24 +25,49 @@ cd ../front-client
 npm install
 ```
 
-Convex local (deixar rodando em outro terminal):
-
-```bash
-cd back
-npm run convex:dev
-# ou: npx convex dev
-```
+Postgres local via `DATABASE_URL` no `back/.env` (default: `127.0.0.1:5432/smart_grocery`).
 
 ---
 
 ## Backend (`cd back`)
 
-### Convex
+### API + worker
 
 | Comando | Descrição |
 |---------|-----------|
-| `npm run convex:dev` | Convex local (:3210) |
-| `npm run convex:deploy` | Deploy Convex |
+| `npm run api:dev` | API Fastify com watch (:4000) |
+| `npm run api:start` | API Fastify |
+| `npm run worker:start` | Worker pg-boss |
+
+### Prisma / banco
+
+| Comando | Descrição |
+|---------|-----------|
+| `npm run prisma:generate` | Gera o client Prisma |
+| `npm run prisma:migrate` | `prisma migrate dev` |
+| `npm run prisma:seed` | Cria/atualiza `ADMIN_MASTER` |
+| `npm run prisma:wipe` | **Limpa todos os dados** (TRUNCATE) e re-seed do admin |
+| `npm run prisma:reset` | Drop schema + migrations + seed (`migrate reset --force`) |
+
+```bash
+# Limpar banco local (dados só; schema fica)
+npm run prisma:wipe
+
+# Nuclear: dropar tudo e reaplicar migrations
+npm run prisma:reset
+```
+
+`prisma:wipe` só roda em host local (`localhost` / `127.0.0.1`). Para remoto: `ALLOW_REMOTE_WIPE=1`. Bloqueado se `NODE_ENV=production`.
+
+### Utilitários
+
+| Comando | Descrição |
+|---------|-----------|
+| `npm run data:reconcile` | Contagens + integridade Postgres → `reports/` |
+| `npm run verify:no-convex` | Garante que não restou Convex |
+| `npm run benchmark:api` | Benchmark da API |
+| `npm test` | Vitest |
+| `npm run typecheck` | `tsc --noEmit` |
 
 ### Flow Builder + extract
 
@@ -50,12 +78,11 @@ npm run convex:dev
 | `npm run flows:scheduler` | Poller sozinho (prod sem dashboard). Dev: não precisa se o worker já está up. |
 | `npm run flows:run -- --flow=<id>` | Rodar fluxo via CLI (`--discovery` = sem download/MiMo) |
 | `npm run flows:record` | Gravador CLI (opcional; preferir dashboard) |
-| `npm run flyers:download` | Baixar páginas → Convex Storage |
+| `npm run flyers:download` | Baixar páginas → storage local |
 | `npm run flyers:extract` | MiMo-V2.5 por página (fallback Tesseract) → offers |
 | `npm run flyers:reextract` | Re-extrai com `--force` |
 | `npm run mimo:test` | Smoke test da API MiMo |
 | `npm run flyers:test-extraction` | Extrai uma página sem persistir |
-| `npx convex run clearData:wipeAll` | Apagar tudo do banco |
 
 ```bash
 # front: /admin/scraper → Iniciar worker | Abrir codegen | Rodar fluxo
