@@ -334,11 +334,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.post("/api/v1/admin/scraper-flows", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
-    const body = z.object({ supermarketId: z.string().uuid(), name: z.string().min(2).max(160), startUrl: z.string().url(), status: z.enum(["DRAFT", "TESTING", "ACTIVE", "DISABLED"]).default("DRAFT") }).safeParse(request.body);
+    const body = z.object({
+      supermarketId: z.string().uuid(),
+      name: z.string().min(2).max(160),
+      startUrl: z.string().url().optional(),
+      status: z.enum(["DRAFT", "TESTING", "ACTIVE", "DISABLED"]).default("DRAFT"),
+    }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ code: "INVALID_SCRAPER_FLOW" });
     const supermarket = await prisma.supermarket.findUnique({ where: { id: body.data.supermarketId } });
     if (!supermarket) return reply.code(404).send({ code: "SUPERMARKET_NOT_FOUND" });
-    return reply.code(201).send(await prisma.scraperFlow.create({ data: { ...body.data, version: 1 } }));
+    const startUrl = body.data.startUrl ?? supermarket.websiteUrl ?? undefined;
+    if (!startUrl) return reply.code(400).send({ code: "SUPERMARKET_WEBSITE_REQUIRED" });
+    const { supermarketId, name, status } = body.data;
+    return reply.code(201).send(await prisma.scraperFlow.create({ data: { supermarketId, name, status, startUrl, version: 1 } }));
   });
 
   app.get("/api/v1/admin/flyers", async (request, reply) => {

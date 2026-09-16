@@ -1,8 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import sharp from "sharp";
 import { flyerConfig } from "../../core/flyer-config.js";
 import { flyerLog } from "../../core/flyer-logger.js";
 import type {
@@ -13,8 +9,6 @@ import { mimoChat } from "./client.js";
 import { MimoError } from "./errors.js";
 import { SYSTEM_PROMPT, userPrompt } from "./prompts.js";
 import { parseMimoOffers } from "./schemas.js";
-
-const execFileAsync = promisify(execFile);
 
 function isPublicHttpsUrl(url: string): boolean {
   try {
@@ -32,20 +26,54 @@ function isPublicHttpsUrl(url: string): boolean {
   }
 }
 
-async function maybeResize(buffer: Buffer): Promise<Buffer> {
+/** Downscale long edge to `aiMaxImageEdgePx` on every platform (Docker Linux included). */
+async function maybeResize(
+  buffer: Buffer,
+  contentType?: string,
+): Promise<{ buffer: Buffer; contentType: string }> {
   const edge = flyerConfig.aiMaxImageEdgePx;
-  if (process.platform !== "darwin") return buffer;
-  const dir = await mkdtemp(join(tmpdir(), "flyer-mimo-"));
-  const input = join(dir, "in.jpg");
-  const output = join(dir, "out.jpg");
+  const fallbackType = contentType?.startsWith("image/")
+    ? contentType
+    : "image/jpeg";
   try {
-    await writeFile(input, buffer);
-    await execFileAsync("sips", ["-Z", String(edge), input, "--out", output]);
-    return await readFile(output);
-  } catch {
-    return buffer;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
+    const image = sharp(buffer, { failOn: "none" }).rotate();
+    const meta = await image.metadata();
+    const width = meta.width ?? 0;
+    const height = meta.height ?? 0;
+    const withinEdge =
+      width > 0 && height > 0 && width <= edge && height <= edge;
+
+    if (withinEdge && meta.format === "jpeg") {
+      return { buffer, contentType: "image/jpeg" };
+    }
+    if (withinEdge && meta.format === "png") {
+      return { buffer, contentType: "image/png" };
+    }
+
+    const out = await image
+      .resize({
+        width: edge,
+        height: edge,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer();
+
+    if (width > edge || height > edge) {
+      flyerLog.info(
+        "AI_VISION",
+        `resize ${width}x${height} → edge≤${edge} (${buffer.length}→${out.length} bytes)`,
+      );
+    }
+
+    return { buffer: out, contentType: "image/jpeg" };
+  } catch (err) {
+    flyerLog.error(
+      "AI_VISION",
+      `resize failed — sending original: ${String(err)}`,
+    );
+    return { buffer, contentType: fallbackType };
   }
 }
 
@@ -58,11 +86,8 @@ async function imageUrlForApi(page: {
   if (!page.imageBuffer) {
     throw new MimoError("MiMo needs a public image URL or a local buffer");
   }
-  const resized = await maybeResize(page.imageBuffer);
-  const mime = page.contentType?.startsWith("image/")
-    ? page.contentType
-    : "image/jpeg";
-  return `data:${mime};base64,${resized.toString("base64")}`;
+  const resized = await maybeResize(page.imageBuffer, page.contentType);
+  return `data:${resized.contentType};base64,${resized.buffer.toString("base64")}`;
 }
 
 function sleep(ms: number) {
