@@ -18,6 +18,7 @@
     "verify:no-convex": "tsx scripts/verify-no-convex.ts",
     "benchmark:api": "tsx scripts/benchmark-api.ts",
     "data:reconcile": "tsx scripts/reconcile-postgres-data.ts",
+    "data:normalize": "tsx --env-file=.env scripts/normalize-flyers.ts",
     "flyers:download": "npm run flyers:download --workspace=scraper",
     "flyers:extract": "npm run flyers:extract --workspace=scraper --",
     "flyers:reextract": "npm run flyers:reextract --workspace=scraper --",

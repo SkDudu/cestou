@@ -18,6 +18,7 @@ import {
   type ScraperQueue,
 } from "./modules/scraper/service.js";
 import { formatSseEvent, readRunEvents } from "./modules/scraper/events.js";
+import { processFlyerNormalization } from "../../scraper/src/flyers/extraction/catalog-normalization.js";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
 
@@ -363,6 +364,34 @@ export async function buildApp(options: BuildAppOptions = {}) {
         _count: { select: { offers: { where: { validationStatus: "VALIDATED" } } } },
       },
     }).then((rows) => rows.map(({ _count, ...flyer }) => ({ ...flyer, validatedOfferCount: _count.offers })));
+  });
+
+  app.post("/api/v1/admin/flyers/:flyerId/normalize", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const params = z.object({ flyerId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ code: "INVALID_FLYER_ID" });
+    const flyer = await prisma.flyer.findUnique({ where: { id: params.data.flyerId } });
+    if (!flyer) return reply.code(404).send({ code: "FLYER_NOT_FOUND" });
+    return processFlyerNormalization(prisma, flyer.id);
+  });
+
+  app.post("/api/v1/admin/normalization/backfill", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const body = z.object({ limit: z.number().int().min(1).max(200).default(50) }).safeParse(request.body ?? {});
+    if (!body.success) return reply.code(400).send({ code: "INVALID_BACKFILL" });
+    const flyerIds = await prisma.offer.findMany({
+      where: { OR: [{ canonicalProductId: null }, { normalizedName: null }] },
+      distinct: ["flyerId"],
+      select: { flyerId: true },
+      take: body.data.limit,
+    });
+    const results = [];
+    for (const row of flyerIds) {
+      results.push({ flyerId: row.flyerId, ...(await processFlyerNormalization(prisma, row.flyerId)) });
+    }
+    return { processed: results.length, results };
   });
 
   app.get("/api/v1/admin/flyers/:flyerId", async (request, reply) => {

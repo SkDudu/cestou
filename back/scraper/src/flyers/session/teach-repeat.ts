@@ -342,7 +342,7 @@ const SKIP_REPLAY_CLICK =
 /** Teach sample: opening one listing card to harvest viewer — not part of run. */
 function isTeachSampleCardClick(blob: string): boolean {
   return (
-    /flip-card|img\[alt=|Costume Saudável|Encarte São Luiz|card-folheto|jet-listing|VER ENCARTE|Download em PDF|ofertasdelimpeza|\/encarte\//i.test(
+    /flip-card|img\[alt=|Costume Saudável|Encarte São Luiz|card-folheto|jet-listing|VER ENCARTE|Download em PDF|ofertasdelimpeza|\/encarte\/|\/folhetos\/\d+|span\.titulo|v[aá]lido de/i.test(
       blob,
     ) || /\d{1,2}\s*[./-]\s*\d{1,2}.*\d{2,4}/.test(blob)
   );
