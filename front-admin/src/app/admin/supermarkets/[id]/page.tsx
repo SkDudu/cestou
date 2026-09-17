@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { FilialCreateModal } from "@/components/admin/FilialCreateModal";
 import { OpsHeader, OpsKpi } from "@/components/admin/ops";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ApiError, adminApi } from "@/lib/api";
@@ -25,6 +26,7 @@ export default function SupermarketDetailPage() {
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   const [workers, setWorkers] = useState<FleetWorker[]>([]);
   const [error, setError] = useState<string>();
+  const [filialOpen, setFilialOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -157,9 +159,13 @@ export default function SupermarketDetailPage() {
       <section className="ds-table-card mb-4">
         <div className="ds-table-head">
           <h2 className="text-[15px] font-semibold">Filiais</h2>
+          <button type="button" className="ds-btn ds-btn--outline" onClick={() => setFilialOpen(true)}>
+            Nova filial
+          </button>
         </div>
         <div className="ds-table-cols">
           <span className="ds-label-caps min-w-0 flex-1">Nome</span>
+          <span className="ds-label-caps w-[200px] shrink-0">Link</span>
           <span className="ds-label-caps w-[160px] shrink-0">Bairro</span>
           <span className="ds-label-caps w-[80px] shrink-0">Status</span>
         </div>
@@ -172,6 +178,9 @@ export default function SupermarketDetailPage() {
                   #{s.externalId}
                 </span>
               ) : null}
+            </span>
+            <span className="w-[200px] shrink-0 truncate font-mono text-xs text-[var(--ds-color-muted-foreground)]">
+              {s.url?.replace(/^https?:\/\//, "") ?? "—"}
             </span>
             <span className="w-[160px] shrink-0 truncate text-[var(--ds-color-muted-foreground)]">
               {s.neighborhood ?? "—"} · {s.city}
@@ -187,6 +196,25 @@ export default function SupermarketDetailPage() {
           </p>
         ) : null}
       </section>
+
+      <FilialCreateModal
+        open={filialOpen}
+        supermarketId={id}
+        supermarketName={market.name}
+        onClose={() => setFilialOpen(false)}
+        onCreated={(store) => {
+          setMarket((current) =>
+            current
+              ? {
+                  ...current,
+                  stores: [...current.stores, store].sort((a, b) =>
+                    a.name.localeCompare(b.name, "pt-BR"),
+                  ),
+                }
+              : current,
+          );
+        }}
+      />
 
       <section className="ds-table-card mb-4">
         <div className="ds-table-head">

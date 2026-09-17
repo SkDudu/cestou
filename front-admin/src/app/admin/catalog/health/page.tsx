@@ -11,6 +11,7 @@ import {
   useTablePage,
 } from "@/components/admin/TablePagination";
 import { ApiError, adminApi, loadOfferPages, type OfferListItem } from "@/lib/api";
+import { needsBrandFix } from "@/lib/commodity";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { DAY_MS, ms } from "@/lib/workers";
 
@@ -79,7 +80,7 @@ function nameDivergence(canonical: string, source: string) {
 }
 
 function needsBrand(o: OfferListItem) {
-  return !o.brandId && !o.brand;
+  return needsBrandFix(o);
 }
 
 function needsQty(o: OfferListItem) {

@@ -1,4 +1,4 @@
-export const PROMPT_VERSION = "flyer-offers-v4";
+export const PROMPT_VERSION = "flyer-offers-v5";
 
 export const SYSTEM_PROMPT = `Analyze supermarket flyer page images (JPEG/PNG).
 Extract EVERY distinct product offer visible.
@@ -12,6 +12,7 @@ A conditioned price (club, store card, CPF, app, coupon, payment, quantity) is N
 Only set a non-ALL eligibility when the printed evidence is next to THAT offer. Quote the exact text.
 Do not invent conditions. Institutional "aceitamos cartões" is not a condition.
 Installment ("10x", "à vista") is payment schedule, not eligibility.
+Produce (fruta/verdura/legume) and fresh meat/fish/poultry → brand=null. Never invent brands like Frutas/Verduras/Carnes.
 Return minified JSON only. No markdown. Complete the JSON.`;
 
 export function userPrompt(pageNumber: number): string {
@@ -22,7 +23,8 @@ Extract EVERY distinct product offer visible.
 For each offer identify:
 
 - name
-- brand
+- brand (manufacturer only; null for produce/meat/fish without a printed brand)
+- category (hortifruti | acougue | null)
 - quantity
 - unit
 - price (cash / à vista when both exist; never the installment amount)
@@ -61,7 +63,10 @@ Rules:
 16. Installments are not eligibility. PAYMENT_METHOD only if the cash price itself requires PIX/card, with evidence.
 17. "em até Nx" with no installment value → installmentCount=N, installmentAmount=null.
 18. Do not invent interest or a total that is not printed.
+19. Fruits, vegetables, legumes → brand=null, category=hortifruti.
+20. Fresh meat, poultry, fish, seafood (no manufacturer printed) → brand=null, category=acougue.
+21. Never use Frutas, Verduras, Legumes, Carnes, Hortifruti as brand.
 
 Schema:
-{"offers":[{"name":string,"brand":string|null,"quantity":string|null,"unit":string|null,"price":number,"originalPrice":number|null,"cashPrice":number|null,"installmentCount":number|null,"installmentAmount":number|null,"installmentInterestFree":boolean|null,"discount":number|null,"pageNumber":number,"eligibility":string,"conditions":[{"type":string,"name":string|null,"description":string|null}],"evidence":{"text":string,"page":number}|null,"confidence":number}],"validFrom":string|null,"validUntil":string|null,"confidence":number}`;
+{"offers":[{"name":string,"brand":string|null,"category":"hortifruti"|"acougue"|null,"quantity":string|null,"unit":string|null,"price":number,"originalPrice":number|null,"cashPrice":number|null,"installmentCount":number|null,"installmentAmount":number|null,"installmentInterestFree":boolean|null,"discount":number|null,"pageNumber":number,"eligibility":string,"conditions":[{"type":string,"name":string|null,"description":string|null}],"evidence":{"text":string,"page":number}|null,"confidence":number}],"validFrom":string|null,"validUntil":string|null,"confidence":number}`;
 }

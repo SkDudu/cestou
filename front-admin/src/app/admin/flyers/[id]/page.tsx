@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ApiError, adminApi } from "@/lib/api";
+import { flyerPageSrc } from "@/lib/flyer-media";
 import { formatCurrency, formatDateTime, formatInstallment } from "@/lib/format";
 import { flyerDisplayStatus, ms } from "@/lib/workers";
 
@@ -146,27 +147,21 @@ export default function FlyerDetailPage() {
       </h2>
       <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {flyer.pages.map((page) => {
-          const href = page.filePath.startsWith("http") ? page.filePath : undefined;
+          const href = flyerPageSrc(page.filePath, flyer.id, page.pageNumber);
           return (
             <a
               key={page.id}
-              href={href ?? flyer.originalUrl}
+              href={href}
               target="_blank"
               rel="noreferrer"
               className="block ds-table-card"
             >
-              {href ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={href}
-                  alt={`Página ${page.pageNumber}`}
-                  className="aspect-[3/4] w-full object-cover object-top"
-                />
-              ) : (
-                <div className="flex aspect-[3/4] items-center justify-center bg-[var(--ds-color-muted)] text-sm text-[var(--ds-color-muted-foreground)]">
-                  Página {page.pageNumber}
-                </div>
-              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={href}
+                alt={`Página ${page.pageNumber}`}
+                className="aspect-[3/4] w-full object-cover object-top"
+              />
               <p className="px-2 py-1 text-xs text-[var(--ds-color-muted-foreground)]">
                 Página {page.pageNumber}
               </p>

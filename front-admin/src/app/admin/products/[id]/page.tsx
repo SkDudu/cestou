@@ -151,12 +151,22 @@ export default function ProductHubPage() {
           </>
         }
         title={product.canonicalName}
-        subtitle={[product.brand?.name, formatPack(product.quantity, product.unit), product.matchKey]
+        subtitle={[
+          product.category,
+          product.brand?.name,
+          formatPack(product.quantity, product.unit),
+          product.matchKey,
+        ]
           .filter(Boolean)
           .join(" · ")}
       />
 
       <section className="flex gap-4 pb-4">
+        <OpsKpi
+          label="Categoria"
+          value={product.category ?? "—"}
+          foot={product.brand?.name ? `marca ${product.brand.name}` : "sem marca"}
+        />
         <OpsKpi
           label="Mercados vigentes"
           value={activeBoard.length}

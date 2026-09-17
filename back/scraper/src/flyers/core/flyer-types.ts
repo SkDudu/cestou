@@ -38,6 +38,8 @@ export type FlyerMetadata = {
 export type ParsedOffer = {
   name: string;
   brand?: string;
+  /** hortifruti | acougue — commodity, not a manufacturer brand */
+  category?: string;
   quantity?: string;
   unit?: string;
   price: number;

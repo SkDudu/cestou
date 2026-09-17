@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   autoValidateOffer,
   buildMatchKey,
+  inferCommodityCategory,
+  isPseudoBrand,
   normalizeText,
   parseQuantity,
+  resolveOfferBrand,
   slugify,
   titleCase,
 } from "../../scraper/src/flyers/extraction/catalog-normalization.js";
@@ -33,5 +36,17 @@ describe("catalog normalization helpers", () => {
     expect(autoValidateOffer({ name: "Arroz Camil 5kg", price: 24.9, extractionConfidence: 0.9 })).toBe("VALIDATED");
     expect(autoValidateOffer({ name: "Arroz", price: 0, extractionConfidence: 0.9 })).toBe("REJECTED");
     expect(autoValidateOffer({ name: "Arroz Camil 5kg", price: 9000, extractionConfidence: 0.9 })).toBe("SUSPICIOUS");
+  });
+
+  it("classifies commodities and strips fake brands", () => {
+    expect(inferCommodityCategory("Banana Prata")).toBe("hortifruti");
+    expect(inferCommodityCategory("Picanha kg")).toBe("acougue");
+    expect(inferCommodityCategory("Coxão Mole")).toBe("acougue");
+    expect(inferCommodityCategory("Fraldinha")).toBe("acougue");
+    expect(inferCommodityCategory("Arroz Camil 5kg")).toBeNull();
+    expect(isPseudoBrand("Frutas")).toBe(true);
+    expect(isPseudoBrand("Camil")).toBe(false);
+    expect(resolveOfferBrand("Frutas")).toBeUndefined();
+    expect(resolveOfferBrand("camil")).toBe("Camil");
   });
 });

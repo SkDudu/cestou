@@ -24,6 +24,7 @@ export default function ProductsPage() {
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const [brandId, setBrandId] = useState("");
+  const [category, setCategory] = useState("");
   const [products, setProducts] = useState<Product[]>();
   const [compare, setCompare] = useState<Map<string, Compare>>(new Map());
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -76,16 +77,19 @@ export default function ProductsPage() {
       if (tab === "multi" && p.markets < 2) return false;
       if (tab === "spread" && !(p.spread != null && p.spread > 40)) return false;
       if (brandId && p.brandId !== brandId && p.brand?.id !== brandId) return false;
+      if (category === "none" && p.category) return false;
+      if (category && category !== "none" && p.category !== category) return false;
       if (!needle) return true;
       return (
         p.canonicalName.toLowerCase().includes(needle) ||
         p.matchKey.toLowerCase().includes(needle) ||
-        (p.brand?.name ?? "").toLowerCase().includes(needle)
+        (p.brand?.name ?? "").toLowerCase().includes(needle) ||
+        (p.category ?? "").toLowerCase().includes(needle)
       );
     });
-  }, [rowsAll, tab, q, brandId]);
+  }, [rowsAll, tab, q, brandId, category]);
 
-  const [page, setPage] = useTablePage(`${tab}|${q}|${brandId}`);
+  const [page, setPage] = useTablePage(`${tab}|${q}|${brandId}|${category}`);
   const pageRows = slicePage(rows, page);
 
   return (
@@ -155,9 +159,21 @@ export default function ProductsPage() {
               </option>
             ))}
           </select>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="ds-search"
+            aria-label="Categoria"
+          >
+            <option value="">Categoria: todas</option>
+            <option value="hortifruti">hortifruti</option>
+            <option value="acougue">acougue</option>
+            <option value="none">sem categoria</option>
+          </select>
         </div>
         <div className="ds-table-cols">
           <span className="ds-label-caps min-w-0 flex-[2]">Produto</span>
+          <span className="ds-label-caps w-[100px] shrink-0">Categoria</span>
           <span className="ds-label-caps w-[120px] shrink-0">Marca</span>
           <span className="ds-label-caps w-[72px] shrink-0">Pack</span>
           <span className="ds-label-caps w-[72px] shrink-0">Mercados</span>
@@ -167,6 +183,9 @@ export default function ProductsPage() {
         {pageRows.map((p) => (
           <Link key={p.id} href={`/admin/products/${p.id}`} className="ds-table-row">
             <span className="min-w-0 flex-[2] truncate font-medium">{p.canonicalName}</span>
+            <span className="w-[100px] shrink-0 truncate text-[var(--ds-color-muted-foreground)]">
+              {p.category ?? "—"}
+            </span>
             <span className="w-[120px] shrink-0 truncate text-[var(--ds-color-muted-foreground)]">
               {p.brand?.name ?? "—"}
             </span>

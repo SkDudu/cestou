@@ -5,12 +5,15 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { OpsHeader } from "@/components/admin/ops";
 import { ApiError, adminApi, loadOfferPages, type OfferListItem } from "@/lib/api";
+import { needsBrandFix } from "@/lib/commodity";
+import { flyerPageFileUrl } from "@/lib/flyer-media";
 import { PACK_UNITS, formatCurrency, formatPack } from "@/lib/format";
 
 type OfferFix = "brand" | "qty" | "unit";
 type Offer = Awaited<ReturnType<typeof adminApi.offer>>;
 type Brand = Awaited<ReturnType<typeof adminApi.brands>>[number];
 type Product = Awaited<ReturnType<typeof adminApi.product>>;
+type Flyer = Awaited<ReturnType<typeof adminApi.flyer>>;
 
 const FIX_TITLE: Record<OfferFix, string> = {
   brand: "Corrigir marca ausente",
@@ -35,7 +38,7 @@ function offerFixReason(fix: OfferFix) {
 }
 
 function inQueue(o: OfferListItem, fix: OfferFix) {
-  if (fix === "brand") return !o.brandId && !o.brand;
+  if (fix === "brand") return needsBrandFix(o);
   if (fix === "qty") return !o.quantity && o.quantityValue == null;
   return Boolean(o.unit) && !o.unitNormalized && o.quantityValue == null;
 }
@@ -85,6 +88,7 @@ export default function HealthFixWorkbenchPage() {
 
   const [offer, setOffer] = useState<Offer | null>();
   const [product, setProduct] = useState<Product | null>(null);
+  const [flyer, setFlyer] = useState<Flyer | null>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [queue, setQueue] = useState<OfferListItem[]>([]);
   const [error, setError] = useState<string>();
@@ -110,10 +114,21 @@ export default function HealthFixWorkbenchPage() {
         } else {
           setProduct(null);
         }
+        if (row.flyer?.id) {
+          try {
+            const linkedFlyer = await adminApi.flyer(row.flyer.id);
+            if (alive) setFlyer(linkedFlyer);
+          } catch {
+            if (alive) setFlyer(null);
+          }
+        } else if (alive) {
+          setFlyer(null);
+        }
       },
       (cause: unknown) => {
         if (!alive) return;
         setOffer(null);
+        setFlyer(null);
         setError(
           cause instanceof ApiError && cause.status === 404
             ? "Oferta não encontrada."
@@ -165,16 +180,41 @@ export default function HealthFixWorkbenchPage() {
         ? (brands.find((b) => b.id === brandId)?.name ?? null)
         : null;
 
+  const typedBrand = brandQuery.trim();
+  const exactBrand = typedBrand
+    ? brands.find((b) => normBrand(b.name) === normBrand(typedBrand))
+    : undefined;
+  const canCreateBrand =
+    fix === "brand" &&
+    typedBrand.length >= 2 &&
+    !exactBrand &&
+    brandId === undefined;
+  const canSaveBrand = brandId !== undefined || canCreateBrand || Boolean(exactBrand);
+
   function goTo(id: string) {
     router.push(`/admin/catalog/health/fix/${id}?fix=${fix}`);
   }
 
   async function save(andNext: boolean) {
-    if (fix !== "brand" || brandId === undefined) return;
+    if (fix !== "brand") return;
     setBusy(true);
     setMsg(null);
     try {
-      await adminApi.updateOfferCatalog(offerId, { brandId });
+      let nextBrandId = brandId;
+      if (nextBrandId === undefined && exactBrand) {
+        nextBrandId = exactBrand.id;
+      }
+      if (nextBrandId === undefined && canCreateBrand) {
+        const created = await adminApi.createBrand({ name: typedBrand });
+        setBrands((prev) =>
+          prev.some((b) => b.id === created.id) ? prev : [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+        );
+        nextBrandId = created.id;
+        setBrandId(created.id);
+        setBrandQuery(created.name);
+      }
+      if (nextBrandId === undefined) return;
+      await adminApi.updateOfferCatalog(offerId, { brandId: nextBrandId });
       if (andNext) {
         const next = index >= 0 ? queue[index + 1] ?? queue[index - 1] : undefined;
         if (next && next.id !== offerId) goTo(next.id);
@@ -185,7 +225,13 @@ export default function HealthFixWorkbenchPage() {
         setMsg("Salvo");
       }
     } catch (cause: unknown) {
-      setMsg(cause instanceof Error ? cause.message : "Erro ao salvar");
+      setMsg(
+        cause instanceof ApiError
+          ? cause.code ?? cause.message
+          : cause instanceof Error
+            ? cause.message
+            : "Erro ao salvar",
+      );
     } finally {
       setBusy(false);
     }
@@ -343,7 +389,27 @@ export default function HealthFixWorkbenchPage() {
               </dd>
             </div>
           </dl>
-          <p className="text-sm text-[var(--ds-color-muted-foreground)]">Sem preview de página.</p>
+          {offer.flyer?.id && offer.pageNumber ? (
+            <a
+              href={`/admin/flyers/${offer.flyer.id}`}
+              className="block overflow-hidden rounded-lg border border-[var(--ds-color-border)]"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={flyerPageFileUrl(offer.flyer.id, offer.pageNumber)}
+                alt={`Página ${offer.pageNumber} do encarte`}
+                className="aspect-[3/4] w-full bg-[var(--ds-color-muted)] object-contain object-top"
+              />
+              <p className="px-2 py-1 text-[11px] text-[var(--ds-color-muted-foreground)]">
+                Página {offer.pageNumber}
+                {flyer?.pages?.length ? ` · ${flyer.pages.length} no encarte` : ""}
+              </p>
+            </a>
+          ) : (
+            <p className="text-sm text-[var(--ds-color-muted-foreground)]">
+              Sem preview de página (oferta sem flyer/página).
+            </p>
+          )}
           {offer.rawText ? (
             <details className="text-sm">
               <summary className="cursor-pointer text-[var(--ds-color-muted-foreground)]">Raw text</summary>
@@ -361,9 +427,9 @@ export default function HealthFixWorkbenchPage() {
               <div>
                 <p className="text-[18px] font-semibold leading-6">{product.canonicalName}</p>
                 <p className="mt-1 text-sm text-[var(--ds-color-muted-foreground)]">
-                  {canonPack ?? "—"}
-                  {" · "}
-                  {product.brand?.name ?? "Sem marca"}
+                  {[product.category, canonPack ?? "—", product.brand?.name ?? "Sem marca"]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
                 <p className="mt-2">
                   <span className="ds-pill ds-pill--fail">{reason}</span>
@@ -468,6 +534,16 @@ export default function HealthFixWorkbenchPage() {
                   </li>
                 ) : null}
               </ul>
+              {canCreateBrand ? (
+                <button
+                  type="button"
+                  className="w-full rounded-lg border border-dashed border-[var(--ds-color-border)] px-3 py-2 text-left text-sm hover:bg-[var(--ds-color-muted)]"
+                  onClick={() => void save(false)}
+                  disabled={busy}
+                >
+                  Criar marca «{typedBrand}» e usar
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
@@ -508,18 +584,18 @@ export default function HealthFixWorkbenchPage() {
               <button
                 type="button"
                 className="ds-btn ds-btn--primary w-full"
-                disabled={busy || brandId === undefined}
+                disabled={busy || !canSaveBrand}
                 onClick={() => void save(true)}
               >
-                Salvar e próxima
+                {canCreateBrand ? "Criar, salvar e próxima" : "Salvar e próxima"}
               </button>
               <button
                 type="button"
                 className="ds-btn ds-btn--outline w-full"
-                disabled={busy || brandId === undefined}
+                disabled={busy || !canSaveBrand}
                 onClick={() => void save(false)}
               >
-                Salvar
+                {canCreateBrand ? "Criar marca e salvar" : "Salvar"}
               </button>
             </div>
           ) : null}

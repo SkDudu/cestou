@@ -27,7 +27,7 @@ export const flyerConfig = {
   mimoConcurrency: Number(process.env.MIMO_CONCURRENCY ?? 1),
   aiEnabled: (process.env.FLYER_AI_ENABLED ?? "true") !== "false",
   aiProvider: (process.env.FLYER_AI_PROVIDER ?? "mimo").toLowerCase(),
-  aiPromptVersion: process.env.FLYER_AI_PROMPT_VERSION ?? "flyer-offers-v4",
+  aiPromptVersion: process.env.FLYER_AI_PROMPT_VERSION ?? "flyer-offers-v5",
   aiMaxImageEdgePx: Number(process.env.FLYER_AI_MAX_IMAGE_EDGE_PX ?? 2048),
 
   // Defaults for flow context / supermarket bootstrap

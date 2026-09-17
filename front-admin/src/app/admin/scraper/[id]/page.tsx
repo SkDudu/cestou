@@ -98,6 +98,10 @@ export default function ScraperFlowDetailPage() {
   const lastDur = last ? compactDuration((lastFinished ?? Date.now()) - lastStarted) : "—";
   const lastClock = lastStarted ? clock(lastStarted) : "—";
   const store = flow.supermarket.name;
+  const scopeLabel =
+    (flow.scope ?? "").toUpperCase() === "STORE"
+      ? `filial · ${flow.store?.name ?? "unidade"}`
+      : "toda a rede";
   const hasSteps = (flow.stepCount ?? 0) > 0;
 
   async function runNow() {
@@ -119,7 +123,7 @@ export default function ScraperFlowDetailPage() {
       </p>
       <OpsHeader
         title={store}
-        subtitle={`${slug} · ${fonte} · ${nextAt ? `próximo ${nextCheckLabel(nextAt)}` : "sem agendamento"}`}
+        subtitle={`${slug} · ${scopeLabel} · ${fonte} · ${nextAt ? `próximo ${nextCheckLabel(nextAt)}` : "sem agendamento"}`}
         stamp={`Atualizado ${formatOpsStamp(ms(flow.updatedAt) ?? Date.now())}`}
         primary={
           hasSteps ? (

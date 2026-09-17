@@ -12,6 +12,16 @@ import {
   asInterestFree,
   shapePayment,
 } from "./payment.js";
+import {
+  isPseudoBrand,
+  inferCommodityCategory,
+  type CommodityCategory,
+} from "./catalog-normalization.js";
+
+function parseCategory(raw: unknown): CommodityCategory | undefined {
+  if (raw === "hortifruti" || raw === "acougue") return raw;
+  return undefined;
+}
 
 function discountPct(original: number, price: number): number {
   const o = Math.round(original * 100);
@@ -52,7 +62,12 @@ export function guardOffers(
     const unitRaw = stripUnknown(rec.unit);
     const unit = unitRaw ? normalizeUnit(unitRaw) : undefined;
     const brandRaw = stripUnknown(rec.brand);
-    const brand = brandRaw ? titleCaseBrand(brandRaw) : undefined;
+    const brand =
+      brandRaw && !isPseudoBrand(brandRaw) ? titleCaseBrand(brandRaw) : undefined;
+    const category =
+      parseCategory(rec.category) ??
+      inferCommodityCategory(name, brandRaw) ??
+      undefined;
 
     const haystack = [
       name,
@@ -96,6 +111,7 @@ export function guardOffers(
     out.push({
       name: name.slice(0, 200),
       brand,
+      category,
       quantity,
       unit,
       price: pay.price,
@@ -118,6 +134,7 @@ export function guardOffers(
         installmentAmount: pay.installmentAmount,
         quantity,
         brand,
+        category: category ?? null,
         eligibility: elig.eligibility,
         evidence: elig.eligibilityEvidence?.text,
       }).slice(0, 1000),

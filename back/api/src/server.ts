@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import { z } from "zod";
+import { extname } from "node:path";
 import { createPrismaClient } from "../../prisma/client.js";
 import {
   ADMIN_SESSION_COOKIE,
@@ -11,15 +12,24 @@ import {
   createClientSession,
   getClientSession,
 } from "./modules/auth/service.js";
-import { LocalStorage } from "./modules/storage/service.js";
+import { LocalStorage, StorageError } from "./modules/storage/service.js";
 import {
   cancelScraperRun,
   startScraperRun,
   type ScraperQueue,
 } from "./modules/scraper/service.js";
 import { formatSseEvent, readRunEvents } from "./modules/scraper/events.js";
-import { processFlyerNormalization } from "../../scraper/src/flyers/extraction/catalog-normalization.js";
+import { processFlyerNormalization, NO_BRAND_LABEL } from "../../scraper/src/flyers/extraction/catalog-normalization.js";
 
+function mimeFromPath(filePath: string): string {
+  const ext = extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  return "application/octet-stream";
+}
 type PrismaClient = ReturnType<typeof createPrismaClient>;
 
 type BuildAppOptions = {
@@ -322,6 +332,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       orderBy: { updatedAt: "desc" },
       include: {
         supermarket: { select: { id: true, name: true, slug: true } },
+        store: { select: { id: true, name: true, slug: true } },
         runs: { orderBy: { startedAt: "desc" }, take: 1 },
         _count: { select: { steps: true } },
       },
@@ -337,6 +348,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
     const body = z.object({
       supermarketId: z.string().uuid(),
+      storeId: z.string().uuid().optional(),
+      scope: z.enum(["SUPERMARKET", "STORE"]).default("SUPERMARKET"),
       name: z.string().min(2).max(160),
       startUrl: z.string().url().optional(),
       status: z.enum(["DRAFT", "TESTING", "ACTIVE", "DISABLED"]).default("DRAFT"),
@@ -344,10 +357,42 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!body.success) return reply.code(400).send({ code: "INVALID_SCRAPER_FLOW" });
     const supermarket = await prisma.supermarket.findUnique({ where: { id: body.data.supermarketId } });
     if (!supermarket) return reply.code(404).send({ code: "SUPERMARKET_NOT_FOUND" });
-    const startUrl = body.data.startUrl ?? supermarket.websiteUrl ?? undefined;
-    if (!startUrl) return reply.code(400).send({ code: "SUPERMARKET_WEBSITE_REQUIRED" });
-    const { supermarketId, name, status } = body.data;
-    return reply.code(201).send(await prisma.scraperFlow.create({ data: { supermarketId, name, status, startUrl, version: 1 } }));
+
+    let storeId: string | null = null;
+    let storeUrl: string | null = null;
+    if (body.data.scope === "STORE") {
+      if (!body.data.storeId) return reply.code(400).send({ code: "STORE_REQUIRED" });
+      const store = await prisma.store.findFirst({
+        where: { id: body.data.storeId, supermarketId: body.data.supermarketId },
+      });
+      if (!store) return reply.code(404).send({ code: "STORE_NOT_FOUND" });
+      storeId = store.id;
+      storeUrl = store.url;
+    }
+
+    const startUrl =
+      body.data.startUrl
+      ?? (body.data.scope === "STORE" ? storeUrl ?? undefined : supermarket.websiteUrl ?? undefined);
+    if (!startUrl) {
+      return reply.code(400).send({
+        code: body.data.scope === "STORE" ? "STORE_URL_REQUIRED" : "SUPERMARKET_WEBSITE_REQUIRED",
+      });
+    }
+
+    const { supermarketId, name, status, scope } = body.data;
+    return reply.code(201).send(
+      await prisma.scraperFlow.create({
+        data: {
+          supermarketId,
+          storeId,
+          scope,
+          name,
+          status,
+          startUrl,
+          version: 1,
+        },
+      }),
+    );
   });
 
   app.get("/api/v1/admin/flyers", async (request, reply) => {
@@ -382,7 +427,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const body = z.object({ limit: z.number().int().min(1).max(200).default(50) }).safeParse(request.body ?? {});
     if (!body.success) return reply.code(400).send({ code: "INVALID_BACKFILL" });
     const flyerIds = await prisma.offer.findMany({
-      where: { OR: [{ canonicalProductId: null }, { normalizedName: null }] },
+      where: {
+        OR: [
+          { canonicalProductId: null },
+          { normalizedName: null },
+          // ponytail: re-run so commodity category lands on existing canônicos
+          { brand: null, brandId: null, canonicalProduct: { category: null } },
+        ],
+      },
       distinct: ["flyerId"],
       select: { flyerId: true },
       take: body.data.limit,
@@ -402,6 +454,40 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const flyer = await prisma.flyer.findUnique({ where: { id: params.data.flyerId }, include: { supermarket: true, source: true, pages: { orderBy: { pageNumber: "asc" } }, offers: { orderBy: { createdAt: "desc" } } } });
     if (!flyer) return reply.code(404).send({ code: "FLYER_NOT_FOUND" });
     return flyer;
+  });
+
+  app.get("/api/v1/admin/flyers/:flyerId/pages/:pageNumber/file", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const params = z
+      .object({
+        flyerId: z.string().uuid(),
+        pageNumber: z.coerce.number().int().positive(),
+      })
+      .safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ code: "INVALID_PAGE" });
+    const page = await prisma.flyerPage.findUnique({
+      where: {
+        flyerId_pageNumber: {
+          flyerId: params.data.flyerId,
+          pageNumber: params.data.pageNumber,
+        },
+      },
+    });
+    if (!page?.filePath) return reply.code(404).send({ code: "PAGE_NOT_FOUND" });
+    if (/^https?:\/\//i.test(page.filePath)) {
+      return reply.redirect(page.filePath);
+    }
+    try {
+      const body = await storage.readFile(page.filePath);
+      return reply
+        .header("content-type", mimeFromPath(page.filePath))
+        .header("cache-control", "private, max-age=3600")
+        .send(body);
+    } catch (err) {
+      if (err instanceof StorageError) return reply.code(400).send({ code: err.code });
+      return reply.code(404).send({ code: "FILE_NOT_FOUND" });
+    }
   });
 
   app.get("/api/v1/admin/supermarkets", async (request, reply) => {
@@ -455,10 +541,85 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return supermarket;
   });
 
+  app.post("/api/v1/admin/supermarkets/:supermarketId/stores", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    const params = z.object({ supermarketId: z.string().uuid() }).safeParse(request.params);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    if (!params.success) return reply.code(400).send({ code: "INVALID_SUPERMARKET_ID" });
+    const body = z.object({
+      name: z.string().min(2).max(160),
+      url: z.string().url().optional(),
+    }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ code: "INVALID_STORE" });
+    const supermarket = await prisma.supermarket.findUnique({ where: { id: params.data.supermarketId } });
+    if (!supermarket) return reply.code(404).send({ code: "SUPERMARKET_NOT_FOUND" });
+    const base = body.data.name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "filial";
+    let slug = base;
+    for (
+      let n = 0;
+      await prisma.store.findUnique({
+        where: { supermarketId_slug: { supermarketId: params.data.supermarketId, slug } },
+      });
+      n += 1
+    ) {
+      slug = `${base}-${n + 1}`;
+    }
+    return reply.code(201).send(
+      await prisma.store.create({
+        data: {
+          supermarketId: params.data.supermarketId,
+          name: body.data.name,
+          slug,
+          url: body.data.url,
+          city: supermarket.city,
+          state: supermarket.state,
+          active: true,
+        },
+      }),
+    );
+  });
+
   app.get("/api/v1/admin/brands", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
     return prisma.brand.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { offers: true, products: true } } } });
+  });
+
+  app.post("/api/v1/admin/brands", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const body = z.object({ name: z.string().trim().min(2).max(80) }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ code: "INVALID_BRAND" });
+    const name = body.data.name.replace(/\s+/g, " ");
+    const base =
+      name
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || "marca";
+    let slug = base;
+    for (let n = 0; await prisma.brand.findUnique({ where: { slug } }); n += 1) {
+      slug = `${base}-${n + 1}`;
+    }
+    const existing = await prisma.brand.findFirst({
+      where: { OR: [{ slug: base }, { name: { equals: name, mode: "insensitive" } }] },
+      include: { _count: { select: { offers: true, products: true } } },
+    });
+    if (existing) return existing;
+    return reply.code(201).send(
+      await prisma.brand.create({
+        data: { name, slug, aliases: [] },
+        include: { _count: { select: { offers: true, products: true } } },
+      }),
+    );
   });
 
   app.get("/api/v1/admin/products", async (request, reply) => {
@@ -495,7 +656,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
         ...(query.data.flyerId ? { flyerId: query.data.flyerId } : {}),
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      include: { supermarket: { select: { id: true, name: true } }, flyer: { select: { id: true, title: true } } },
+      include: {
+        supermarket: { select: { id: true, name: true } },
+        flyer: { select: { id: true, title: true } },
+        canonicalProduct: { select: { id: true, category: true } },
+      },
     });
     const hasMore = rows.length > query.data.limit;
     const items = hasMore ? rows.slice(0, -1) : rows;
@@ -559,7 +724,32 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!params.success || !body.success) return reply.code(400).send({ code: "INVALID_CATALOG_UPDATE" });
     const offer = await prisma.offer.findUnique({ where: { id: params.data.offerId } });
     if (!offer) return reply.code(404).send({ code: "OFFER_NOT_FOUND" });
-    return prisma.offer.update({ where: { id: offer.id }, data: body.data });
+    const data: {
+      brandId?: string | null;
+      brand?: string | null;
+      normalizedBrand?: string | null;
+      canonicalProductId?: string | null;
+    } = { ...body.data };
+    if (body.data.brandId !== undefined) {
+      if (body.data.brandId === null) {
+        // ponytail: sentinel so missing-brand queue drops this offer
+        data.brand = NO_BRAND_LABEL;
+        data.normalizedBrand = NO_BRAND_LABEL;
+      } else {
+        const brand = await prisma.brand.findUnique({ where: { id: body.data.brandId } });
+        if (!brand) return reply.code(404).send({ code: "BRAND_NOT_FOUND" });
+        data.brand = brand.name;
+        data.normalizedBrand = brand.name;
+      }
+    }
+    const updated = await prisma.offer.update({ where: { id: offer.id }, data });
+    if (offer.canonicalProductId && body.data.brandId !== undefined) {
+      await prisma.canonicalProduct.update({
+        where: { id: offer.canonicalProductId },
+        data: { brandId: body.data.brandId },
+      });
+    }
+    return updated;
   });
 
   app.get("/api/v1/admin/offers/:offerId", async (request, reply) => {
