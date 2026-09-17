@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getScraperPrisma } from "./postgres-client.js";
 import { flyerLog } from "./flyer-logger.js";
+import { resolveStorageRoot } from "./storage-root.js";
 import type { ParsedOffer } from "./flyer-types.js";
 import { processFlyerNormalization } from "../extraction/catalog-normalization.js";
 
@@ -286,8 +287,7 @@ export async function uploadBuffer(
   const extension = contentType.includes("pdf") ? ".pdf" : contentType.split("/")[1] ? `.${contentType.split("/")[1]}` : ".bin";
   const filename = `${createHash("sha256").update(buffer).digest("hex")}-${randomUUID()}${extension}`;
   const relativePath = join("flyers", filename);
-  const root = process.env.STORAGE_ROOT ?? join(process.cwd(), "storage");
-  const destination = join(root, relativePath);
+  const destination = join(resolveStorageRoot(), relativePath);
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, buffer);
   return relativePath;

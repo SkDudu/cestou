@@ -31,11 +31,26 @@ Postgres local via `DATABASE_URL` no `back/.env` (default: `127.0.0.1:5432/smart
 
 ## Backend (`cd back`)
 
+**Fonte da verdade:** PostgreSQL no **Docker Compose** + Prisma + volume `storage-data`.  
+API/worker no Compose. Convex removido — ignore SPECs antigas que ainda citam Convex.
+
+### Docker Compose
+
+| Comando | Descrição |
+|---------|-----------|
+| `docker compose up -d --build` | Sobe `postgres`, `api` (:4000), `worker` |
+| `docker compose logs -f api worker` | Logs |
+| `docker compose down` | Para serviços (volumes permanecem) |
+
+Dentro dos containers: `STORAGE_ROOT=/data/storage` (volume nomeado `storage-data`), `DATABASE_URL` host `postgres`.  
+Worker → LM Studio no Mac: `MIMO_DOCKER_BASE_URL` → `host.docker.internal:1234`.  
+No host (Prisma): `DATABASE_URL` com `127.0.0.1:5432`.
+
 ### API + worker
 
 | Comando | Descrição |
 |---------|-----------|
-| `npm run api:dev` | API Fastify com watch (:4000) |
+| `npm run api:dev` | API Fastify com watch (:4000) — host |
 | `npm run api:start` | API Fastify |
 | `npm run worker:start` | Worker pg-boss |
 
@@ -74,15 +89,20 @@ npm run prisma:reset
 | Comando | Descrição |
 |---------|-----------|
 | `npm run flows:codegen -- <url>` | Playwright codegen (Chromium + Inspector) |
-| `npm run flows:session-worker` | Worker Playwright p/ dashboard (:8791). Poller de discovery entra no mesmo processo. |
+| `npm run flows:session-worker` | Playwright + teach/locate (:8791). Host Mac → `MIMO_BASE_URL` (LM Studio `127.0.0.1`) |
 | `npm run flows:scheduler` | Poller sozinho (prod sem dashboard). Dev: não precisa se o worker já está up. |
 | `npm run flows:run -- --flow=<id>` | Rodar fluxo via CLI (`--discovery` = sem download/MiMo) |
 | `npm run flows:record` | Gravador CLI (opcional; preferir dashboard) |
-| `npm run flyers:download` | Baixar páginas → storage local |
-| `npm run flyers:extract` | MiMo-V2.5 por página (fallback Tesseract) → offers |
+| `npm run flyers:download` | Baixar páginas → `STORAGE_ROOT` + `flyerPages` (Postgres) |
+| `npm run flyers:extract` | Visão por página (MiMo / LM Studio via `.env`) → offers |
 | `npm run flyers:reextract` | Re-extrai com `--force` |
-| `npm run mimo:test` | Smoke test da API MiMo |
-| `npm run flyers:test-extraction` | Extrai uma página sem persistir |
+| `npm run flyers:extract:docker` | Extract no worker (persiste offers) |
+| `npm run flyers:reextract:docker` | Idem com `--force` |
+| `npm run flyers:test-extraction:docker` | Smoke sem persistir |
+
+```bash
+npm run flyers:reextract:docker -- --flyer=<uuid> --page=1
+```
 
 ```bash
 # front: /admin/scraper → Iniciar worker | Abrir codegen | Rodar fluxo
@@ -97,11 +117,14 @@ npm run flows:session-worker
 npm run flows:run -- --flow=<id> --ctx.storeId=355
 ```
 
+Teach/locate (SPEC 019 Fase 2): LM Studio up → `flows:session-worker` → admin `/admin/scraper` → **Detectar de novo** → Aprovar.  
+Extract persistido: `flyers:reextract:docker` (worker Docker + `host.docker.internal`).
+
 Admin Flow Builder: `/admin/scraper`. **Iniciar worker** no dashboard sobe o Playwright (`POST /api/browser-worker`). Worker: `NEXT_PUBLIC_BROWSER_SESSION_URL=http://127.0.0.1:8791` (default).
 
-Pipeline manual (dashboard / `flows:run`): `discover-flyer` → `download-flyers` → `extract-offers` (MiMo) → `nextRunAt = validUntil` do flyer.
+Pipeline manual (dashboard / `flows:run`): `discover-flyer` → `download-flyers` → `extract-offers` (visão via `.env`) → `nextRunAt = validUntil` do flyer.
 
-Na data final, o mesmo worker faz discovery + download (sem MiMo). Flyer igual (URL/hash) → skip. Flyer novo → baixa; `extractPending` no mesmo tick → MiMo → novo `validUntil`. Check periódico: no máximo a cada 6h.
+Na data final, o mesmo worker faz discovery + download (sem visão). Flyer igual (URL/hash) → skip. Flyer novo → baixa; `extractPending` no mesmo tick → extract → novo `validUntil`. Check periódico: no máximo a cada 6h.
 
 `npm run flows:scheduler` só se quiser poller sem o worker do dashboard.
 

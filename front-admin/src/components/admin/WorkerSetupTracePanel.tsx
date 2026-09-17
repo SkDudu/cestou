@@ -25,7 +25,7 @@ const KIND_META: Record<
   input: { title: "Input", color: "#a78bfa", group: "teach" },
   scroll: { title: "Scroll", color: "#94a3b8", group: "teach" },
   scope: { title: "Escopo", color: "#10b981", group: "teach" },
-  locate: { title: "MiMo", color: "#8b5cf6", group: "analyze" },
+  locate: { title: "IA visão", color: "#8b5cf6", group: "analyze" },
   analyze: { title: "Análise", color: "#8b5cf6", group: "analyze" },
   confirm_scope: { title: "Aprovar", color: "#22c55e", group: "analyze" },
   preview: { title: "Teste", color: "#06b6d4", group: "validate" },

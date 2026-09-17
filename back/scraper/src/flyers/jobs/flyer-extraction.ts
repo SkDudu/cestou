@@ -8,6 +8,7 @@ import { detectContentType } from "../core/flyer-downloader.js";
 import { rasterizePdf } from "../core/pdf-raster.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { resolveStorageRoot } from "../core/storage-root.js";
 import {
   discardFailedFlyer,
   findCompletedExtraction,
@@ -57,8 +58,7 @@ async function downloadPageBuffer(url: string): Promise<Buffer> {
     if (!res.ok) throw new Error(`Page fetch HTTP ${res.status}`);
     return Buffer.from(await res.arrayBuffer());
   }
-  const root = process.env.STORAGE_ROOT ?? join(process.cwd(), "storage");
-  return readFile(join(root, url));
+  return readFile(join(resolveStorageRoot(), url));
 }
 
 async function mapLimit<T, R>(
@@ -407,13 +407,15 @@ export async function extractPending(opts?: {
       if (ran.length && offers.length) {
         const ranPages = ran.map((r) => r.pageNumber);
         const wholeForce = Boolean(force && !pageFilter && !replaceStatuses);
+        // --force must replace even when --page=N (otherwise duplicates stack)
+        const shouldReplace = Boolean(force || replaceStatuses);
         await insertOffers({
           flyerId: flyer._id,
           supermarketId: flyer.supermarketId,
           validFrom: offerFrom,
           validUntil: offerUntil,
           offers,
-          replace: wholeForce,
+          replace: shouldReplace,
           replacePageNumbers: wholeForce
             ? undefined
             : pageFilter

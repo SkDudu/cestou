@@ -44,6 +44,11 @@ services:
     environment:
       DATABASE_URL: postgresql://smart_grocery:smart_grocery@postgres:5432/smart_grocery?schema=public
       STORAGE_ROOT: /data/storage
+      # Host LM Studio / Ollama: container cannot use 127.0.0.1 (that is itself).
+      # Cloud MiMo: set MIMO_DOCKER_BASE_URL=https://api.xiaomimimo.com/v1 in .env
+      MIMO_BASE_URL: ${MIMO_DOCKER_BASE_URL:-http://host.docker.internal:1234/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

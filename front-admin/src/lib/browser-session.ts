@@ -212,6 +212,8 @@ export type LocateFlyersResult = {
   selectors: string[];
   label: string;
   source: "dump" | "mimo";
+  /** Vision model id from MIMO_MODEL (e.g. qwen2.5-vl-7b-instruct). */
+  model?: string;
   status: "ready" | "need_click" | "not_found";
   humanHint: string;
   awaitDetail: boolean;
@@ -219,6 +221,7 @@ export type LocateFlyersResult = {
   stepCount: number;
   flyerSource?: FlyerSourceInfo;
   candidates?: LocateCandidate[];
+  teachPass?: 1 | 2;
   openKind?: "download" | "viewer" | "need_click";
   itemSelectors?: string[];
 };

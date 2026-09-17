@@ -36,8 +36,9 @@ import {
   type SessionAction,
 } from "@/lib/browser-session";
 
-function locatePhase(sec: number): string {
-  return `MiMo lendo HTML (${sec}s)`;
+function locatePhase(sec: number, model?: string): string {
+  const who = model?.trim() || "IA";
+  return `${who} lendo HTML (${sec}s)`;
 }
 
 function formatLocateErr(err: unknown): string {
@@ -121,6 +122,7 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
     const [locateSource, setLocateSource] = useState<
       "dump" | "mimo" | "heuristic" | null
     >(null);
+    const [locateModel, setLocateModel] = useState<string | null>(null);
     const [teach, setTeach] = useState<{
       awaitDetail: boolean;
       listingCount?: number;
@@ -128,6 +130,7 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
       viewerMode?: string;
       openKind?: "download" | "viewer" | "need_click";
       itemSelectors?: string[];
+      teachPass?: 1 | 2;
     } | null>(null);
     const [locateStatus, setLocateStatus] = useState<
       "ready" | "need_click" | "not_found" | null
@@ -289,7 +292,17 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
       : null;
     const canPersist =
       approved &&
-      (teach?.openKind === "download" || teach?.openKind === "viewer");
+      (teach?.openKind === "download" ||
+        teach?.openKind === "viewer" ||
+        teach?.openKind === "need_click");
+
+    const canApproveListing =
+      Boolean(pick?.selectors?.length) &&
+      (teach?.openKind === "download" ||
+        teach?.openKind === "viewer" ||
+        // Pass 2 on detail: allow Aprovar open-each-item even if still need_click (capa).
+        (teach?.openKind === "need_click" &&
+          (teach.teachPass === 2 || !teach.awaitDetail)));
 
     useImperativeHandle(
       ref,
@@ -336,6 +349,7 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
         onError?.(null);
         setPick(null);
         setLocateSource(null);
+        setLocateModel(null);
         setLocateStatus(null);
         setCandidates([]);
         setCandIdx(0);
@@ -348,6 +362,7 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
           setHoverBox(r.pick?.box ?? null);
           setScopeIndex(0);
           setLocateSource("mimo");
+          setLocateModel(r.model ?? null);
           setLocateStatus(r.status);
           const cands = r.candidates ?? [];
           setCandidates(cands);
@@ -358,6 +373,7 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
             notes: r.humanHint,
             openKind: r.openKind,
             itemSelectors: r.itemSelectors,
+            teachPass: r.teachPass,
           });
           openKindRef.current = r.openKind ?? null;
           if (r.stepCount) setProposedN(r.stepCount);
@@ -568,9 +584,13 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
             </span>
           </div>
           <p className="text-xs leading-4 text-[var(--ds-color-muted-foreground)]">
-            {isEdit
-              ? "MiMo lê o HTML da página e aponta a seção de encartes. Confere e Aprovar."
-              : "MiMo aponta a seção inteira. Diz se tem download, viewer, ou se precisa clicar o encarte e Detectar de novo."}
+            {teach?.teachPass === 2
+              ? "Passo 2 · detail. Confere download/viewer e Aprovar pra testar encartes."
+              : teach?.openKind === "need_click"
+                ? "Passo 1 · listagem OK. Clica UM card no preview — Detectar sozinho no detail."
+                : isEdit
+                  ? "IA lê o HTML e aponta a seção de encartes. Confere e Aprovar."
+                  : "IA aponta a seção. Download, viewer, ou clicar o encarte e Detectar de novo."}
           </p>
           <div className="flex flex-wrap gap-1.5">
             <button
@@ -598,12 +618,14 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
                 if (sessionId) void detectListing(sessionId);
               }}
             >
-              {locating ? `MiMo ${locateSec}s` : "Detectar de novo"}
+              {locating
+                ? `IA ${locateSec}s`
+                : "Detectar de novo"}
             </button>
           </div>
           {locating ? (
             <p className="text-xs text-[var(--ds-color-primary)]">
-              {locatePhase(locateSec)}
+              {locatePhase(locateSec, locateModel ?? undefined)}
             </p>
           ) : null}
           {selectMode ? (
@@ -619,13 +641,11 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
                 ? ` · ${teach.listingCount} candidato(s)`
                 : ""}
               .
-              {teach?.viewerMode
-                ? ` Viewer: ${teach.viewerMode}${teach.notes ? ` — ${teach.notes}` : ""}`
-                : teach?.openKind === "download"
-                  ? " Continuar pra testar o download das páginas."
-                  : teach?.openKind === "viewer"
-                    ? " Continuar pra colher as páginas já na página."
-                    : " Próximo: clica UM card no preview pra mostrar o visualizador."}
+              {teach?.openKind === "download"
+                ? " Próximo: Testar encartes (cada card → download)."
+                : teach?.openKind === "viewer"
+                  ? " Próximo: Testar encartes (páginas no viewer)."
+                  : " Próximo: Testar encartes (open-each-item)."}
             </p>
           ) : null}
           {candidates.length > 1 && locateSource === "heuristic" && !approved ? (
@@ -661,11 +681,18 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
                 "Nada no dump. Role, fecha o modal, ou marca a área."}
             </p>
           ) : null}
+          {!approved && locateStatus === "need_click" ? (
+            <p className="rounded-[var(--ds-radius-md)] border border-amber-800 bg-amber-950/40 px-3 py-2 text-[13px] text-amber-100 whitespace-pre-line">
+              {teach?.notes ??
+                "OK · listagem. Clica UM encarte no preview — reanalisa sozinho."}
+            </p>
+          ) : null}
           {!approved &&
           teach &&
           locateStatus !== "not_found" &&
+          locateStatus !== "need_click" &&
           teach.notes ? (
-            <p className="text-xs text-[var(--ds-color-success)]">
+            <p className="rounded-[var(--ds-radius-md)] border border-emerald-900/60 bg-emerald-950/30 px-3 py-2 text-[13px] text-emerald-100 whitespace-pre-line">
               {teach.notes}
             </p>
           ) : null}
@@ -683,9 +710,11 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
                 <span className="shrink-0 rounded-full bg-[var(--ds-color-secondary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ds-color-primary)]">
                   {locateSource === "heuristic"
                     ? "manual"
-                    : locateSource === "mimo"
-                      ? "mimo"
-                      : "auto"}
+                    : locateModel
+                      ? locateModel
+                      : locateSource === "mimo"
+                        ? "ia"
+                        : "auto"}
                 </span>
               </div>
               <p className="text-[11px] text-[var(--ds-color-accent)]">
@@ -695,18 +724,24 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
               </p>
               {teach?.openKind === "download" ? (
                 <p className="text-[12px] font-medium text-emerald-300">
-                  Download nesta página. Aprovar.
+                  Download/PDF no detail. Aprovar listagem → Testar encartes.
                 </p>
               ) : null}
               {teach?.openKind === "viewer" ? (
                 <p className="text-[12px] font-medium text-emerald-300">
-                  Visualizador de imagem/PDF nesta página. Aprovar.
+                  Viewer de páginas. Aprovar → Testar encartes.
                 </p>
               ) : null}
-              {teach?.openKind === "need_click" ? (
+              {teach?.openKind === "need_click" && teach.teachPass === 2 ? (
                 <p className="text-[12px] font-medium text-amber-200">
-                  Nada pra baixar aqui. Clica UM encarte no preview — reanalisa
-                  sozinho.
+                  Sem viewer na tela. Clica o PDF/Baixar, ou Aprovar listagem
+                  (open-each-item) se o click do card já está nos steps.
+                </p>
+              ) : null}
+              {teach?.openKind === "need_click" && teach.teachPass !== 2 ? (
+                <p className="text-[12px] font-medium text-amber-200">
+                  Clica UM encarte no preview — reanalisa sozinho. Aprovar
+                  desligado até o passo 2.
                 </p>
               ) : null}
               <div className="sticky bottom-0 z-[1] flex gap-1.5 bg-[var(--ds-color-muted)] pb-0.5 pt-1">
@@ -731,7 +766,7 @@ export const WorkerSetupRecord = forwardRef<WorkerSetupRecordHandle, Props>(
                 <button
                   type="button"
                   className="ds-btn ds-btn--primary ds-btn--sm flex-1"
-                  disabled={confirming || !pick.selectors.length}
+                  disabled={confirming || !canApproveListing}
                   onClick={() => void onConfirmArea()}
                 >
                   {confirming ? "Salvando…" : "Aprovar"}

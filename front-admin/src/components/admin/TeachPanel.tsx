@@ -319,7 +319,7 @@ export function TeachPanel({ flowId, startUrl, onSaved }: Props) {
         <div className="mt-4 rounded-md border border-[var(--ds-color-border)] p-3">
           <p className="mb-2 text-xs text-emerald-400">
             Stepper
-            {proposed.teachPass ? ` · pass ${proposed.teachPass}` : " · MiMo"}
+            {proposed.teachPass ? ` · pass ${proposed.teachPass}` : " · IA"}
             {proposed.notes ? ` · ${proposed.notes}` : ""}
           </p>
           <ol className="mb-3 space-y-1 text-sm ">

@@ -6,6 +6,10 @@ export function parseJsonObject(raw: string): unknown {
     sliced,
     repairTrailingCommas(sliced),
     closeOpen(repairTrailingCommas(sliced)),
+    // Qwen often dumps huge broken htmlSnippet with raw quotes — drop field and retry.
+    dropJsonField(sliced, "htmlSnippet"),
+    repairTrailingCommas(dropJsonField(sliced, "htmlSnippet")),
+    closeOpen(repairTrailingCommas(dropJsonField(sliced, "htmlSnippet"))),
   ];
   let last: unknown;
   for (const t of tries) {
@@ -16,6 +20,29 @@ export function parseJsonObject(raw: string): unknown {
     }
   }
   throw last instanceof Error ? last : new Error(String(last));
+}
+
+/**
+ * Remove one object field even when its string value has unescaped quotes.
+ * Stops at the next known sibling key or the closing `}`.
+ */
+export function dropJsonField(json: string, field: string): string {
+  const startMark = `"${field}"`;
+  const start = json.indexOf(startMark);
+  if (start < 0) return json;
+  const afterKey = json.slice(start + startMark.length);
+  if (!/^\s*:/.test(afterKey)) return json;
+  const valueRegion = json.slice(start);
+  const nextKey = valueRegion.search(/,\s*"[a-zA-Z_][\w$]*"\s*:/);
+  if (nextKey >= 0) {
+    // Drop field up to the comma before next key — keep that comma+next key.
+    return json.slice(0, start) + valueRegion.slice(nextKey + 1);
+  }
+  // Field is last — trim trailing comma on previous property.
+  const end = json.lastIndexOf("}");
+  if (end < start) return json;
+  let head = json.slice(0, start).replace(/,\s*$/, "");
+  return head + json.slice(end);
 }
 
 export function stripFence(raw: string): string {

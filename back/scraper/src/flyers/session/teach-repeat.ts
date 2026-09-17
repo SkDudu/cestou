@@ -139,6 +139,48 @@ export function isViewerNoise(blob: string): boolean {
   );
 }
 
+/** Cover/hero alone is not a multi-page flyer viewer (needs ≥2 imgs, PDF, or canvas). */
+export function harvestLooksLikeFullViewer(h: {
+  images: number;
+  pdfs: number;
+  canvas: boolean;
+}): boolean {
+  return h.pdfs > 0 || h.canvas || h.images >= 2;
+}
+
+/**
+ * Flyer download controls from HTML dump (Frangolândia "Download em PDF", a[href*=.pdf], etc).
+ * Prefer :has-text / attribute sels Playwright understands.
+ */
+export function downloadControlsFromHtml(html: string): string[] {
+  const out: string[] = [];
+  if (/href=["'][^"']*\.pdf(\?|#|"|')/i.test(html)) {
+    out.push('a[href*=".pdf"]');
+  }
+  if (/\sdownload(=[\s"'>]|[\s>])/i.test(html) || /\[download\]/i.test(html)) {
+    out.push("a[download]", "[download]");
+  }
+  const textHits: Array<[RegExp, string[]]> = [
+    [/download\s+em\s+pdf/i, ['a:has-text("Download em PDF")', 'button:has-text("Download em PDF")']],
+    [/baixar\s+pdf/i, ['a:has-text("Baixar PDF")', 'button:has-text("Baixar PDF")']],
+    [/baixar\s+p[aá]gina/i, ['a:has-text("Baixar página")', 'button:has-text("Baixar página")']],
+    [/ver\s+pdf/i, ['a:has-text("Ver PDF")', 'button:has-text("Ver PDF")']],
+    [/baixar\s+encarte/i, ['a:has-text("Baixar encarte")', 'button:has-text("Baixar encarte")']],
+  ];
+  for (const [re, sels] of textHits) {
+    if (re.test(html)) out.push(...sels);
+  }
+  // Generic "Download" / "Baixar" near flyer context — only if not app CTA blob.
+  if (
+    !out.length &&
+    />(?:\s*)(?:Download|Baixar)(?:\s*)</i.test(html) &&
+    !/baixe\s+(o\s+)?(nosso\s+)?app|play\s*store|aplicativo/i.test(html)
+  ) {
+    out.push('a:has-text("Download")', 'a:has-text("Baixar")');
+  }
+  return [...new Set(out)].slice(0, 8);
+}
+
 export function mergeDetailHarvest(args: {
   listing: ListingTeach;
   imageUrls: string[];
@@ -266,15 +308,24 @@ export function flyerSourceFromOpenKind(args: {
   const dl = (args.downloadSelectors ?? []).filter(Boolean);
   const effectiveCount =
     journalTabs >= 2 ? journalTabs : args.itemCount;
-  if (args.openKind === "download" && dl.length) {
-    const pdf = dl.some((s) => /\.pdf/i.test(s));
+  if (args.openKind === "download") {
+    if (dl.length) {
+      const pdf = dl.some((s) => /\.pdf/i.test(s));
+      return sanitizeFlyerSource({
+        kind: pdf ? "pdf-links" : "image-grid",
+        downloadStrategy: pdf ? "direct-url" : "click-download",
+        urlFrom: pdf ? "href" : "click-then-network",
+        itemSelectors: itemSels,
+        downloadSelectors: dl,
+        evidence: "section teach — download",
+      });
+    }
     return sanitizeFlyerSource({
-      kind: pdf ? "pdf-links" : "image-grid",
-      downloadStrategy: pdf ? "direct-url" : "click-download",
-      urlFrom: pdf ? "href" : "click-then-network",
+      kind: "image-grid",
+      downloadStrategy: "click-download",
+      urlFrom: "click-then-network",
       itemSelectors: itemSels,
-      downloadSelectors: dl,
-      evidence: "section teach — download",
+      evidence: "section teach — download control on detail",
     });
   }
   if (args.openKind === "viewer") {

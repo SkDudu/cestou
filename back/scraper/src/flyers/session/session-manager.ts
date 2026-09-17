@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chromium, type Browser } from "playwright";
 import { flyerLog } from "../core/flyer-logger.js";
 import { flyerConfig } from "../core/flyer-config.js";
-import { mimoLocateSection, openKindHint } from "../extraction/mimo/section-locate.js";
+import { mimoLocateSection, openKindHint, htmlLooksLikeFlyerListing } from "../extraction/mimo/section-locate.js";
 import type {
   LocateCandidate,
   LocateParse,
@@ -62,6 +62,7 @@ import {
   countJournalItems,
   countJournalTabs,
   normalizeJournalItemSelectors,
+  preferListingCardSelectors,
   refineOpenKindFromHtml,
   resolveTeachItemSelectors,
 } from "./journal-tabs.js";
@@ -69,7 +70,9 @@ import {
   type AnalyzedFlow,
   applyFlyerSource,
   buildTeachSteps,
+  downloadControlsFromHtml,
   flyerSourceFromOpenKind,
+  harvestLooksLikeFullViewer,
   isViewerNoise,
   mergeDetailHarvest,
 } from "./teach-repeat.js";
@@ -463,6 +466,26 @@ async function applyViewerHarvest(session: LiveSession): Promise<
       images: 0,
       pdfs: 0,
       canvas: false,
+    };
+  }
+  // Single cover / hero img ≠ multi-page flyer viewer (Frangolândia WP detail).
+  if (!harvestLooksLikeFullViewer({
+    images: imageUrls.length,
+    pdfs: pdfUrls.length,
+    canvas: sample.hasCanvas,
+  })) {
+    flyerLog.info(
+      "SESSION",
+      `viewer dump weak imgs=${imageUrls.length} pdf=${pdfUrls.length} canvas=${sample.hasCanvas}`,
+    );
+    return {
+      notes:
+        imageUrls.length === 1
+          ? "Só capa (1 imagem). Sem flipbook/páginas/PDF — não aprova como viewer."
+          : "Nada de viewer. Clica o card do encarte (não o fundo).",
+      images: imageUrls.length,
+      pdfs: pdfUrls.length,
+      canvas: sample.hasCanvas,
     };
   }
   const open = session.sectionOpen;
@@ -943,6 +966,16 @@ function parseFromSection(sec: {
   };
 }
 
+function sameTeachPath(a: string, b: string): boolean {
+  try {
+    const pa = new URL(a).pathname.replace(/\/+$/, "") || "/";
+    const pb = new URL(b).pathname.replace(/\/+$/, "") || "/";
+    return pa === pb;
+  } catch {
+    return a === b;
+  }
+}
+
 async function boxForSelector(
   page: LiveSession["page"],
   sel: string,
@@ -1075,6 +1108,16 @@ async function teachWithDump(
 
   sec = { ...sec, openKind: refineOpenKindFromHtml(sec.openKind, html) };
 
+  if (
+    sec.status === "not_found" &&
+    htmlLooksLikeFlyerListing(html)
+  ) {
+    flyerLog.info(
+      "SESSION",
+      "section-locate not_found despite listing HTML — sanitize should recover",
+    );
+  }
+
   const parsed = parseFromSection(sec);
   if (sec.status === "not_found" && !revisit) {
     session.proposed = undefined;
@@ -1131,13 +1174,41 @@ async function teachWithDump(
     };
   }
   const harvested = revisit ? await applyViewerHarvest(session) : undefined;
-  const openKind =
-    harvested && (harvested.images > 0 || harvested.pdfs > 0 || harvested.canvas)
-      ? "viewer"
+  const strongViewer = Boolean(
+    harvested && harvestLooksLikeFullViewer(harvested),
+  );
+  const dlFromHtml = downloadControlsFromHtml(html);
+  const downloadSelectors = [
+    ...new Set(
+      [...sec.downloadSelectors, ...dlFromHtml].filter(Boolean),
+    ),
+  ].slice(0, 8);
+  const hasDownloadControl =
+    downloadSelectors.length > 0 || (harvested?.pdfs ?? 0) > 0;
+
+  let openKind: "download" | "viewer" | "need_click" = strongViewer
+    ? "viewer"
+    : hasDownloadControl && (revisit || sec.openKind === "download")
+      ? "download"
       : sec.openKind;
+
+  // Pass-2 detail: prefer download button over false need_click; else guide user.
+  if (revisit && !strongViewer) {
+    if (hasDownloadControl) {
+      openKind = "download";
+    } else if (
+      openKind === "viewer" ||
+      sec.status === "not_found" ||
+      openKind === "need_click"
+    ) {
+      openKind = "need_click";
+    }
+  }
+
   session.sectionOpen = {
     openKind,
-    downloadSelectors: sec.downloadSelectors,
+    downloadSelectors:
+      openKind === "download" ? downloadSelectors : sec.downloadSelectors,
     clickTargetSelectors: sec.clickTargetSelectors,
     htmlSnippet: sec.htmlSnippet,
   };
@@ -1150,29 +1221,80 @@ async function teachWithDump(
   }
   const count = session.listingTeach.count;
   const listingSels = session.listingTeach.itemSelectors;
-  const notes = [
-    parsed.humanHint,
-    openKind === "viewer" && harvested?.images
-      ? `Viewer: ${harvested.images} página(s) (img + background-image).`
-      : "",
-    count > 1 && listingSels[0]
-      ? `${count} cards · ${listingSels[0]} (padrão de cada item, não outra área).`
-      : "",
-    sec.htmlSnippet ? `HTML: ${sec.htmlSnippet}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const stillOnListing =
+    !revisit ||
+    sameTeachPath(session.currentUrl, session.listingTeach.listingUrl);
+
+  let notes: string;
+  if (strongViewer) {
+    notes = [
+      `OK · viewer com ${harvested!.images} página(s). Aprovar.`,
+      stillOnListing && count > 1 && listingSels[0]
+        ? `${count} cards · ${listingSels[0]}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } else if (openKind === "download") {
+    notes = [
+      "OK · detail com download/PDF.",
+      "Aprovar listagem (cada card → download). Depois Testar encartes.",
+      downloadSelectors[0] ? `Download: ${downloadSelectors[0]}` : "",
+      count > 1 && listingSels[0]
+        ? `${count} cards · ${listingSels[0]}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } else if (!revisit && openKind === "need_click") {
+    notes = [
+      `OK · listagem${count ? ` (${count} cards)` : ""}.`,
+      "Clica UM card no preview pra ensinar o detail/PDF — reanalisa sozinho.",
+      listingSels[0] ? `Padrão: ${listingSels[0]}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } else if (revisit && openKind === "need_click") {
+    notes = [
+      harvested?.notes?.includes("capa")
+        ? "Detail só capa (sem flipbook/páginas na tela)."
+        : harvested?.notes || "Detail sem viewer de páginas.",
+      'Próximo: clica "Download em PDF" / Baixar (se existir), ou Selecionar área no botão.',
+      "Ou Aprovar listagem agora (open-each-item) se o caminho do card já está gravado.",
+    ].join("\n");
+  } else {
+    notes = [
+      parsed.humanHint,
+      stillOnListing && count > 1 && listingSels[0]
+        ? `${count} cards · ${listingSels[0]}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   return {
     analyzed: {
       version: 1,
       startUrl: session.startUrl,
       notes,
       steps: session.proposed?.steps ?? [],
-      awaitDetail: openKind === "need_click",
-      teachPass: openKind === "viewer" ? 2 : 1,
+      awaitDetail: openKind === "need_click" && stillOnListing,
+      teachPass: revisit || openKind === "viewer" || openKind === "download" ? 2 : 1,
       listingCount: count,
     },
-    parsed: { ...parsed, humanHint: notes },
+    parsed: {
+      ...parsed,
+      status:
+        openKind === "need_click" && stillOnListing
+          ? "need_click"
+          : openKind === "download" || strongViewer
+            ? "ready"
+            : openKind === "need_click"
+              ? "need_click"
+              : parsed.status,
+      humanHint: notes,
+    },
     openKind,
     itemSelectors: listingSels,
   };
@@ -1187,6 +1309,7 @@ export async function locateFlyersWithMimo(
   selectors: string[];
   label: string;
   source: "mimo";
+  model: string;
   status: "ready" | "need_click" | "not_found";
   humanHint: string;
   awaitDetail: boolean;
@@ -1196,6 +1319,7 @@ export async function locateFlyersWithMimo(
   candidates: LocateCandidate[];
   openKind?: "download" | "viewer" | "need_click";
   itemSelectors?: string[];
+  teachPass?: 1 | 2;
 }> {
   const session = getSession(sessionId);
   if (!session) throw new Error("Session not found");
@@ -1214,7 +1338,11 @@ export async function locateFlyersWithMimo(
     let pick: ScopePick | null = null;
     const probe = null;
 
-    if (preNode?.selectors?.[0]) {
+    const stillOnListing =
+      !session.listingTeach ||
+      sameTeachPath(session.currentUrl, session.listingTeach.listingUrl);
+    // Detail pass must not reuse jet-listing pick from /encartes/.
+    if (preNode?.selectors?.[0] && stillOnListing) {
       pick = nodeToPick(preNode, preChain!.slice(preIdx + 1));
       session.scopeChain = preChain;
       session.scopeIndex = preIdx;
@@ -1228,15 +1356,55 @@ export async function locateFlyersWithMimo(
         session.scopeIndex = 0;
         await highlightScope(session.page, pick.box);
         await takeFrame(session);
+      } else if (!stillOnListing && session.listingTeach) {
+        // Detail: Aprovar uses listing card pattern (keepListingScope).
+        const scopeAct = session.actions.find((a) => a.kind === "scope");
+        const sels =
+          scopeAct?.selectors?.length
+            ? scopeAct.selectors
+            : session.listingTeach.itemSelectors;
+        if (sels.length) {
+          pick = {
+            tagName: "DIV",
+            selectors: sels,
+            label: parsed.label || "Listagem de encartes",
+            box: { x: 0, y: 0, width: 0, height: 0 },
+            linkCount: 0,
+            imageCount: 0,
+            textCount: 0,
+            childCount: session.listingTeach.count,
+            ancestors: [],
+          };
+        }
+        session.scopeChain = undefined;
+        session.scopeIndex = 0;
+        await highlightScope(session.page, null).catch(() => undefined);
+        await takeFrame(session);
+      } else {
+        session.scopeChain = undefined;
+        session.scopeIndex = 0;
+        await highlightScope(session.page, null).catch(() => undefined);
+        await takeFrame(session);
       }
     }
 
+    const status: "ready" | "need_click" | "not_found" =
+      openKind === "need_click" && analyzed.awaitDetail
+        ? "need_click"
+        : openKind === "need_click"
+          ? "need_click"
+          : parsed.status === "not_found" &&
+              openKind !== "viewer" &&
+              openKind !== "download"
+            ? "not_found"
+            : "ready";
+
     flyerLog.info(
       "SESSION",
-      `locate-section mimo status=${parsed.status} cands=${candidates.length} sel=${pick?.selectors[0] ?? "-"} n=${analyzed.listingCount ?? 0}`,
+      `locate-section model=${flyerConfig.mimoModel} status=${status} openKind=${openKind ?? "-"} cands=${candidates.length} sel=${pick?.selectors[0] ?? "-"} n=${analyzed.listingCount ?? 0}`,
     );
     traceSetup(session, "locate", analyzed.notes?.split("\n")[0] ?? "Detectar encartes", {
-      status: parsed.status,
+      status,
       openKind,
       itemSelectors,
       listingCount: analyzed.listingCount,
@@ -1255,7 +1423,8 @@ export async function locateFlyersWithMimo(
       selectors: pick?.selectors ?? [],
       label: pick?.label ?? parsed.label,
       source: "mimo",
-      status: parsed.status,
+      model: flyerConfig.mimoModel,
+      status,
       humanHint: analyzed.notes ?? parsed.humanHint,
       awaitDetail: analyzed.awaitDetail ?? false,
       listingCount: analyzed.listingCount,
@@ -1264,6 +1433,7 @@ export async function locateFlyersWithMimo(
       candidates,
       openKind,
       itemSelectors,
+      teachPass: (analyzed.teachPass === 2 ? 2 : 1) as 1 | 2,
     };
   } finally {
     session.recording = wasRecording;
@@ -1473,38 +1643,92 @@ export async function confirmScope(
       count,
     };
   }
+
   const itemSels = session.listingTeach!.itemSelectors;
   const scopeSel =
     session.actions.find((a) => a.kind === "scope")?.selectors?.[0] ??
     scopeSels[0];
-  const resolved = await resolveTeachItemSelectors(
-    session.page,
-    scopeSel,
-    itemSels,
-  );
-  const journalTabCount =
-    resolved.journalTabCount ||
-    (await countJournalTabs(session.page, scopeSel));
-  let resolvedSels = normalizeJournalItemSelectors(resolved.selectors, {
-    journalTabCount,
-  });
-  if ((open?.openKind ?? "need_click") === "need_click") {
-    resolvedSels = await augmentListingLinkSelectors(
+
+  let resolvedSels: string[];
+  let journalTabCount: number;
+  let listingCount: number;
+
+  if (leftListingUrl && session.listingTeach.itemSelectors.length) {
+    // Aprovar no detail: NÃO resolve DOM do detail (vira 1× overlay-wrap).
+    // Mantém cards da listagem; reconta na listagem se der.
+    resolvedSels = preferListingCardSelectors(
+      session.listingTeach.itemSelectors,
+    );
+    journalTabCount = 0;
+    listingCount = session.listingTeach.count;
+    const listUrl = session.listingTeach.listingUrl;
+    try {
+      await session.page.goto(listUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 12_000,
+      });
+      const waitSel = resolvedSels[0];
+      if (waitSel) {
+        await session.page
+          .locator(waitSel)
+          .first()
+          .waitFor({ state: "visible", timeout: 8000 })
+          .catch(() => undefined);
+      }
+      const recounted = await countJournalItems(
+        session.page,
+        resolvedSels,
+        scopeSel,
+      );
+      if (recounted >= 2) listingCount = Math.min(recounted, 48);
+      // Re-augment on LISTING page only
+      if ((open?.openKind ?? "need_click") === "need_click" || open?.openKind === "download") {
+        resolvedSels = await augmentListingLinkSelectors(
+          session.page,
+          resolvedSels,
+          scopeSel,
+        );
+        resolvedSels = preferListingCardSelectors(resolvedSels);
+      }
+    } catch {
+      /* keep prior listingTeach count/sels */
+    }
+    flyerLog.info(
+      "SESSION",
+      `confirm from detail — keep listing items=${resolvedSels[0]} n=${listingCount}`,
+    );
+  } else {
+    const resolved = await resolveTeachItemSelectors(
       session.page,
-      resolvedSels,
       scopeSel,
+      itemSels,
+    );
+    journalTabCount =
+      resolved.journalTabCount ||
+      (await countJournalTabs(session.page, scopeSel));
+    resolvedSels = normalizeJournalItemSelectors(resolved.selectors, {
+      journalTabCount,
+    });
+    if ((open?.openKind ?? "need_click") === "need_click") {
+      resolvedSels = await augmentListingLinkSelectors(
+        session.page,
+        resolvedSels,
+        scopeSel,
+      );
+    }
+    resolvedSels = preferListingCardSelectors(resolvedSels);
+    listingCount = Math.min(
+      Math.max(
+        journalTabCount >= 2
+          ? journalTabCount
+          : await countJournalItems(session.page, resolvedSels, scopeSel),
+        1,
+      ),
+      48,
     );
   }
+
   session.listingTeach!.itemSelectors = resolvedSels;
-  const listingCount = Math.min(
-    Math.max(
-      journalTabCount >= 2
-        ? journalTabCount
-        : await countJournalItems(session.page, resolvedSels, scopeSel),
-      1,
-    ),
-    48,
-  );
   session.listingTeach!.count = listingCount;
 
   // Always rebuild from openKind + DOM tab count — stale image-grid overwrote Assaí tabs

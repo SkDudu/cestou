@@ -1,13 +1,20 @@
-# Cestou — Flyer-First Pipeline (SPEC 010)
+# Cestou — Backend
 
-## Stack
+## Stack atual (fonte da verdade)
 
-- Node.js + TypeScript
-- Playwright (Flow Builder / session worker)
-- Tesseract.js (OCR fallback)
-- MiMo-V2.5 (extração primária de ofertas)
-- Convex (dados + file storage)
-- Next.js admin (`front-admin/`)
+```text
+Docker Compose (back/)
+├── postgres   → PostgreSQL 16  (:5432)     ← banco
+├── api        → Fastify + Prisma (:4000)
+└── worker     → pg-boss + scraper jobs
+         │
+         └── volume storage-data → /data/storage  ← arquivos (só no Docker)
+```
+
+- **Banco:** PostgreSQL no Docker (Prisma).  
+- **Arquivos:** volume nomeado `storage-data` (não fica pasta no repo).  
+- **Visão local:** LM Studio no **Mac**; worker alcança via `host.docker.internal:1234`.  
+- **Convex:** removido.
 
 ## Setup
 
@@ -17,42 +24,47 @@ cp .env.example .env
 npm install
 npx playwright install chromium
 
-# outro terminal
-npx convex dev
+docker compose up -d --build
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:seed
 ```
 
-## Flyers
+## Smoke extract (Qwen / LM Studio)
 
-Path principal: admin `/admin/scraper` (Flow Builder).
+LM Studio ligado no Mac. Encarte já baixado no volume.
 
 ```bash
-npm run flows:session-worker   # Playwright :8791 (ou Iniciar worker no admin)
-npm run flows:run -- --flow=<id>
-npm run flyers:download        # baixar páginas → Convex Storage
-npm run flyers:extract         # MiMo-V2.5 (fallback Tesseract) → offers
-npm run flyers:reextract       # force replace ofertas
-npm run mimo:test -- --image=scraper/fixtures/flyers/sao-luiz/page-01.jpeg
-npm run flyers:test-extraction -- --page=3
+cd back
+npm run flyers:test-extraction:docker -- --page=1
+npm run flyers:reextract:docker -- --flyer=<uuid> --page=1
 ```
 
-Self-check do parser:
+Isso: sync src → worker → Node no container (volume `storage-data`) + LM Studio no Mac.  
+Sem pasta `back/storage/` no repo.
+
+Visão local: [`docs/local-qwen25-vl-lm-studio.md`](docs/local-qwen25-vl-lm-studio.md).  
+Comandos: [`docs/comands/npm.md`](docs/comands/npm.md).
+
+## Teach / locate (Fase 2)
 
 ```bash
-npm run selfcheck --workspace=scraper
+cd back && npm run flows:session-worker   # Mac host + LM Studio :1234
 ```
+
+Admin `/admin/scraper` → teach → **Detectar de novo** → Aprovar.  
+Session-worker usa `MIMO_BASE_URL` (127.0.0.1), não o volume Docker.
 
 ## Admin
 
 ```bash
-cd ../front-admin
-npm install
-npm run dev
+cd ../front-admin && npm install && npm run dev
 ```
 
-Abra `/admin` — overview, supermercados, Flow Builder, encartes, ofertas, validação, erros.
+## Wipe
 
-App cliente: `cd ../front-client && npm run dev` (porta 3001).
-
-## Wipe local
-
-Banco local fica em `back/.convex/local/`. Para zerar: parar `convex dev`, apagar `back/.convex/local/default`, subir de novo. Também existe `npx convex run clearData:wipeAll` nas tabelas flyer.
+```bash
+cd back
+npm run prisma:wipe
+# arquivos: docker volume rm back_storage-data  (apaga encartes)
+```

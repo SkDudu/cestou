@@ -25,6 +25,12 @@ export const flyerConfig = {
   mimoTimeout: Number(process.env.MIMO_TIMEOUT ?? 120000),
   mimoMaxRetries: Number(process.env.MIMO_MAX_RETRIES ?? 3),
   mimoConcurrency: Number(process.env.MIMO_CONCURRENCY ?? 1),
+  /**
+   * OpenAI response_format.type.
+   * - auto (default): omit on localhost/LM Studio; `json_object` on cloud MiMo
+   * - json_object | text | none
+   */
+  mimoResponseFormat: (process.env.MIMO_RESPONSE_FORMAT ?? "auto").toLowerCase(),
   aiEnabled: (process.env.FLYER_AI_ENABLED ?? "true") !== "false",
   aiProvider: (process.env.FLYER_AI_PROVIDER ?? "mimo").toLowerCase(),
   aiPromptVersion: process.env.FLYER_AI_PROMPT_VERSION ?? "flyer-offers-v4",

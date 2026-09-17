@@ -7,10 +7,16 @@ import {
   normalizeAction,
 } from "./recorder/action-normalizer.js";
 import { parseOffersFromText } from "./extraction/offer-parser.js";
-import { parseJsonObject } from "./extraction/json-parse.js";
+import { parseJsonObject, dropJsonField } from "./extraction/json-parse.js";
 import { parseMimoOffers } from "./extraction/mimo/index.js";
 import { parseLocateFlyers } from "./extraction/mimo/locate.js";
-import { parseSectionLocate } from "./extraction/mimo/section-locate.js";
+import {
+  parseSectionLocate,
+  sanitizeSectionLocateAgainstHtml,
+  selectorGroundedInHtml,
+  htmlLooksLikeFlyerListing,
+  listingSelectorsFromHtml,
+} from "./extraction/mimo/section-locate.js";
 import { guardOffers } from "./extraction/offer-guards.js";
 import {
   detectEligibilityPhrases,
@@ -53,15 +59,18 @@ import {
   buildTeachSteps,
   applyFlyerSource,
   isViewerNoise,
+  harvestLooksLikeFullViewer,
   recipeFromDump,
   listingFromDump,
   flyerSourceFromOpenKind,
+  downloadControlsFromHtml,
 } from "./session/teach-repeat.js";
 import {
   htmlHasInlineFancyboxGrid,
   itemSelsLookLikeJournalTabs,
   listingSelectorScore,
   normalizeJournalItemSelectors,
+  preferListingCardSelectors,
   refineOpenKindFromHtml,
   sanitizePagerSelectors,
 } from "./session/journal-tabs.js";
@@ -719,11 +728,71 @@ assert(
   );
 }
 assert(
+  preferListingCardSelectors([
+    ".jet-engine-listing-overlay-wrap",
+    ".jet-listing-grid__item",
+  ])[0] === ".jet-listing-grid__item",
+  "prefer jet item over overlay-wrap",
+);
+assert(
+  listingSelectorScore(".jet-engine-listing-overlay-wrap", 1) <
+    listingSelectorScore(".jet-listing-grid__item", 2),
+  "single overlay loses to multi jet item",
+);
+assert(
+  harvestLooksLikeFullViewer({ images: 2, pdfs: 0, canvas: false }),
+  "2 imgs = full viewer",
+);
+assert(
+  harvestLooksLikeFullViewer({ images: 0, pdfs: 1, canvas: false }),
+  "pdf = full viewer",
+);
+assert(
+  harvestLooksLikeFullViewer({ images: 0, pdfs: 0, canvas: true }),
+  "canvas = full viewer",
+);
+assert(
+  downloadControlsFromHtml(
+    '<a href="/x">Download em PDF</a>',
+  ).some((s) => /Download em PDF/i.test(s)),
+  "Download em PDF → has-text sel",
+);
+assert(
+  downloadControlsFromHtml(
+    '<a href="https://cdn.x/flyer.pdf">arquivo</a>',
+  ).includes('a[href*=".pdf"]'),
+  "pdf href → a[href*=.pdf]",
+);
+{
+  const srcDlBtn = flyerSourceFromOpenKind({
+    openKind: "download",
+    itemSelectors: [".jet-listing-grid__item"],
+    downloadSelectors: ['a:has-text("Download em PDF")'],
+    itemCount: 6,
+  });
+  assert(srcDlBtn.downloadStrategy === "click-download", "PDF button → click-download");
+  assert(srcDlBtn.itemSelectors?.[0] === ".jet-listing-grid__item", "keeps listing items");
+}
+assert(
+  refineOpenKindFromHtml(
+    "download",
+    '<a href="/encarte/festiva-123"><img src="cover.jpg"></a>',
+  ) === "need_click",
+  "fake download on /encarte/ listing → need_click",
+);
+assert(
   refineOpenKindFromHtml(
     "viewer",
-    '<article><a href="/folheto/abc"><img src="Flyer/thumbnail?id=1"></a></article>',
+    '<a href="/encarte/festiva-123" class="e-gallery-item"><img src="cover.jpg"></a>',
   ) === "need_click",
-  "thumb folheto listing → need_click",
+  "viewer on /encarte/ cover grid → need_click",
+);
+assert(
+  refineOpenKindFromHtml(
+    "download",
+    '<a href="https://cdn.example/flyer.pdf" download>Baixar</a>',
+  ) === "download",
+  "real pdf download stays download",
 );
 assert(
   refineOpenKindFromHtml(
@@ -732,6 +801,94 @@ assert(
   ) === "viewer",
   "fancybox full jpeg stays viewer",
 );
+assert(
+  !selectorGroundedInHtml("section.offers", '<div class="elementor-gallery">'),
+  "invented section.offers not grounded",
+);
+assert(
+  selectorGroundedInHtml(
+    ".e-gallery-item a[href*='encarte']",
+    '<a class="e-gallery-item" href="/encarte/1">',
+  ),
+  "real gallery+encarte grounded",
+);
+{
+  const broken = `\`\`\`json
+{
+  "status": "ready",
+  "label": "Encartes",
+  "why": "lista",
+  "sectionSelectors": ["div.jet-listing-grid__items"],
+  "itemSelectors": [".jet-listing-grid__item"],
+  "openKind": "viewer",
+  "downloadSelectors": [],
+  "clickTargetSelectors": [],
+  "htmlSnippet": "<div data-nav="{&quot;enabled&quot;:false}" data-url="https://frangolandia.com/encarte/x/">"
+}
+\`\`\``;
+  const parsedBroken = parseJsonObject(broken) as {
+    status?: string;
+    sectionSelectors?: string[];
+  };
+  assert(parsedBroken.status === "ready", "drop htmlSnippet → parse ready");
+  assert(
+    parsedBroken.sectionSelectors?.[0] === "div.jet-listing-grid__items",
+    "drop htmlSnippet keeps sels",
+  );
+  const dropped = dropJsonField(
+    '{"a":1,"htmlSnippet":"bad "quote","b":2}',
+    "htmlSnippet",
+  );
+  assert(!dropped.includes("htmlSnippet"), "dropJsonField removes field");
+  assert(
+    htmlLooksLikeFlyerListing(
+      '<div class="jet-engine-listing-overlay-wrap" data-url="https://frangolandia.com/encarte/festiva/">',
+    ),
+    "data-url /encarte/ = listing",
+  );
+  assert(
+    listingSelectorsFromHtml(
+      '<div class="jet-listing-grid__items"><div class="jet-listing-grid__item">',
+    ).itemSelectors[0] === ".jet-listing-grid__item",
+    "jet heuristic item",
+  );
+  const recovered = sanitizeSectionLocateAgainstHtml(
+    parseSectionLocate(
+      `{"status":"not_found","label":"","why":"","sectionSelectors":[],"itemSelectors":[]}`,
+    ),
+    '<div class="jet-listing-grid__items"><div class="jet-listing-grid__item" data-url="https://x/encarte/a">',
+  );
+  assert(recovered.status === "ready", "not_found + jet listing → ready");
+  assert(recovered.openKind === "need_click", "listing recover → need_click");
+  assert(
+    recovered.itemSelectors.includes(".jet-listing-grid__item"),
+    "listing recover heuristic item",
+  );
+  const hallucinated = sanitizeSectionLocateAgainstHtml(
+    parseSectionLocate(
+      `{"status":"ready","label":"Encartes","why":"lista","sectionSelectors":["section.offers"],"itemSelectors":[".offers__item"],"openKind":"viewer"}`,
+    ),
+    '<section class="elementor-section"><a href="/encarte/festiva">capa</a></section>',
+  );
+  assert(hallucinated.status === "ready", "sanitize listing stays ready");
+  assert(hallucinated.openKind === "need_click", "sanitize → need_click");
+  const noNav = sanitizeSectionLocateAgainstHtml(
+    parseSectionLocate(
+      `{"status":"ready","label":"X","why":"x","sectionSelectors":["section.offers"],"itemSelectors":[".offers__item"],"openKind":"viewer"}`,
+    ),
+    '<div class="elementor-gallery">sem links de encarte</div>',
+  );
+  assert(noNav.status === "not_found", "sanitize no listing nav → not_found");
+}
+{
+  const stringItems = parseSectionLocate(
+    `{"status":"ready","label":"G","why":"g","sectionSelectors":[".gallery"],"itemSelectors":".gallery-item a[href*='encarte']","openKind":"need_click"}`,
+  );
+  assert(
+    stringItems.itemSelectors[0] === ".gallery-item a[href*='encarte']",
+    "itemSelectors string → array",
+  );
+}
 assert(
   itemSelsLookLikeJournalTabs([".ofertas-tab button"]),
   "ofertas-tab looks like journal tabs",

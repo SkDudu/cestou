@@ -1,12 +1,13 @@
-# Fixtures São Luiz
+# Fixtures São Luiz (opcional)
 
-Coloque aqui páginas reais para `npm run mimo:test`:
+Pasta legada para JPEG manual. **Não é o fluxo do backend.**
 
-- `page-01.jpeg`
-- `page-02.jpeg`
-
-`expected.json` é o formato alvo da extração (não inventar campos).
+Backend real = **PostgreSQL no Docker** + volume `storage-data`.  
+Smoke correto:
 
 ```bash
-npm run mimo:test -- --image=scraper/fixtures/flyers/sao-luiz/page-01.jpeg
+cd back
+npm run flyers:test-extraction -- --page=1
 ```
+
+`expected.json` = formato alvo do schema de ofertas (referência).

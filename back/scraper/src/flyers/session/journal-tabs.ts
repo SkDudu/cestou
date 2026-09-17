@@ -19,12 +19,27 @@ const LISTING_CARD_SELECTORS = [
 export function listingSelectorScore(sel: string, count: number): number {
   let score = count;
   if (/jet-listing-grid__item/i.test(sel)) score += 10_000;
-  if (/jet-engine-listing-overlay/i.test(sel)) score += 8_000;
+  // Overlay wrap is often 1:1 with item — but alone on detail DOM = false single card.
+  if (/jet-engine-listing-overlay/i.test(sel)) {
+    score += count >= 2 ? 8_000 : -5_000;
+  }
   if (/flip-card|offers__item|article\.rounded/i.test(sel)) score += 5_000;
   if (BROAD_ENCARTE_LINK_RE.test(sel)) score -= 3_000;
   if (isCarouselSlideSelector(sel)) score -= 5_000;
   if (/data-oferta-index/.test(sel)) score -= 500;
   return score;
+}
+
+/** Put real card grid sels first (Jet item > overlay-wrap > rest). */
+export function preferListingCardSelectors(sels: string[]): string[] {
+  if (!sels.length) return sels;
+  const rank = (s: string) => {
+    if (/jet-listing-grid__item/i.test(s)) return 0;
+    if (/jet-engine-listing-overlay/i.test(s)) return 2;
+    if (/flip-card|card-folheto|offers__item/i.test(s)) return 1;
+    return 3;
+  };
+  return [...sels].sort((a, b) => rank(a) - rank(b));
 }
 
 function preferCardSelectors(
@@ -186,22 +201,32 @@ export function refineOpenKindFromHtml(
   openKind: SectionOpenKind,
   html: string,
 ): SectionOpenKind {
-  if (openKind !== "viewer") return openKind;
+  if (openKind === "need_click") return openKind;
 
   const hasInlineFullPages =
     (/data-fancybox/i.test(html) &&
       /\.(jpe?g|png|webp)(\?|"|'|#)/i.test(html)) ||
     /slick-slide[\s\S]{0,500}href=["'][^"']+\.(jpe?g|png|webp)/i.test(html);
 
-  if (hasInlineFullPages) return "viewer";
+  if (hasInlineFullPages) return openKind === "download" ? "download" : "viewer";
 
   const hasListingNav =
     /\/folhet[oós]?\//i.test(html) ||
-    /href=["'][^"']*\/encarte\//i.test(html);
+    /(?:href|data-url)=["'][^"']*\/encarte\//i.test(html) ||
+    /jet-listing-grid/i.test(html);
   const thumbOnlyListing =
     /\/Flyer\/thumbnail/i.test(html) || (hasListingNav && !hasInlineFullPages);
 
+  // Model often says viewer/download on cover-card listings (Qwen copies prompt examples).
   if (thumbOnlyListing && hasListingNav) return "need_click";
+
+  if (openKind === "download") {
+    const hasRealDownload =
+      /href=["'][^"']*\.pdf(\?|#|"|')/i.test(html) ||
+      /\sdownload(=|\s|>)/i.test(html);
+    if (!hasRealDownload) return "need_click";
+  }
+
   return openKind;
 }
 
@@ -265,7 +290,11 @@ export async function resolveTeachItemSelectors(
     tryCount("button[data-oferta-index]"),
     ...sels.map((s) => tryCount(s)),
   ]);
-  const pick = preferCardSelectors(domCandidates.filter((c) => c.n >= 1));
+  const pick = preferCardSelectors(
+    domCandidates.filter((c) => c.n >= 2).length
+      ? domCandidates.filter((c) => c.n >= 2)
+      : domCandidates.filter((c) => c.n >= 1),
+  );
   if (pick) {
     sels = [...new Set([pick.sel, ...sels.filter((s) => s !== pick.sel)])];
     return {
@@ -338,13 +367,25 @@ export async function resolveDiscoverItemSelectors(
     : page.locator("body");
   // Cover-card listings (São Luiz): prefer flip/jet cards even if teach saved tabs
   const coverSels = (sels ?? []).filter((s) =>
-    /flip-card|jet-listing-grid__item|card-folheto|offers__item/i.test(s),
+    /flip-card|jet-listing-grid__item|card-folheto|offers__item|jet-engine-listing-overlay/i.test(
+      s,
+    ),
   );
   if (coverSels.length) {
-    for (const sel of coverSels) {
+    const preferred = preferListingCardSelectors(coverSels);
+    for (const sel of preferred) {
+      try {
+        if ((await root.locator(sel).count()) >= 2) {
+          return [...new Set(preferred)];
+        }
+      } catch {
+        /* */
+      }
+    }
+    for (const sel of preferred) {
       try {
         if ((await root.locator(sel).count()) >= 1) {
-          return [...new Set(coverSels)];
+          return [...new Set(preferred)];
         }
       } catch {
         /* */

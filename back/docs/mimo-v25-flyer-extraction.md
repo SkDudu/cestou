@@ -728,15 +728,19 @@ MiMo = extração visual do encarte.
 
 # 41. Script de teste
 
+Stack atual: **Postgres + Prisma + `STORAGE_ROOT`** (Docker Compose). Sem Convex.
+
 ```bash
-npm run mimo:test
+cd back
+# cwd efetivo do script = scraper/
+npm run mimo:test -- --image=fixtures/flyers/sao-luiz/page-01.jpeg
 ```
 
 Deve:
 
-* ler `MIMO_API_KEY`;
+* ler `MIMO_API_KEY` / `MIMO_BASE_URL` (cloud ou LM Studio);
 * carregar uma imagem de teste;
-* enviar a `mimo-v2.5`;
+* enviar ao modelo configurado;
 * imprimir JSON;
 * validar schema;
 * informar quantidade de ofertas.
@@ -744,6 +748,8 @@ Deve:
 ---
 
 # 42. Teste com encarte real
+
+Página já baixada: path relativo em `flyerPages.filePath` sob `STORAGE_ROOT` (`/data/storage` no Compose).
 
 ```bash
 npm run flyers:test-extraction -- --flyer=<id> --page=3
@@ -765,12 +771,12 @@ Suspicious: 2
 
 ```text
 back/scraper/fixtures/flyers/sao-luiz/
-├── page-01.jpeg
+├── page-01.jpeg   # opcional, não versionado
 ├── page-02.jpeg
 └── expected.json
 ```
 
-Comparar saída do MiMo com o esperado (quando fixtures existirem).
+Comparar saída do modelo com o esperado (quando fixtures existirem). Preferir `flyers:test-extraction` com encartes do volume Docker.
 
 ---
 

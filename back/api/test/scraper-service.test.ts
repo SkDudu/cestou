@@ -21,11 +21,22 @@ describe("scraper run service", () => {
   });
 
   it("creates a run, persists an event and queues it", async () => {
-    const sent: Array<{ name: string; data: object }> = [];
-    const run = await startScraperRun(prisma, { send: async (name, data) => { sent.push({ name, data: data ?? {} }); return "job-id"; } }, flowId);
+    const sent: Array<{ name: string; data: object; options?: object }> = [];
+    const run = await startScraperRun(prisma, {
+      send: async (name, data, options) => {
+        sent.push({ name, data: data ?? {}, options });
+        return "job-id";
+      },
+    }, flowId);
 
     expect(run.status).toBe("RUNNING");
-    expect(sent).toEqual([{ name: "scraper.run", data: { runId: run.id } }]);
+    expect(sent).toEqual([
+      {
+        name: "scraper.run",
+        data: { runId: run.id },
+        options: { expireInSeconds: 86_400 },
+      },
+    ]);
     expect(await prisma.scraperRunEvent.count({ where: { runId: run.id, type: "run.started" } })).toBe(1);
   });
 

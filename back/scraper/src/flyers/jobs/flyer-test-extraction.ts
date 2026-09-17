@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   extractPageOffers,
   parseProviderArg,
@@ -5,6 +7,7 @@ import {
 import { detectContentType } from "../core/flyer-downloader.js";
 import { rasterizePdf } from "../core/pdf-raster.js";
 import { getFlyer, listForExtract } from "../core/flyer-storage.js";
+import { resolveStorageRoot } from "../core/storage-root.js";
 
 function argValue(name: string): string | undefined {
   const flag = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -12,9 +15,12 @@ function argValue(name: string): string | undefined {
 }
 
 async function downloadPageBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Page fetch HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  if (/^https?:\/\//i.test(url)) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Page fetch HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  return readFile(join(resolveStorageRoot(), url));
 }
 
 async function main() {
