@@ -1335,6 +1335,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return prisma.flyerError.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { supermarket: { select: { name: true } }, flyer: { select: { id: true, title: true } } } });
   });
 
+  app.post("/api/v1/admin/extraction/errors/resolve-open", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const result = await prisma.flyerError.updateMany({
+      where: { status: "open" },
+      data: { status: "resolved" },
+    });
+    return { count: result.count };
+  });
+
   app.get("/api/v1/admin/extraction/errors/:errorId", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     const params = z.object({ errorId: z.string().uuid() }).safeParse(request.params);

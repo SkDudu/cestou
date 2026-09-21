@@ -24,9 +24,27 @@ export default function ExtractionPage() {
   const [health, setHealth] = useState<Health>();
   const [errors, setErrors] = useState<FlyerError[]>([]);
   const [error, setError] = useState<string>();
+  const [clearing, setClearing] = useState(false);
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  async function clearOpenErrors() {
+    if (clearing || errors.length === 0) return;
+    setClearing(true);
+    try {
+      await adminApi.resolveOpenExtractionErrors();
+      setErrors([]);
+    } catch (cause: unknown) {
+      setError(
+        cause instanceof ApiError && cause.status === 401
+          ? "Sua sessão expirou."
+          : "Não foi possível limpar os erros.",
+      );
+    } finally {
+      setClearing(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -230,6 +248,14 @@ export default function ExtractionPage() {
         <section className="ds-table-card mt-4">
           <div className="ds-table-head">
             <h2 className="text-[15px] font-semibold">Erros abertos</h2>
+            <button
+              type="button"
+              onClick={() => void clearOpenErrors()}
+              disabled={clearing}
+              className="ds-btn ds-btn--outline ds-btn--sm"
+            >
+              {clearing ? "Limpando…" : "Limpar todos"}
+            </button>
           </div>
           <div className="ds-table-cols">
             <span className="ds-label-caps min-w-0 flex-1">Estágio</span>
