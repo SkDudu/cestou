@@ -8,13 +8,14 @@ export function discoveryBackoffMs(attemptsBefore: number): number {
   return Math.min(8 * HOUR_MS, (1 << shift) * HOUR_MS);
 }
 
-/** validUntil − 24h for each flyer; soonest future. Else now + 6h. */
+/** validUntil − 24h for each flyer; soonest future, capped at now + 6h. */
 export function nextRunAtFromValidities(nowMs: number, validUntilsMs: number[]): number {
+  const maxInterval = nowMs + 6 * HOUR_MS;
   const candidates = validUntilsMs
     .map((vu) => vu - 24 * HOUR_MS)
     .filter((t) => t > nowMs);
-  if (!candidates.length) return nowMs + 6 * HOUR_MS;
-  return Math.min(...candidates);
+  if (!candidates.length) return maxInterval;
+  return Math.min(Math.min(...candidates), maxInterval);
 }
 
 /** Spec §10/§11: nextRunAt = min(existing ?? candidate, candidate). */

@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { createPrismaClient } from "../prisma/client.js";
-import { seedMasterAdmin } from "../prisma/seed.js";
+import { seedClientUser, seedMasterAdmin } from "../prisma/seed.js";
 
 function assertLocalDatabase(url: string) {
   if (process.env.NODE_ENV === "production") {
@@ -54,6 +54,18 @@ export async function wipePostgres() {
       console.log(`Seeded ADMIN_MASTER (${email.trim().toLowerCase()}).`);
     } else {
       console.log("Skip seed: ADMIN_MASTER_EMAIL / ADMIN_SEED_PASSWORD missing.");
+    }
+
+    const clientEmail = process.env.CLIENT_SEED_EMAIL;
+    const clientPassword = process.env.CLIENT_SEED_PASSWORD;
+    if (clientEmail && clientPassword) {
+      await seedClientUser(prisma, {
+        CLIENT_SEED_EMAIL: clientEmail,
+        CLIENT_SEED_PASSWORD: clientPassword,
+      });
+      console.log(`Seeded CLIENT (${clientEmail.trim().toLowerCase()}).`);
+    } else {
+      console.log("Skip seed: CLIENT_SEED_EMAIL / CLIENT_SEED_PASSWORD missing.");
     }
   } finally {
     await prisma.$disconnect();

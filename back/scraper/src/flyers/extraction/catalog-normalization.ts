@@ -3,6 +3,11 @@
  * Port of former Convex `normalization.processFlyer`.
  */
 
+import {
+  parseProductCategory,
+  type ProductCategoryId,
+} from "../../config/categories.js";
+
 type PrismaLike = {
   offer: {
     findMany(args: unknown): Promise<OfferRow[]>;
@@ -59,16 +64,51 @@ type CanonicalRow = {
   category?: string | null;
 };
 
-export type CommodityCategory = "hortifruti" | "acougue";
+/** @deprecated Prefer ProductCategoryId — alias kept for older call sites. */
+export type CommodityCategory = ProductCategoryId;
 
 /** Operator marked "no brand applies" — keeps offer out of missing-brand queue. */
 export const NO_BRAND_LABEL = "(sem marca)";
 
-// ponytail: keyword heuristic, not a taxonomy DB
+// ponytail: keyword heuristic fallback when MiMo omits category
 const HORTIFRUTI_RE =
-  /\b(banana|maca|laranja|limao|mamao|abacaxi|melao|melancia|uva|morango|kiwi|pera|manga|goiaba|maracuja|abacate|coco|caju|tangerina|mexerica|bergamota|caqui|figo|ameixa|pessego|nectarina|tomate|batata|cebola|alho|cenoura|alface|couve|brocolis|repolho|abobrinha|berinjela|pimentao|pepino|chuchu|quiabo|maxixe|inhame|aipim|mandioca|beterraba|rabanete|nabo|espinafre|rucula|agriao|salsa|cebolinha|coentro|vagem|ervilha|cogumelo|hortela|hortifruti|fruta|frutas|verdura|verduras|legume|legumes|milho verde|couve flor|repolho roxo)\b/;
-const ACOUGUE_RE =
+  /\b(banana|maca|laranja|limao|mamao|abacaxi|melao|melancia|uva|morango|kiwi|pera|manga|goiaba|maracuja|abacate|coco|caju|tangerina|mexerica|bergamota|caqui|figo|ameixa|pessego|nectarina|tomate|batata|cebola|alho|cenoura|alface|couve|brocolis|repolho|abobrinha|berinjela|pimentao|pepino|chuchu|quiabo|maxixe|inhame|aipim|mandioca|beterraba|rabanete|nabo|espinafre|rucula|agriao|salsa|cebolinha|coentro|vagem|ervilha|cogumelo|hortela|hortifruti|fruta|frutas|verdura|verduras|legume|legumes|milho verde|couve flor|repolho roxo|pitaia|dragon fruit|nectarina|ameixa|physalis)\b/;
+const CARNES_RE =
   /\b(carne|carnes|bife|bifes|alcatra|picanha|costela|costelas|contrafile|file|filezinho|file mignon|frango|galinha|peito|coxa|coxao|sobrecoxa|asa|peru|bacon|linguica|salsicha|hamburguer|moida|patinho|acem|maminha|cupim|peixe|salmao|tilapia|camarao|lombo|pernil|acougue|bovina|suina|aves|fraldinha|lagarto|musculo|paleta|ancho|chorizo|panceta|toucinho|rabada|ossobuco|figado|figadinho|coracao|miudos|iscas|bisteca|costelinha|banha|carneiro|cordeiro|caprino|bucho|dobradinha|kibe|quibe|almondega|nugget|empanado|sashimi|atum|bacalhau|sardinha|merluza|pescada|polvo|lula|mexilhao|ostras?)\b/;
+const FRIOS_RE =
+  /\b(presunto|mortadela|salame|apresuntado|blanquet|peito de peru|coppa|pastrami|roast beef)\b/;
+const LATICINIOS_RE =
+  /\b(leite|iogurte|queijo|manteiga|margarina|requeijao|cream cheese|nata|coalhada|mussarela|muçarela|prato|coalho|ricota|cottage|creme de leite|leite condensado|leite em po)\b/;
+const BEBIDAS_RE =
+  /\b(refrigerante|suco|agua mineral|agua com gas|cerveja|vinho|vodka|whisky|whiskey|energetico|isotonico|cha mate|cha gelado|refrigerante|coca cola|guarana|sprite|fanta)\b/;
+const CONGELADOS_RE =
+  /\b(congelad|sorvete|acai|lasanha|pizza|hamburguer congel)\b/;
+const PADARIA_RE =
+  /\b(pao|paozinho|torrada|bolo|croissant|baguete|ciabatta|sonho|rosca|bisnaga)\b/;
+const DOCES_RE =
+  /\b(chocolate|bombom|bala|balas|chiclete|doce de leite|goiabada|gelatina|pudim|wafer|bis|snickers|kit kat|prestigio)\b/;
+const LIMPEZA_RE =
+  /\b(detergente|sabao liquido|sabao em po|amaciante|agua sanitaria|desinfetante|multiuso|limpador|esponja|palha de aco|veja|ype|arieli)\b/;
+const HIGIENE_RE =
+  /\b(shampoo|condicionador|sabonete|pasta de dente|creme dental|desodorante|papel higienico|absorvente|fio dental|enxaguante|perfume|hidratante|protetor solar|algodao)\b/;
+const BEBES_RE =
+  /\b(fralda|lenco umedecido|papinha|formula infantil|mamadeira|chupeta)\b/;
+const PET_RE =
+  /\b(racao|petisco|areia para gato|areia sanitaria|coleira|ossinho)\b/;
+const DESCARTAVEIS_RE =
+  /\b(descartavel|guardanapo|filme pvc|papel aluminio|saco de lixo|copo plastico|prato plastico)\b/;
+const CHURRASCO_RE =
+  /\b(carvao|espeto|acendedor|tabua de carne)\b/;
+const INSETICIDAS_RE =
+  /\b(inseticida|repelente|matador de inseto|baygon)\b/;
+const FARMACIA_RE =
+  /\b(remedio|vitamina|dipirona|paracetamol|dorflex|analgesico|antisseptico|band.?aid)\b/;
+const MERCEARIA_RE =
+  /\b(arroz|feijao|macarrao|massa|farinha|acucar|oleo|azeite|tempero|molho|cafe|cha|biscoito|bolacha|achocolatado|aveia|granola|milho|ervilha|extrato de tomate|seleta|catchup|ketchup|mostarda|maionese|vinagre|sal |salgadinho|batata palha)\b/;
+const UTILIDADES_RE =
+  /\b(panela|utensilio|copo de vidro|talher|garfo|faca|colher|tigela|pote hermetico)\b/;
+const PAPELARIA_RE =
+  /\b(caderno|caneta|lapis|borracha|cola escolar|sulfite)\b/;
 const PSEUDO_BRAND_RE =
   /^(frutas?|verduras?|legumes?|hortifruti|carnes?|acougue|peixaria|padaria|in natura|sem marca)$/;
 
@@ -160,17 +200,36 @@ export function isIntentionalNoBrand(brand: string | null | undefined): boolean 
 }
 
 export function isCommodityCategory(category: string | null | undefined): boolean {
-  return category === "hortifruti" || category === "acougue";
+  const parsed = parseProductCategory(category);
+  return parsed === "hortifruti" || parsed === "carnes";
 }
 
 export function inferCommodityCategory(
   name: string,
   brand?: string | null,
-): CommodityCategory | null {
+): ProductCategoryId | null {
   const hay = normalizeText([name, brand ?? ""].filter(Boolean).join(" "));
   if (!hay) return null;
+  // more specific first
+  if (BEBES_RE.test(hay)) return "bebes";
+  if (PET_RE.test(hay)) return "pet";
+  if (FARMACIA_RE.test(hay)) return "farmacia";
+  if (INSETICIDAS_RE.test(hay)) return "inseticidas";
+  if (CHURRASCO_RE.test(hay)) return "churrasco";
+  if (FRIOS_RE.test(hay)) return "frios";
   if (HORTIFRUTI_RE.test(hay)) return "hortifruti";
-  if (ACOUGUE_RE.test(hay)) return "acougue";
+  if (CARNES_RE.test(hay)) return "carnes";
+  if (LATICINIOS_RE.test(hay)) return "laticinios";
+  if (BEBIDAS_RE.test(hay)) return "bebidas";
+  if (CONGELADOS_RE.test(hay)) return "congelados";
+  if (PADARIA_RE.test(hay)) return "padaria";
+  if (DOCES_RE.test(hay)) return "doces";
+  if (LIMPEZA_RE.test(hay)) return "limpeza";
+  if (HIGIENE_RE.test(hay)) return "higiene";
+  if (DESCARTAVEIS_RE.test(hay)) return "descartaveis";
+  if (PAPELARIA_RE.test(hay)) return "papelaria";
+  if (UTILIDADES_RE.test(hay)) return "utilidades";
+  if (MERCEARIA_RE.test(hay)) return "mercearia";
   return null;
 }
 
@@ -183,13 +242,11 @@ export function resolveOfferBrand(
   return titleCase(brand.trim());
 }
 
-function categoryFromRawText(rawText: string | null | undefined): CommodityCategory | null {
+function categoryFromRawText(rawText: string | null | undefined): ProductCategoryId | null {
   if (!rawText) return null;
   try {
     const parsed = JSON.parse(rawText) as { category?: unknown };
-    if (parsed.category === "hortifruti" || parsed.category === "acougue") {
-      return parsed.category;
-    }
+    return parseProductCategory(parsed.category) ?? null;
   } catch {
     /* ignore */
   }
@@ -290,16 +347,25 @@ async function ensureCanonical(
     brandId: string | null | undefined;
     quantity: string | null;
     unit: string | null | undefined;
-    category: CommodityCategory | null;
+    category: ProductCategoryId | null;
     slugSeed: string;
   },
 ): Promise<{ row: CanonicalRow; created: boolean }> {
   const existing = await prisma.canonicalProduct.findUnique({ where: { matchKey: args.matchKey } });
   if (existing) {
-    if (args.category && !existing.category) {
+    const needsFill = Boolean(args.category && !existing.category);
+    const needsMigrate = existing.category === "acougue";
+    if (needsFill && args.category) {
       const updated = await prisma.canonicalProduct.update({
         where: { id: existing.id },
         data: { category: args.category },
+      });
+      return { row: updated, created: false };
+    }
+    if (needsMigrate) {
+      const updated = await prisma.canonicalProduct.update({
+        where: { id: existing.id },
+        data: { category: args.category ?? "carnes" },
       });
       return { row: updated, created: false };
     }

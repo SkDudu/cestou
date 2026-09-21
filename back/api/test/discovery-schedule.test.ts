@@ -22,7 +22,21 @@ describe("nextRunAtFromValidities", () => {
   it("picks soonest validUntil − 24h in the future", () => {
     const later = Date.parse("2026-09-30T12:00:00.000Z");
     const sooner = Date.parse("2026-09-25T12:00:00.000Z");
-    expect(nextRunAtFromValidities(now, [later, sooner])).toBe(sooner - 24 * HOUR_MS);
+    // sooner−24h is within 6h of now? Sep 25 12:00 − 24h = Sep 24 12:00
+    // now = Sep 21 12:00 → candidate Sep 24 = 3 days → capped at now+6h
+    expect(nextRunAtFromValidities(now, [later, sooner])).toBe(now + 6 * HOUR_MS);
+  });
+
+  it("uses expiry window when sooner than 6h", () => {
+    const soon = now + 3 * HOUR_MS; // validUntil
+    // validUntil − 24h is in the past → no candidate → fallback 6h
+    expect(nextRunAtFromValidities(now, [soon])).toBe(now + 6 * HOUR_MS);
+    // validUntil in 30h → window at now+6h exactly
+    const vu = now + 30 * HOUR_MS;
+    expect(nextRunAtFromValidities(now, [vu])).toBe(now + 6 * HOUR_MS);
+    // validUntil in 26h → window at now+2h (earlier than cap)
+    const near = now + 26 * HOUR_MS;
+    expect(nextRunAtFromValidities(now, [near])).toBe(now + 2 * HOUR_MS);
   });
 
   it("falls back to now + 6h when no future window", () => {

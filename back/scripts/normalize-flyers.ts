@@ -1,6 +1,7 @@
 /**
- * Backfill: normalize + canonical match for flyers with unmatched offers.
- * Usage: npx tsx --env-file=.env scripts/normalize-flyers.ts [--limit=50] [--flyerId=<uuid>]
+ * Backfill: normalize + canonical match for flyers with unmatched offers
+ * or canonical products missing category.
+ * Usage: npx tsx --env-file=.env scripts/normalize-flyers.ts [--limit=50] [--flyerId=<uuid>] [--categories]
  */
 import { createPrismaClient } from "../prisma/client.js";
 import { processFlyerNormalization } from "../scraper/src/flyers/extraction/catalog-normalization.js";
@@ -10,8 +11,13 @@ async function main() {
   if (!connectionString) throw new Error("DATABASE_URL is required");
 
   const args = process.argv.slice(2);
-  const flyerIdArg = args.find((a) => a.startsWith("--flyerId="))?.slice("--flyerId=".length);
-  const limit = Number(args.find((a) => a.startsWith("--limit="))?.slice("--limit=".length) ?? 50);
+  const flyerIdArg = args
+    .find((a) => a.startsWith("--flyerId="))
+    ?.slice("--flyerId=".length);
+  const limit = Number(
+    args.find((a) => a.startsWith("--limit="))?.slice("--limit=".length) ?? 50,
+  );
+  const categoriesOnly = args.includes("--categories");
 
   const prisma = createPrismaClient(connectionString);
   try {
@@ -22,7 +28,15 @@ async function main() {
     }
 
     const flyerIds = await prisma.offer.findMany({
-      where: { OR: [{ canonicalProductId: null }, { normalizedName: null }] },
+      where: categoriesOnly
+        ? { canonicalProduct: { category: null } }
+        : {
+            OR: [
+              { canonicalProductId: null },
+              { normalizedName: null },
+              { canonicalProduct: { category: null } },
+            ],
+          },
       distinct: ["flyerId"],
       select: { flyerId: true },
       take: Number.isFinite(limit) ? limit : 50,
@@ -38,7 +52,9 @@ async function main() {
         `${row.flyerId}: normalized=${result.normalized} created=${result.created} resolved=${result.resolved} auto=${JSON.stringify(result.autoValidation)}`,
       );
     }
-    console.log(`Done. flyers=${flyerIds.length} canonicalCreated=${created} offersLinked=${resolved}`);
+    console.log(
+      `Done. flyers=${flyerIds.length} canonicalCreated=${created} offersLinked=${resolved}`,
+    );
   } finally {
     await prisma.$disconnect();
   }

@@ -588,7 +588,7 @@ export function startSessionServer() {
       "SESSION",
       `Browser session worker on http://${host}:${port}`,
     );
-    void runSchedulerLoop(() => runBusy);
+    void runSchedulerLoop(() => runBusy || extractBusy);
   });
 
   return server;

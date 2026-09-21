@@ -148,6 +148,12 @@ export async function extractPending(opts?: {
     const label = (flyer as { title?: string }).title ?? flyer._id;
     const progress = `${fi + 1}/${flyers.length}`;
     try {
+      const stillThere = await getFlyer(flyer._id);
+      if (!stillThere) {
+        say("EXTRACT", `${progress} skip — flyer sumiu (${label})`);
+        continue;
+      }
+
       const windowMs =
         flyerConfig.discoveryBeforeExpirationHours * 60 * 60 * 1000;
       const skipWhy = force
@@ -462,18 +468,32 @@ export async function extractPending(opts?: {
       opts?.onLog?.(
         `[EXTRACT] ${progress} ✕ ${label}: ${String(err)}`,
       );
-      const current = await getFlyer(flyer._id);
-      if (current?.status === "processing") {
-        await setFlyerStatus(flyer._id, "downloaded");
+      try {
+        const current = await getFlyer(flyer._id);
+        if (!current) {
+          say("EXTRACT", `${progress} flyer já removido — segue fila`);
+          continue;
+        }
+        if (current.status === "processing") {
+          await setFlyerStatus(flyer._id, "downloaded");
+        }
+        await insertFlyerError({
+          flyerId: flyer._id,
+          supermarketId: flyer.supermarketId,
+          stage: "PARSER",
+          message: String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+        await discardFailedFlyer(flyer._id);
+      } catch (cleanupErr) {
+        flyerLog.error(
+          "PARSER",
+          `${flyer._id} cleanup: ${String(cleanupErr)}`,
+        );
+        opts?.onLog?.(
+          `[EXTRACT] ${progress} cleanup falhou (segue fila): ${String(cleanupErr)}`,
+        );
       }
-      await insertFlyerError({
-        flyerId: flyer._id,
-        supermarketId: flyer.supermarketId,
-        stage: "PARSER",
-        message: String(err),
-        stack: err instanceof Error ? err.stack : undefined,
-      });
-      await discardFailedFlyer(flyer._id);
     }
   }
 

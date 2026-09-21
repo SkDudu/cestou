@@ -165,7 +165,11 @@ async function markExpiredAndSchedule(prisma: any) {
   }
 
   let scheduled = 0;
-  const expiredMarkets = [...new Set(toExpire.map((f: { supermarketId: string }) => f.supermarketId))];
+  const expiredMarkets = [
+    ...new Set<string>(
+      (toExpire as Array<{ supermarketId: string }>).map((f) => f.supermarketId),
+    ),
+  ];
   for (const supermarketId of expiredMarkets) {
     const upcoming = await prisma.flyer.findFirst({
       where: {
@@ -276,11 +280,26 @@ async function invoke(path: string, args: Record<string, unknown>) {
       return { id: row.id, created: true };
     }
     case "flyers.findByHash": return asFlyer(await prisma.flyer.findFirst({ where: { supermarketId: args.supermarketId, fileHash: args.fileHash } }));
-    case "flyers.setStatus": return prisma.flyer.update({ where: { id: args.id }, data: { status: enumValue(args.status as string) } });
-    case "flyers.discardFlyer": return prisma.flyer.delete({ where: { id: args.id } });
+    case "flyers.setStatus":
+      return prisma.flyer.updateMany({
+        where: { id: args.id },
+        data: { status: enumValue(args.status as string) },
+      });
+    case "flyers.discardFlyer":
+      // ponytail: deleteMany — missing id = 0 rows, no P2025 abort
+      return prisma.flyer.deleteMany({ where: { id: args.id } });
     case "flyers.attachFile": {
       const duplicate = args.fileHash ? await prisma.flyer.findFirst({ where: { fileHash: args.fileHash, NOT: { id: args.id } } }) : null;
-      await prisma.flyer.update({ where: { id: args.id }, data: { filePath: args.storageId, fileType: args.fileType, fileSize: args.fileSize, fileHash: args.fileHash, status: duplicate ? "DUPLICATE" : "DOWNLOADED" } });
+      await prisma.flyer.updateMany({
+        where: { id: args.id },
+        data: {
+          filePath: args.storageId,
+          fileType: args.fileType,
+          fileSize: args.fileSize,
+          fileHash: args.fileHash,
+          status: duplicate ? "DUPLICATE" : "DOWNLOADED",
+        },
+      });
       return { duplicateOf: duplicate?.id ?? null };
     }
     case "flyerPages.upsertPage": return prisma.flyerPage.upsert({ where: { flyerId_pageNumber: { flyerId: args.flyerId, pageNumber: args.pageNumber } }, update: { filePath: args.storageId }, create: { flyerId: args.flyerId, pageNumber: args.pageNumber, filePath: args.storageId } }).then((row: any) => row.id);
@@ -289,7 +308,14 @@ async function invoke(path: string, args: Record<string, unknown>) {
     case "flyers.listForExtract": return prisma.flyer.findMany({ where: args.includeProcessed ? undefined : { status: { in: ["DOWNLOADED", "PARTIALLY_PROCESSED"] } }, include: { pages: { orderBy: { pageNumber: "asc" } } } }).then((rows: any[]) => rows.map(asFlyer));
     case "flyers.get": return asFlyer(await prisma.flyer.findUnique({ where: { id: args.id }, include: { pages: { orderBy: { pageNumber: "asc" } }, stores: true } }));
     case "flyers.markExpired": return markExpiredAndSchedule(prisma);
-    case "flyers.patchValidity": return prisma.flyer.update({ where: { id: args.id }, data: { validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined) } });
+    case "flyers.patchValidity":
+      return prisma.flyer.updateMany({
+        where: { id: args.id },
+        data: {
+          validFrom: toDate(args.validFrom as number | undefined),
+          validUntil: toDate(args.validUntil as number | undefined),
+        },
+      });
     case "offers.insertBatch": {
       if (args.replace) await prisma.offer.deleteMany({ where: { flyerId: args.flyerId, ...(Array.isArray(args.replacePageNumbers) ? { pageNumber: { in: args.replacePageNumbers } } : {}) } });
       const offers = (args.offers as any[]).map((offer) => compact({

@@ -26,6 +26,8 @@ services:
       API_PORT: 4000
       DATABASE_URL: postgresql://smart_grocery:smart_grocery@postgres:5432/smart_grocery?schema=public
       STORAGE_ROOT: /data/storage
+      # Local compose serves HTTP via Next rewrites — Secure cookies would break browsers.
+      COOKIE_SECURE: "false"
     ports:
       - "4000:4000"
     depends_on:

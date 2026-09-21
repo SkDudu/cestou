@@ -45,8 +45,8 @@ Postgres local via `DATABASE_URL` no `back/.env` (default: `127.0.0.1:5432/smart
 |---------|-----------|
 | `npm run prisma:generate` | Gera o client Prisma |
 | `npm run prisma:migrate` | `prisma migrate dev` |
-| `npm run prisma:seed` | Cria/atualiza `ADMIN_MASTER` |
-| `npm run prisma:wipe` | **Limpa todos os dados** (TRUNCATE) e re-seed do admin |
+| `npm run prisma:seed` | Cria/atualiza `ADMIN_MASTER` + `CLIENT` (env) |
+| `npm run prisma:wipe` | **Limpa todos os dados** (TRUNCATE) e re-seed admin + client |
 | `npm run prisma:reset` | Drop schema + migrations + seed (`migrate reset --force`) |
 
 ```bash

@@ -15,13 +15,8 @@ import {
 import {
   isPseudoBrand,
   inferCommodityCategory,
-  type CommodityCategory,
 } from "./catalog-normalization.js";
-
-function parseCategory(raw: unknown): CommodityCategory | undefined {
-  if (raw === "hortifruti" || raw === "acougue") return raw;
-  return undefined;
-}
+import { parseProductCategory } from "../../config/categories.js";
 
 function discountPct(original: number, price: number): number {
   const o = Math.round(original * 100);
@@ -64,10 +59,11 @@ export function guardOffers(
     const brandRaw = stripUnknown(rec.brand);
     const brand =
       brandRaw && !isPseudoBrand(brandRaw) ? titleCaseBrand(brandRaw) : undefined;
+    // ponytail: mercearia last resort — MiMo must classify; never leave null in pipeline
     const category =
-      parseCategory(rec.category) ??
+      parseProductCategory(rec.category) ??
       inferCommodityCategory(name, brandRaw) ??
-      undefined;
+      "mercearia";
 
     const haystack = [
       name,
@@ -134,7 +130,7 @@ export function guardOffers(
         installmentAmount: pay.installmentAmount,
         quantity,
         brand,
-        category: category ?? null,
+        category,
         eligibility: elig.eligibility,
         evidence: elig.eligibilityEvidence?.text,
       }).slice(0, 1000),

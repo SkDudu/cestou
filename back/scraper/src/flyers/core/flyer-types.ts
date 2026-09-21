@@ -38,7 +38,7 @@ export type FlyerMetadata = {
 export type ParsedOffer = {
   name: string;
   brand?: string;
-  /** hortifruti | acougue — commodity, not a manufacturer brand */
+  /** ProductCategoryId from config/categories (e.g. hortifruti, carnes, mercearia) */
   category?: string;
   quantity?: string;
   unit?: string;

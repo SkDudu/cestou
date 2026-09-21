@@ -112,7 +112,6 @@ padaria
 doces
 limpeza
 higiene
-higiene_bucal
 bebes
 pet
 utilidades
@@ -122,6 +121,9 @@ churrasco
 inseticidas
 farmacia
 ```
+
+> Nota: `higiene_bucal` é **subcategoria** de `higiene`, não categoria top-level.
+> Código canônico: `scraper/src/config/categories.ts`. Legacy `acougue` → `carnes`.
 
 A lista deverá ser extensível.
 

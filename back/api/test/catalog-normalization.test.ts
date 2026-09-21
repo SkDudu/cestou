@@ -40,13 +40,30 @@ describe("catalog normalization helpers", () => {
 
   it("classifies commodities and strips fake brands", () => {
     expect(inferCommodityCategory("Banana Prata")).toBe("hortifruti");
-    expect(inferCommodityCategory("Picanha kg")).toBe("acougue");
-    expect(inferCommodityCategory("Coxão Mole")).toBe("acougue");
-    expect(inferCommodityCategory("Fraldinha")).toBe("acougue");
-    expect(inferCommodityCategory("Arroz Camil 5kg")).toBeNull();
+    expect(inferCommodityCategory("Pitaia")).toBe("hortifruti");
+    expect(inferCommodityCategory("Picanha kg")).toBe("carnes");
+    expect(inferCommodityCategory("Coxão Mole")).toBe("carnes");
+    expect(inferCommodityCategory("Fraldinha")).toBe("carnes");
+    expect(inferCommodityCategory("Arroz Camil 5kg")).toBe("mercearia");
+    expect(inferCommodityCategory("Leite Integral 1L")).toBe("laticinios");
+    expect(inferCommodityCategory("Detergente Ype")).toBe("limpeza");
     expect(isPseudoBrand("Frutas")).toBe(true);
     expect(isPseudoBrand("Camil")).toBe(false);
     expect(resolveOfferBrand("Frutas")).toBeUndefined();
     expect(resolveOfferBrand("camil")).toBe("Camil");
+  });
+});
+
+describe("product category taxonomy", () => {
+  it("parses whitelist and aliases acougue → carnes", async () => {
+    const { parseProductCategory } = await import(
+      "../../scraper/src/config/categories.js"
+    );
+    expect(parseProductCategory("hortifruti")).toBe("hortifruti");
+    expect(parseProductCategory("carnes")).toBe("carnes");
+    expect(parseProductCategory("acougue")).toBe("carnes");
+    expect(parseProductCategory("mercearia")).toBe("mercearia");
+    expect(parseProductCategory("higiene_bucal")).toBeUndefined();
+    expect(parseProductCategory("nope")).toBeUndefined();
   });
 });

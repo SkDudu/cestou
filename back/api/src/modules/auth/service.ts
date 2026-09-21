@@ -8,6 +8,21 @@ export const ADMIN_SESSION_COOKIE = "smart_grocery_admin_session";
 export const CLIENT_SESSION_COOKIE = "smart_grocery_client_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+export function sessionCookieOptions() {
+  const secure =
+    process.env.COOKIE_SECURE === "true"
+      ? true
+      : process.env.COOKIE_SECURE === "false"
+        ? false
+        : process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    path: "/",
+    secure,
+  };
+}
+
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }

@@ -20,7 +20,7 @@ function parseCtx(): Record<string, string> {
 /** ponytail: hung Playwright used to leave scraperRuns `running` for days */
 const SCHEDULER_RUN_MS = 20 * 60 * 1000;
 
-export async function runSchedulerTick() {
+export async function runSchedulerTick(isBusy?: () => boolean) {
   // ponytail: expire→nextRunAt before listDue so same tick can discover
   const expired = (await markExpired()) as { expired?: number; scheduled?: number };
   if (expired.expired || expired.scheduled) {
@@ -35,6 +35,10 @@ export async function runSchedulerTick() {
   }>;
   flyerLog.info("SCHEDULER", `due flows=${due.length}`);
   for (const flow of due) {
+    if (isBusy?.()) {
+      flyerLog.info("SCHEDULER", "abort due loop — run in progress");
+      break;
+    }
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), SCHEDULER_RUN_MS);
     try {
@@ -72,7 +76,16 @@ export async function runSchedulerTick() {
       clearTimeout(t);
     }
   }
+  // ponytail: re-check — flow may have started mid-tick
+  if (isBusy?.()) {
+    flyerLog.info("SCHEDULER", "skip download/extract — run in progress");
+    return;
+  }
   await downloadPending();
+  if (isBusy?.()) {
+    flyerLog.info("SCHEDULER", "skip extract — run in progress");
+    return;
+  }
   await extractPending();
 }
 
@@ -84,7 +97,7 @@ export async function runSchedulerLoop(isBusy?: () => boolean) {
       if (isBusy?.()) {
         flyerLog.info("SCHEDULER", "skip tick — run in progress");
       } else {
-        await runSchedulerTick();
+        await runSchedulerTick(isBusy);
       }
     } catch (err) {
       flyerLog.error("SCHEDULER", String(err));
