@@ -5,6 +5,13 @@ import { getScraperPrisma } from "./postgres-client.js";
 import { flyerLog } from "./flyer-logger.js";
 import type { ParsedOffer } from "./flyer-types.js";
 import { processFlyerNormalization } from "../extraction/catalog-normalization.js";
+import { flyerConfig } from "./flyer-config.js";
+import {
+  HOUR_MS,
+  discoveryBackoffMs,
+  earlierNextRunAt,
+  nextRunAtFromValidities,
+} from "./discovery-schedule.js";
 
 type Endpoint = { __path: string };
 const endpoint = (path = ""): Endpoint => new Proxy({ __path: path }, {
@@ -77,6 +84,150 @@ async function writeDiscoveredPages(prisma: any, flyerId: string, pageUrls: unkn
   });
 }
 
+async function computeSuccessNextRunAt(prisma: any, supermarketId: string, now: Date) {
+  const flyers = await prisma.flyer.findMany({
+    where: {
+      supermarketId,
+      status: { notIn: ["EXPIRED", "DUPLICATE"] },
+      validUntil: { not: null },
+    },
+    select: { validUntil: true },
+  });
+  const validUntils = flyers
+    .map((f: { validUntil: Date | null }) => f.validUntil?.getTime())
+    .filter((t: number | undefined): t is number => typeof t === "number");
+  return new Date(nextRunAtFromValidities(now.getTime(), validUntils));
+}
+
+async function scheduleFlowSuccess(prisma: any, flowId: string) {
+  const flow = await prisma.scraperFlow.findUnique({ where: { id: flowId } });
+  if (!flow) return null;
+  const now = new Date();
+  const nextRunAt = await computeSuccessNextRunAt(prisma, flow.supermarketId, now);
+  const row = await prisma.scraperFlow.update({
+    where: { id: flowId },
+    data: { discoveryAttempts: 0, lastRunAt: now, nextRunAt },
+  });
+  return { nextRunAt: row.nextRunAt?.getTime() as number | undefined };
+}
+
+async function scheduleFlowFailure(prisma: any, flowId: string) {
+  const flow = await prisma.scraperFlow.findUnique({ where: { id: flowId } });
+  if (!flow) return null;
+  const now = new Date();
+  const attemptsBefore = flow.discoveryAttempts ?? 0;
+  const nextRunAt = new Date(now.getTime() + discoveryBackoffMs(attemptsBefore));
+  const row = await prisma.scraperFlow.update({
+    where: { id: flowId },
+    data: {
+      discoveryAttempts: attemptsBefore + 1,
+      lastRunAt: now,
+      nextRunAt,
+    },
+  });
+  return { nextRunAt: row.nextRunAt?.getTime() as number | undefined };
+}
+
+/** Pull ACTIVE flow nextRunAt earlier (expire / 24h window). */
+async function bumpActiveFlowsNextRunAt(
+  prisma: any,
+  supermarketId: string,
+  candidate: Date,
+): Promise<number> {
+  const flows = await prisma.scraperFlow.findMany({
+    where: { supermarketId, status: "ACTIVE" },
+    select: { id: true, nextRunAt: true },
+  });
+  let bumped = 0;
+  for (const flow of flows) {
+    const nextMs = earlierNextRunAt(flow.nextRunAt?.getTime(), candidate.getTime());
+    if (flow.nextRunAt && flow.nextRunAt.getTime() === nextMs) continue;
+    await prisma.scraperFlow.update({
+      where: { id: flow.id },
+      data: { nextRunAt: new Date(nextMs) },
+    });
+    bumped += 1;
+  }
+  return bumped;
+}
+
+async function markExpiredAndSchedule(prisma: any) {
+  const now = new Date();
+  const toExpire = await prisma.flyer.findMany({
+    where: { validUntil: { lt: now }, status: { not: "EXPIRED" } },
+    select: { id: true, supermarketId: true },
+  });
+  if (toExpire.length) {
+    await prisma.flyer.updateMany({
+      where: { id: { in: toExpire.map((f: { id: string }) => f.id) } },
+      data: { status: "EXPIRED", expiredAt: now },
+    });
+  }
+
+  let scheduled = 0;
+  const expiredMarkets = [...new Set(toExpire.map((f: { supermarketId: string }) => f.supermarketId))];
+  for (const supermarketId of expiredMarkets) {
+    const upcoming = await prisma.flyer.findFirst({
+      where: {
+        supermarketId,
+        validFrom: { gt: now },
+        status: { notIn: ["EXPIRED", "DUPLICATE"] },
+      },
+      select: { id: true },
+    });
+    if (upcoming) continue;
+    scheduled += await bumpActiveFlowsNextRunAt(prisma, supermarketId, now);
+  }
+
+  const hours = flyerConfig.discoveryBeforeExpirationHours;
+  const windowEnd = new Date(now.getTime() + hours * HOUR_MS);
+  const near = await prisma.flyer.findMany({
+    where: {
+      status: { notIn: ["EXPIRED", "DUPLICATE"] },
+      validUntil: { gte: now, lte: windowEnd },
+    },
+    select: { supermarketId: true, validUntil: true },
+  });
+  for (const flyer of near) {
+    if (!flyer.validUntil) continue;
+    const checkAt = new Date(flyer.validUntil.getTime() - hours * HOUR_MS);
+    const candidate = checkAt.getTime() < now.getTime() ? now : checkAt;
+    scheduled += await bumpActiveFlowsNextRunAt(prisma, flyer.supermarketId, candidate);
+  }
+
+  // Catch-up: already-EXPIRED (pre-fix) left ACTIVE flows with no live flyer
+  const activeFlows = await prisma.scraperFlow.findMany({
+    where: { status: "ACTIVE" },
+    select: { id: true, supermarketId: true, nextRunAt: true, discoveryAttempts: true },
+  });
+  for (const flow of activeFlows) {
+    const coverage = await prisma.flyer.findFirst({
+      where: {
+        supermarketId: flow.supermarketId,
+        status: { notIn: ["EXPIRED", "DUPLICATE"] },
+        OR: [
+          { validUntil: null },
+          { validUntil: { gte: now } },
+          { validFrom: { gt: now } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (coverage) continue;
+    // respect backoff after empty discovery
+    if (
+      flow.nextRunAt &&
+      flow.nextRunAt.getTime() > now.getTime() &&
+      (flow.discoveryAttempts ?? 0) > 0
+    ) {
+      continue;
+    }
+    scheduled += await bumpActiveFlowsNextRunAt(prisma, flow.supermarketId, now);
+  }
+
+  return { expired: toExpire.length, scheduled };
+}
+
 async function invoke(path: string, args: Record<string, unknown>) {
   const prisma = await getScraperPrisma() as any;
   switch (path) {
@@ -105,9 +256,14 @@ async function invoke(path: string, args: Record<string, unknown>) {
     case "scraperRuns.start": return prisma.scraperRun.create({ data: { flowId: args.flowId, status: "RUNNING" } }).then((row: any) => row.id);
     case "scraperRuns.progress": return prisma.scraperRun.update({ where: { id: args.id }, data: { stepsExecuted: args.stepsExecuted, flyersFound: args.flyersFound, storesFound: args.storesFound, log: args.log } });
     case "scraperRuns.finish": return prisma.scraperRun.update({ where: { id: args.id }, data: { status: enumValue(args.status as string), stepsExecuted: args.stepsExecuted, flyersFound: args.flyersFound, storesFound: args.storesFound, error: args.error, log: args.log, finishedAt: new Date() } });
-    case "scraperFlows.scheduleNextCheck": return prisma.scraperFlow.update({ where: { id: args.flowId }, data: { lastRunAt: new Date() } });
-    case "scraperFlows.listDue": return prisma.scraperFlow.findMany({ where: { status: "ACTIVE", OR: [{ nextRunAt: null }, { nextRunAt: { lte: new Date() } }] } });
-    case "scraperFlows.recordDiscoveryResult": return prisma.scraperFlow.update({ where: { id: args.flowId }, data: { discoveryAttempts: { increment: 1 }, lastRunAt: new Date() } });
+    case "scraperFlows.scheduleNextCheck": return scheduleFlowSuccess(prisma, args.flowId as string);
+    case "scraperFlows.listDue": return prisma.scraperFlow.findMany({ where: { status: "ACTIVE", OR: [{ nextRunAt: null }, { nextRunAt: { lte: new Date() } }] } }).then((rows: any[]) => rows.map((row) => ({ ...row, _id: row.id })));
+    case "scraperFlows.recordDiscoveryResult": {
+      const success = Boolean(args.ok) && Number(args.newFlyers) > 0;
+      return success
+        ? scheduleFlowSuccess(prisma, args.flowId as string)
+        : scheduleFlowFailure(prisma, args.flowId as string);
+    }
     case "flyers.createDiscovered": {
       const existing = args.externalId ? await prisma.flyer.findFirst({ where: { supermarketId: args.supermarketId, externalId: args.externalId } }) : null;
       if (existing) {
@@ -132,7 +288,7 @@ async function invoke(path: string, args: Record<string, unknown>) {
     case "flyers.listPendingExtract": return prisma.flyer.findMany({ where: { status: "DOWNLOADED" }, include: { pages: { orderBy: { pageNumber: "asc" } } } }).then((rows: any[]) => rows.map(asFlyer));
     case "flyers.listForExtract": return prisma.flyer.findMany({ where: args.includeProcessed ? undefined : { status: { in: ["DOWNLOADED", "PARTIALLY_PROCESSED"] } }, include: { pages: { orderBy: { pageNumber: "asc" } } } }).then((rows: any[]) => rows.map(asFlyer));
     case "flyers.get": return asFlyer(await prisma.flyer.findUnique({ where: { id: args.id }, include: { pages: { orderBy: { pageNumber: "asc" } }, stores: true } }));
-    case "flyers.markExpired": return prisma.flyer.updateMany({ where: { validUntil: { lt: new Date() }, status: { not: "EXPIRED" } }, data: { status: "EXPIRED", expiredAt: new Date() } }).then((result: any) => ({ expired: result.count }));
+    case "flyers.markExpired": return markExpiredAndSchedule(prisma);
     case "flyers.patchValidity": return prisma.flyer.update({ where: { id: args.id }, data: { validFrom: toDate(args.validFrom as number | undefined), validUntil: toDate(args.validUntil as number | undefined) } });
     case "offers.insertBatch": {
       if (args.replace) await prisma.offer.deleteMany({ where: { flyerId: args.flyerId, ...(Array.isArray(args.replacePageNumbers) ? { pageNumber: { in: args.replacePageNumbers } } : {}) } });

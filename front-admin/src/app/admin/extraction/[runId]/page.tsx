@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ApiError, adminApi } from "@/lib/api";
 import { formatOpsStamp, isLiveScraperRun, jobLabel } from "@/lib/format";
+import { useScraperRunLog } from "@/lib/use-scraper-run-events";
 import { eventLine, extractionQueue, flyerDisplayStatus, flyersForRun, ms } from "@/lib/workers";
 
 type Run = Awaited<ReturnType<typeof adminApi.scraperRun>>;
@@ -16,6 +17,8 @@ export default function ExtractionReviewPage() {
   const [run, setRun] = useState<Run | null>();
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [supermarketId, setSupermarketId] = useState<string>();
+  const liveLog = useScraperRunLog(runId);
 
   useEffect(() => {
     let alive = true;
@@ -28,6 +31,7 @@ export default function ExtractionReviewPage() {
         if (!alive) return;
         const flow = flows.find((item) => item.id === job.flow.id);
         setRun(job);
+        setSupermarketId(flow?.supermarket.id);
         setFlyers(
           flyersForRun(
             allFlyers,
@@ -57,12 +61,37 @@ export default function ExtractionReviewPage() {
     };
   }, [runId]);
 
-  const lines = useMemo(() => {
+  const startedAt = run ? ms(run.startedAt) ?? 0 : 0;
+  const live = Boolean(run && isLiveScraperRun({ status: run.status, startedAt }) && !liveLog.done);
+
+  useEffect(() => {
+    if (!live || !runId) return;
+    let alive = true;
+    const tick = () => {
+      void Promise.all([adminApi.scraperRun(runId), adminApi.flyers()]).then(
+        ([job, allFlyers]) => {
+          if (!alive) return;
+          setRun(job);
+          setFlyers(flyersForRun(allFlyers, supermarketId, job.startedAt, job.finishedAt));
+        },
+        () => undefined,
+      );
+    };
+    const id = setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [live, runId, supermarketId]);
+
+  const histLines = useMemo(() => {
     if (!run) return [];
     if (run.events.length) return run.events.map((event) => eventLine(event.type, event.payload));
     if (run.log?.trim()) return run.log.split("\n").filter(Boolean);
     return [];
   }, [run]);
+
+  const lines = liveLog.lines.length ? liveLog.lines : histLines;
 
   if (error) {
     return <p className="text-sm text-[var(--ds-color-danger)]">{error}</p>;
@@ -73,8 +102,6 @@ export default function ExtractionReviewPage() {
 
   const store = run.flow.supermarket.name;
   const job = jobLabel(run.id);
-  const startedAt = ms(run.startedAt) ?? 0;
-  const live = isLiveScraperRun({ status: run.status, startedAt });
   const queue = extractionQueue(run.status);
 
   return (
@@ -140,25 +167,20 @@ export default function ExtractionReviewPage() {
         <p className="mb-4 text-sm text-[var(--ds-color-danger)]">{run.error}</p>
       ) : null}
 
-      {run.log?.trim() ? (
-        <details className="mb-4 rounded-[10px] border border-[var(--ds-color-border)] bg-[var(--ds-color-card)]">
+      {lines.length ? (
+        <details className="mb-4 rounded-[10px] border border-[var(--ds-color-border)] bg-[var(--ds-color-card)]" open={live}>
           <summary className="cursor-pointer px-3.5 py-2.5 text-[13px] font-medium">
             Log do job · {job}
             {run.stepsExecuted ? ` · ${run.stepsExecuted} steps` : ""}
+            {live ? " · ao vivo" : ""}
           </summary>
           <pre className="max-h-56 overflow-auto border-t border-[var(--ds-color-border)] bg-[#1A2B3C] px-3.5 py-3 font-mono text-[11px] leading-5 text-[#C5D4C8]">
-            {run.log}
+            {lines.join("\n")}
           </pre>
         </details>
       ) : live ? (
         <p className="mb-4 text-[13px] text-[var(--ds-color-muted-foreground)]">
-          Job ainda rodando —{" "}
-          <Link
-            href={`/admin/scraper/${run.flow.id}/run?job=${run.id}`}
-            className="text-[var(--ds-color-harbor)] hover:underline"
-          >
-            ver stdout ao vivo
-          </Link>
+          Job ainda rodando — aguardando eventos…
         </p>
       ) : null}
 

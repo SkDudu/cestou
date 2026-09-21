@@ -51,6 +51,23 @@ services:
     volumes:
       - storage-data:/data/storage
 
+  scheduler:
+    build:
+      context: .
+      target: worker
+    command: npx tsx scraper/src/flyers/jobs/flow-scheduler.ts
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://smart_grocery:smart_grocery@postgres:5432/smart_grocery?schema=public
+      STORAGE_ROOT: /data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    shm_size: "1gb"
+    volumes:
+      - storage-data:/data/storage
+
 volumes:
   postgres-data:
   storage-data:

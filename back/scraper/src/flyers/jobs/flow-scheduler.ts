@@ -2,8 +2,8 @@ import { flyerConfig } from "../core/flyer-config.js";
 import { flyerLog } from "../core/flyer-logger.js";
 import {
   listDueFlows,
+  markExpired,
   recordDiscoveryResult,
-  scheduleNextCheck,
 } from "../core/flyer-storage.js";
 import { downloadPending } from "./flyer-download.js";
 import { extractPending } from "./flyer-extraction.js";
@@ -21,12 +21,19 @@ function parseCtx(): Record<string, string> {
 const SCHEDULER_RUN_MS = 20 * 60 * 1000;
 
 export async function runSchedulerTick() {
+  // ponytail: expire→nextRunAt before listDue so same tick can discover
+  const expired = (await markExpired()) as { expired?: number; scheduled?: number };
+  if (expired.expired || expired.scheduled) {
+    flyerLog.info(
+      "SCHEDULER",
+      `expire=${expired.expired ?? 0} scheduled=${expired.scheduled ?? 0}`,
+    );
+  }
   const due = (await listDueFlows()) as Array<{
     _id: string;
     name?: string;
   }>;
   flyerLog.info("SCHEDULER", `due flows=${due.length}`);
-  const withNew: string[] = [];
   for (const flow of due) {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), SCHEDULER_RUN_MS);
@@ -35,36 +42,38 @@ export async function runSchedulerTick() {
         pipeline: "discovery",
         signal: ac.signal,
       });
-      await recordDiscoveryResult({
+      const scheduled = (await recordDiscoveryResult({
         flowId: flow._id,
         ok: result.ok,
         newFlyers: result.newFlyers,
         error: result.error,
-      });
-      if (result.ok && result.newFlyers > 0) withNew.push(flow._id);
+      })) as { nextRunAt?: number } | null;
+      if (scheduled?.nextRunAt) {
+        flyerLog.info(
+          "SCHEDULER",
+          `next check ${flow._id} ${new Date(scheduled.nextRunAt).toISOString()}`,
+        );
+      }
     } catch (err) {
       flyerLog.error("SCHEDULER", String(err));
-      await recordDiscoveryResult({
+      const scheduled = (await recordDiscoveryResult({
         flowId: flow._id,
         ok: false,
         newFlyers: 0,
         error: String(err),
-      });
+      })) as { nextRunAt?: number } | null;
+      if (scheduled?.nextRunAt) {
+        flyerLog.info(
+          "SCHEDULER",
+          `next check ${flow._id} ${new Date(scheduled.nextRunAt).toISOString()}`,
+        );
+      }
     } finally {
       clearTimeout(t);
     }
   }
   await downloadPending();
   await extractPending();
-  for (const id of withNew) {
-    const scheduled = (await scheduleNextCheck(id)) as { nextRunAt?: number };
-    if (scheduled?.nextRunAt) {
-      flyerLog.info(
-        "SCHEDULER",
-        `next check ${id} ${new Date(scheduled.nextRunAt).toISOString()}`,
-      );
-    }
-  }
 }
 
 export async function runSchedulerLoop(isBusy?: () => boolean) {

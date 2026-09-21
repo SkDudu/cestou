@@ -30,30 +30,55 @@ export default function ExtractionPage() {
 
   useEffect(() => {
     let alive = true;
-    void Promise.all([
-      adminApi.scraperRuns(),
-      adminApi.catalogHealth(),
-      adminApi.extractionErrors(),
-    ]).then(
-      ([list, catalog, flyerErrors]) => {
-        if (!alive) return;
-        setRuns(list.map((run) => ({ ...run, queue: extractionQueue(run.status) })));
-        setHealth(catalog);
-        setErrors(flyerErrors.filter((item) => item.status === "open"));
-      },
-      (cause: unknown) => {
-        if (!alive) return;
-        setError(
-          cause instanceof ApiError && cause.status === 401
-            ? "Sua sessão expirou."
-            : "Não foi possível carregar a extração.",
-        );
-      },
-    );
+    const load = () =>
+      void Promise.all([
+        adminApi.scraperRuns(),
+        adminApi.catalogHealth(),
+        adminApi.extractionErrors(),
+      ]).then(
+        ([list, catalog, flyerErrors]) => {
+          if (!alive) return;
+          setRuns(list.map((run) => ({ ...run, queue: extractionQueue(run.status) })));
+          setHealth(catalog);
+          setErrors(flyerErrors.filter((item) => item.status === "open"));
+        },
+        (cause: unknown) => {
+          if (!alive) return;
+          setError(
+            cause instanceof ApiError && cause.status === 401
+              ? "Sua sessão expirou."
+              : "Não foi possível carregar a extração.",
+          );
+        },
+      );
+    load();
     return () => {
       alive = false;
     };
   }, []);
+
+  const hasRunning = useMemo(
+    () => (runs ?? []).some((r) => (r.status ?? "").toUpperCase() === "RUNNING"),
+    [runs],
+  );
+
+  useEffect(() => {
+    if (!hasRunning) return;
+    let alive = true;
+    const id = setInterval(() => {
+      void adminApi.scraperRuns().then(
+        (list) => {
+          if (!alive) return;
+          setRuns(list.map((run) => ({ ...run, queue: extractionQueue(run.status) })));
+        },
+        () => undefined,
+      );
+    }, 5000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [hasRunning]);
 
   const rows = useMemo(() => {
     const list = runs ?? [];

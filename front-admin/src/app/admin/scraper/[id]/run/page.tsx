@@ -76,6 +76,26 @@ function WorkerRunInner() {
   }, [jobParam]);
 
   useEffect(() => {
+    if (!jobParam || !hist) return;
+    const live =
+      isLiveScraperRun({ status: hist.status, startedAt: ms(hist.startedAt) ?? 0 }) &&
+      !liveLog.done;
+    if (!live) return;
+    let alive = true;
+    const tick = () => {
+      void adminApi.scraperRun(jobParam).then(
+        (run) => alive && setHist(run),
+        () => undefined,
+      );
+    };
+    const id = setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [jobParam, hist?.status, hist?.startedAt, liveLog.done]);
+
+  useEffect(() => {
     if (boot.current || !go || jobParam) return;
     boot.current = true;
     void adminApi.startScraperRun(id).then(
