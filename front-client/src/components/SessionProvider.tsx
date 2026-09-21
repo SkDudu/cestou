@@ -1,6 +1,57 @@
 "use client";
-import { createContext,useContext,useEffect,useState } from "react";
-type Session={id:string;email:string}|null;
-const SessionContext=createContext<{session:Session;loading:boolean}>({session:null,loading:true});
-export function SessionProvider({children}:{children:React.ReactNode}){const[session,setSession]=useState<Session>(null);const[loading,setLoading]=useState(true);useEffect(()=>{void fetch("/api/v1/client/auth/me",{credentials:"include"}).then(r=>r.ok?r.json():null).then(setSession).finally(()=>setLoading(false))},[]);return <SessionContext.Provider value={{session,loading}}>{children}</SessionContext.Provider>}
-export const useSession=()=>useContext(SessionContext);
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { ApiError, clientAuth, type ClientSession } from "@/lib/api";
+
+type SessionContextValue = {
+  session: ClientSession | null;
+  loading: boolean;
+  refresh: () => Promise<ClientSession | null>;
+  clear: () => void;
+};
+
+const SessionContext = createContext<SessionContextValue>({
+  session: null,
+  loading: true,
+  refresh: async () => null,
+  clear: () => undefined,
+});
+
+export function SessionProvider({ children }: { children: React.ReactNode }) {
+  const [session, setSession] = useState<ClientSession | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await clientAuth.me();
+      setSession(next);
+      return next;
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 401)) {
+        console.error(error);
+      }
+      setSession(null);
+      return null;
+    }
+  }, []);
+
+  const clear = useCallback(() => setSession(null), []);
+
+  useEffect(() => {
+    void refresh().finally(() => setLoading(false));
+  }, [refresh]);
+
+  return (
+    <SessionContext.Provider value={{ session, loading, refresh, clear }}>
+      {children}
+    </SessionContext.Provider>
+  );
+}
+
+export const useSession = () => useContext(SessionContext);

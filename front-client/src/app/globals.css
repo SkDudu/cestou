@@ -9,6 +9,15 @@
   --color-input: var(--ds-color-mist);
   --color-ring: var(--ds-color-harbor);
   --color-destructive: var(--ds-color-danger);
+  --color-chart-1: var(--chart-1);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-foreground: var(--chart-foreground);
+  --color-chart-foreground-muted: var(--chart-foreground-muted);
+  --color-chart-label: var(--chart-label);
+  --color-chart-tooltip-background: var(--chart-tooltip-background);
+  --color-chart-tooltip-foreground: var(--chart-tooltip-foreground);
+  --color-chart-tooltip-muted: var(--chart-tooltip-muted);
+  --chart-line-primary: var(--chart-line-primary);
 }
 
 html {
@@ -117,4 +126,21 @@ select {
   .skeleton {
     animation: none !important;
   }
+}
+
+:root {
+  --chart-1: var(--ds-color-harbor);
+  --chart-2: var(--ds-color-sea-glass);
+  --chart-3: var(--ds-color-buoy);
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-background: var(--ds-color-paper);
+  --chart-foreground: var(--ds-color-ink);
+  --chart-foreground-muted: var(--ds-color-muted-foreground);
+  --chart-grid: var(--ds-color-mist);
+  --chart-crosshair: var(--ds-color-harbor);
+  --chart-label: var(--ds-color-muted-foreground);
+  --chart-tooltip-background: color-mix(in srgb, var(--ds-color-ink) 88%, transparent);
+  --chart-tooltip-foreground: var(--ds-color-paper);
+  --chart-tooltip-muted: color-mix(in srgb, var(--ds-color-paper) 70%, transparent);
 }

@@ -1,19 +1,118 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, Scales, Trash } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { Copy, Plus, Trash } from "@phosphor-icons/react";
 import { AppShell } from "@/components/AppShell";
-import { Button, EmptyState, Input, ListSurface, Skeleton } from "@/components/ui";
+import { Button, EmptyState, ListSurface, Skeleton } from "@/components/ui";
 import { clientApi } from "@/lib/api";
+import { formatCurrency } from "@/lib/format";
 
-type ListItem = { id: string; queryText: string; quantity: number; offer: { name: string; price: string; memberPrice: string | null; supermarket: { name: string } } | null };
-type List = { id: string; name: string; items: ListItem[] };
-export default function ListaPage() {
-  const [list, setList] = useState<List | null>(null); const [draft, setDraft] = useState("");
-  const load = () => clientApi<List>("/lists/default").then(setList).catch(() => setList({ id: "", name: "Minha lista", items: [] }));
-  useEffect(() => { void load(); }, []);
-  async function add(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; await clientApi("/lists/default/items", { method: "POST", body: JSON.stringify({ queryText: draft.trim() }) }); setDraft(""); await load(); }
-  async function remove(id: string) { await clientApi(`/lists/items/${id}`, { method: "DELETE" }); await load(); }
-  return <AppShell title={list?.name ?? "Minha lista"} subtitle="Adicione itens e compare o custo total nos mercados da região." actions={<Link href="/lista/comparar"><Button><Scales size={16} />Comparar preços</Button></Link>}><div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]"><form onSubmit={(event) => void add(event)} className="space-y-3"><p className="ds-label-caps">Novo item</p><Input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ex.: leite 1L" /><Button type="submit"><Plus size={16} />Adicionar</Button></form>{!list ? <Skeleton className="h-64 w-full" /> : list.items.length === 0 ? <EmptyState title="Lista vazia" body="Busque ofertas ou digite um item para começar." /> : <ListSurface>{list.items.map((item) => <li key={item.id} className="flex justify-between gap-4 px-5 py-4"><div><p className="font-medium">{item.queryText}</p>{item.offer ? <p className="text-xs text-[var(--ds-color-muted-foreground)]">{item.offer.supermarket.name} · R$ {item.offer.memberPrice ?? item.offer.price}</p> : <p className="text-xs text-[var(--ds-color-muted-foreground)]">Sem oferta fixada</p>}</div><button type="button" onClick={() => void remove(item.id)} className="text-[var(--ds-color-danger)]"><Trash size={16} /></button></li>)}</ListSurface>}</div></AppShell>;
+type ListSummary = {
+  id: string;
+  name: string;
+  itemCount: number;
+  updatedAt: string;
+  needsResolve: boolean;
+  bestSingle: {
+    supermarketName: string;
+    total: number;
+    coverage: number;
+  } | null;
+};
+
+export default function ListasPage() {
+  const [lists, setLists] = useState<ListSummary[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = () =>
+    clientApi<ListSummary[]>("/lists")
+      .then(setLists)
+      .catch(() => setLists([]));
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function remove(id: string) {
+    if (!confirm("Apagar esta lista?")) return;
+    setBusyId(id);
+    await clientApi(`/lists/${id}`, { method: "DELETE" }).catch(() => undefined);
+    await load();
+    setBusyId(null);
+  }
+
+  async function duplicate(id: string) {
+    setBusyId(id);
+    await clientApi(`/lists/${id}/duplicate`, { method: "POST" }).catch(
+      () => undefined,
+    );
+    await load();
+    setBusyId(null);
+  }
+
+  return (
+    <AppShell
+      title="Listas de compras"
+      subtitle="Crie listas com produtos escolhidos e compare preços nos mercados."
+      actions={
+        <Link href="/lista/nova">
+          <Button>
+            <Plus size={16} />
+            Nova lista
+          </Button>
+        </Link>
+      }
+    >
+      {!lists ? (
+        <Skeleton className="h-64 w-full" />
+      ) : lists.length === 0 ? (
+        <EmptyState
+          title="Nenhuma lista ainda"
+          body="Crie a primeira lista, escolha os produtos e acompanhe a melhor compra."
+        />
+      ) : (
+        <ListSurface>
+          {lists.map((list) => (
+            <li key={list.id} className="px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <Link href={`/lista/${list.id}`} className="min-w-0 flex-1">
+                  <p className="font-medium">{list.name}</p>
+                  <p className="mt-1 text-xs text-[var(--ds-color-muted-foreground)]">
+                    {list.itemCount}{" "}
+                    {list.itemCount === 1 ? "produto" : "produtos"}
+                    {list.bestSingle
+                      ? ` · melhor: ${list.bestSingle.supermarketName} · ${formatCurrency(list.bestSingle.total)}`
+                      : list.needsResolve
+                        ? " · falta escolher produtos"
+                        : " · sem cobertura completa"}
+                  </p>
+                </Link>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={busyId === list.id}
+                    onClick={() => void duplicate(list.id)}
+                    className="text-[var(--ds-color-muted-foreground)]"
+                    aria-label="Duplicar lista"
+                  >
+                    <Copy size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === list.id}
+                    onClick={() => void remove(list.id)}
+                    className="text-[var(--ds-color-danger)]"
+                    aria-label="Apagar lista"
+                  >
+                    <Trash size={16} />
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ListSurface>
+      )}
+    </AppShell>
+  );
 }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Skeleton } from "@/components/ui";
 
-export default function CompararRedirectPage() {
+export default function EscolherRedirectPage() {
   const router = useRouter();
   useEffect(() => {
     router.replace("/lista");

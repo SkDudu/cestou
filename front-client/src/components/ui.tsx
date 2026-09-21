@@ -1,4 +1,12 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+"use client";
+
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+} from "react";
+import { useEffect } from "react";
+import { X } from "@phosphor-icons/react";
 
 export function Button({
   variant = "primary",
@@ -69,7 +77,10 @@ export function Panel({
       className={`ds-card ${accent ? "border-[var(--ds-color-primary)]" : ""} ${className}`.trim()}
       style={
         accent
-          ? { borderLeftWidth: "var(--ds-accent-width)", borderLeftColor: "var(--ds-color-focus)" }
+          ? {
+              borderLeftWidth: "var(--ds-accent-width)",
+              borderLeftColor: "var(--ds-color-focus)",
+            }
           : undefined
       }
     >
@@ -134,5 +145,136 @@ export function ListSurface({
     >
       {children}
     </ul>
+  );
+}
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="ds-modal-overlay" role="presentation">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label="Fechar"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="ds-modal relative z-10"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+          <button
+            type="button"
+            className="ds-modal-x"
+            aria-label="Fechar"
+            onClick={onClose}
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        {footer ? (
+          <div className="flex flex-wrap items-center gap-2 pt-1">{footer}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function BottomSheet({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50" role="presentation">
+      <button
+        type="button"
+        className="absolute inset-0 bg-[var(--ds-color-scrim)]"
+        aria-label="Fechar"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col rounded-t-[var(--ds-radius-xl)] border border-[var(--ds-color-border)] bg-[var(--ds-color-card)] shadow-lg"
+      >
+        <div className="mx-auto mt-3 h-1 w-10 shrink-0 rounded-full bg-[var(--ds-color-border)]" />
+        <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-3">
+          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+          <button
+            type="button"
+            className="ds-modal-x"
+            aria-label="Fechar"
+            onClick={onClose}
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-3">{children}</div>
+        {footer ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ds-color-border)] px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {footer}
+          </div>
+        ) : (
+          <div className="pb-[env(safe-area-inset-bottom)]" />
+        )}
+      </div>
+    </div>
   );
 }

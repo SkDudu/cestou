@@ -16,6 +16,7 @@ import {
   DotsThreeOutline,
   X,
 } from "@phosphor-icons/react";
+import { clientAuth } from "@/lib/api";
 
 const primaryLinks: { href: string; label: string; icon: Icon }[] = [
   { href: "/", label: "Início", icon: House },
@@ -58,8 +59,8 @@ export function AppShell({
   const moreActive = moreLinks.some((l) => isActive(pathname, l.href));
 
   async function signOut() {
-    await fetch("/api/v1/client/auth/logout", { method: "POST", credentials: "include" });
-    router.push("/login");
+    await clientAuth.logout().catch(() => undefined);
+    router.push("/entrar");
   }
 
   useEffect(() => {
@@ -77,7 +78,7 @@ export function AppShell({
   }, [moreOpen]);
 
   return (
-    <div className="flex min-h-[100dvh] bg-[var(--ds-color-muted)] text-[var(--ds-color-foreground)] lg:h-dvh lg:overflow-hidden">
+    <div className="flex h-dvh overflow-hidden bg-[var(--ds-color-muted)] text-[var(--ds-color-foreground)]">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-[var(--ds-radius-md)] focus:bg-[var(--ds-color-primary)] focus:px-3 focus:py-2 focus:text-[var(--ds-color-primary-foreground)]"
@@ -86,7 +87,7 @@ export function AppShell({
       </a>
 
       {/* Desktop sidebar */}
-      <aside className="hidden border-r border-[var(--ds-color-border)] bg-[var(--ds-color-background)] lg:flex lg:h-dvh lg:w-[var(--ds-sidebar-width)] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:px-4 lg:pb-4 lg:pt-5">
+      <aside className="hidden border-r border-[var(--ds-color-border)] bg-[var(--ds-color-background)] lg:flex lg:h-full lg:w-[var(--ds-sidebar-width)] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:px-4 lg:pb-4 lg:pt-5">
         <div className="flex items-center gap-2.5">
           <span
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[13px] font-bold text-white"
@@ -160,9 +161,9 @@ export function AppShell({
         </p>
       </aside>
 
-      {/* Mobile top bar */}
+      {/* Main column */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-[var(--ds-color-border)] bg-[var(--ds-color-background)]/95 backdrop-blur-md lg:hidden pt-[env(safe-area-inset-top)]">
+        <header className="sticky top-0 z-30 shrink-0 border-b border-[var(--ds-color-border)] bg-[var(--ds-color-background)]/95 backdrop-blur-md lg:hidden pt-[env(safe-area-inset-top)]">
           <div className="flex h-14 items-center justify-between gap-3 px-4">
             <div className="flex min-w-0 items-center gap-2.5">
               <span
@@ -187,7 +188,7 @@ export function AppShell({
           </div>
         </header>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
           {(title || actions) && (
             <div className="flex flex-col gap-3 px-4 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-4 lg:px-8 lg:pt-7">
               <div className="min-w-0">
@@ -211,7 +212,7 @@ export function AppShell({
           )}
           <main
             id="main"
-            className="flex-1 px-4 py-5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-8 lg:pb-8 lg:pt-6"
+            className="px-4 py-5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-8 lg:pb-8 lg:pt-6"
           >
             {children}
           </main>

@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
 import { Button, Field, Input } from "@/components/ui";
+import { ApiError, clientAuth } from "@/lib/api";
 
 export function AuthForm({
   flow,
@@ -21,11 +22,16 @@ export function AuthForm({
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/v1/client/auth/${isSignUp ? "register" : "login"}`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error("E-mail ou senha inválidos");
-      window.location.assign("/");
+      if (isSignUp) await clientAuth.register(email, password);
+      else await clientAuth.login(email, password);
+      const next = new URLSearchParams(window.location.search).get("next");
+      window.location.assign(next && next.startsWith("/") ? next : "/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha na autenticação");
+      if (err instanceof ApiError && (err.status === 401 || err.status === 400)) {
+        setError("E-mail ou senha inválidos");
+      } else {
+        setError(err instanceof Error ? err.message : "Falha na autenticação");
+      }
     } finally {
       setBusy(false);
     }

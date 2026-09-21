@@ -52,10 +52,11 @@
   --spacing-ds-12: var(--ds-space-12);
   --spacing-ds-16: var(--ds-space-16);
 
-  --breakpoint-ds-sm: var(--ds-breakpoint-sm);
-  --breakpoint-ds-md: var(--ds-breakpoint-md);
-  --breakpoint-ds-lg: var(--ds-breakpoint-lg);
-  --breakpoint-ds-xl: var(--ds-breakpoint-xl);
+  /* Literals only — Tailwind emits @media (width >= …); var() breaks the CSS parser. */
+  --breakpoint-ds-sm: 640px;
+  --breakpoint-ds-md: 768px;
+  --breakpoint-ds-lg: 1024px;
+  --breakpoint-ds-xl: 1280px;
 
-  --container-ds-7xl: var(--ds-container-7xl);
+  --container-ds-7xl: 1400px;
 }
