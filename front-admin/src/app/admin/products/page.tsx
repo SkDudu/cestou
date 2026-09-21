@@ -167,7 +167,7 @@ export default function ProductsPage() {
           >
             <option value="">Categoria: todas</option>
             <option value="hortifruti">hortifruti</option>
-            <option value="acougue">acougue</option>
+            <option value="carnes">carnes</option>
             <option value="none">sem categoria</option>
           </select>
         </div>

@@ -94,6 +94,7 @@ export default function HealthFixWorkbenchPage() {
   const [error, setError] = useState<string>();
   const [brandQuery, setBrandQuery] = useState("");
   const [brandId, setBrandId] = useState<string | null | undefined>(undefined);
+  const [nameDraft, setNameDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -107,6 +108,7 @@ export default function HealthFixWorkbenchPage() {
         setQueue(offers.filter((o) => inQueue(o, fix)));
         setBrandQuery(row.brand?.trim() || row.brandRecord?.name || "");
         setBrandId(row.brandId ?? undefined);
+        setNameDraft(row.name);
         setMsg(null);
         if (row.canonicalProductId) {
           const linked = await adminApi.product(row.canonicalProductId);
@@ -156,7 +158,7 @@ export default function HealthFixWorkbenchPage() {
   const suggestions = useMemo(() => {
     if (fix !== "brand" || !offer) return [];
     const nameTokens = new Set(
-      offer.name
+      nameDraft
         .normalize("NFD")
         .replace(/\p{M}/gu, "")
         .toLowerCase()
@@ -171,7 +173,7 @@ export default function HealthFixWorkbenchPage() {
       .filter((b) => b.score > 0)
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "pt-BR"))
       .slice(0, 5);
-  }, [fix, offer, brands]);
+  }, [fix, offer, brands, nameDraft]);
 
   const selectedBrandName =
     brandId === null
@@ -189,32 +191,47 @@ export default function HealthFixWorkbenchPage() {
     typedBrand.length >= 2 &&
     !exactBrand &&
     brandId === undefined;
+  const nameTrimmed = nameDraft.trim();
+  const nameDirty = Boolean(offer && nameTrimmed !== offer.name.trim());
+  const nameValid = nameTrimmed.length >= 1;
   const canSaveBrand = brandId !== undefined || canCreateBrand || Boolean(exactBrand);
+  const canSave = nameValid && (fix !== "brand" ? nameDirty : canSaveBrand || nameDirty);
 
   function goTo(id: string) {
     router.push(`/admin/catalog/health/fix/${id}?fix=${fix}`);
   }
 
   async function save(andNext: boolean) {
-    if (fix !== "brand") return;
+    if (!nameValid) return;
+    if (fix === "brand" && !canSaveBrand && !nameDirty) return;
+    if (fix !== "brand" && !nameDirty) return;
     setBusy(true);
     setMsg(null);
     try {
-      let nextBrandId = brandId;
-      if (nextBrandId === undefined && exactBrand) {
-        nextBrandId = exactBrand.id;
+      const patch: { name?: string; brandId?: string | null } = {};
+      if (nameDirty) patch.name = nameTrimmed;
+
+      if (fix === "brand" && (canSaveBrand || brandId !== undefined)) {
+        let nextBrandId = brandId;
+        if (nextBrandId === undefined && exactBrand) {
+          nextBrandId = exactBrand.id;
+        }
+        if (nextBrandId === undefined && canCreateBrand) {
+          const created = await adminApi.createBrand({ name: typedBrand });
+          setBrands((prev) =>
+            prev.some((b) => b.id === created.id)
+              ? prev
+              : [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+          );
+          nextBrandId = created.id;
+          setBrandId(created.id);
+          setBrandQuery(created.name);
+        }
+        if (nextBrandId !== undefined) patch.brandId = nextBrandId;
       }
-      if (nextBrandId === undefined && canCreateBrand) {
-        const created = await adminApi.createBrand({ name: typedBrand });
-        setBrands((prev) =>
-          prev.some((b) => b.id === created.id) ? prev : [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
-        );
-        nextBrandId = created.id;
-        setBrandId(created.id);
-        setBrandQuery(created.name);
-      }
-      if (nextBrandId === undefined) return;
-      await adminApi.updateOfferCatalog(offerId, { brandId: nextBrandId });
+
+      if (patch.name === undefined && patch.brandId === undefined) return;
+      await adminApi.updateOfferCatalog(offerId, patch);
       if (andNext) {
         const next = index >= 0 ? queue[index + 1] ?? queue[index - 1] : undefined;
         if (next && next.id !== offerId) goTo(next.id);
@@ -222,6 +239,11 @@ export default function HealthFixWorkbenchPage() {
       } else {
         const row = await adminApi.offer(offerId);
         setOffer(row);
+        setNameDraft(row.name);
+        if (row.canonicalProductId) {
+          const linked = await adminApi.product(row.canonicalProductId);
+          setProduct(linked);
+        }
         setMsg("Salvo");
       }
     } catch (cause: unknown) {
@@ -257,7 +279,7 @@ export default function HealthFixWorkbenchPage() {
   const markets = new Set((product?.offers ?? []).map((o) => o.supermarket.name));
   const compare = {
     name:
-      !product || normBrand(offer.name) === normBrand(product.canonicalName) ? ("ok" as const) : ("review" as const),
+      !product || normBrand(nameDraft) === normBrand(product.canonicalName) ? ("ok" as const) : ("review" as const),
     unit: fix === "qty" || fix === "unit" ? ("fix" as const) : !product || offerPack === canonPack ? ("ok" as const) : ("review" as const),
     brand: fix === "brand" ? ("fix" as const) : offer.brandId || offer.brandRecord ? ("ok" as const) : ("review" as const),
   };
@@ -284,16 +306,14 @@ export default function HealthFixWorkbenchPage() {
             <Link href="/admin/catalog/health" className="ds-btn ds-btn--outline">
               Voltar à fila
             </Link>
-            {fix === "brand" ? (
-              <button
-                type="button"
-                className="ds-btn ds-btn--primary"
-                disabled={busy || brandId === undefined}
-                onClick={() => void save(true)}
-              >
-                Salvar e próxima
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="ds-btn ds-btn--primary"
+              disabled={busy || !canSave}
+              onClick={() => void save(true)}
+            >
+              Salvar e próxima
+            </button>
           </div>
         }
       />
@@ -358,7 +378,15 @@ export default function HealthFixWorkbenchPage() {
           <dl className="space-y-2 text-sm">
             <div>
               <dt className="ds-label-caps">Nome</dt>
-              <dd className="font-medium">{offer.name}</dd>
+              <dd>
+                <input
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  className="ds-search mt-1 w-full font-medium"
+                  aria-label="Nome do produto"
+                  placeholder="Nome do produto…"
+                />
+              </dd>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -584,7 +612,7 @@ export default function HealthFixWorkbenchPage() {
               <button
                 type="button"
                 className="ds-btn ds-btn--primary w-full"
-                disabled={busy || !canSaveBrand}
+                disabled={busy || !canSave}
                 onClick={() => void save(true)}
               >
                 {canCreateBrand ? "Criar, salvar e próxima" : "Salvar e próxima"}
@@ -592,10 +620,29 @@ export default function HealthFixWorkbenchPage() {
               <button
                 type="button"
                 className="ds-btn ds-btn--outline w-full"
-                disabled={busy || !canSaveBrand}
+                disabled={busy || !canSave}
                 onClick={() => void save(false)}
               >
                 {canCreateBrand ? "Criar marca e salvar" : "Salvar"}
+              </button>
+            </div>
+          ) : nameDirty ? (
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                className="ds-btn ds-btn--primary w-full"
+                disabled={busy || !canSave}
+                onClick={() => void save(true)}
+              >
+                Salvar nome e próxima
+              </button>
+              <button
+                type="button"
+                className="ds-btn ds-btn--outline w-full"
+                disabled={busy || !canSave}
+                onClick={() => void save(false)}
+              >
+                Salvar nome
               </button>
             </div>
           ) : null}
