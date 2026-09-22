@@ -35,6 +35,13 @@ export type FlowState = {
   offersFound: number;
   networkFlyers: NetworkFlyerDoc[];
   scopeSelectors?: string[];
+  /** Pages successfully downloaded in this run (download-flyers step). */
+  downloadedThisRun?: number;
+  /**
+   * Discovery pipeline: skip extract-offers when downloadedThisRun === 0.
+   * Full / manual runs leave this unset → extract always.
+   */
+  requireDownloadForExtract?: boolean;
   /** Stream progress to dashboard / SSE during a run. */
   onLog?: (line: string) => void;
   /**

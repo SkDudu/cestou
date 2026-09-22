@@ -46,20 +46,21 @@ export async function runSchedulerTick(isBusy?: () => boolean) {
         pipeline: "discovery",
         signal: ac.signal,
       });
-      const scheduled = (await recordDiscoveryResult({
-        flowId: flow._id,
-        ok: result.ok,
-        newFlyers: result.newFlyers,
-        error: result.error,
-      })) as { nextRunAt?: number } | null;
-      if (scheduled?.nextRunAt) {
+      // nextRunAt already set inside executeFlowById (success or fail)
+      if (result.ok) {
         flyerLog.info(
           "SCHEDULER",
-          `next check ${flow._id} ${new Date(scheduled.nextRunAt).toISOString()}`,
+          `done ${flow._id} new=${result.newFlyers} ok`,
+        );
+      } else {
+        flyerLog.info(
+          "SCHEDULER",
+          `done ${flow._id} fail=${result.error ?? "?"}`,
         );
       }
     } catch (err) {
       flyerLog.error("SCHEDULER", String(err));
+      // throw before execute-flow could schedule — still bump nextRunAt
       const scheduled = (await recordDiscoveryResult({
         flowId: flow._id,
         ok: false,
@@ -81,12 +82,16 @@ export async function runSchedulerTick(isBusy?: () => boolean) {
     flyerLog.info("SCHEDULER", "skip download/extract — run in progress");
     return;
   }
-  await downloadPending();
+  const dl = await downloadPending();
   if (isBusy?.()) {
     flyerLog.info("SCHEDULER", "skip extract — run in progress");
     return;
   }
-  await extractPending();
+  if (dl.downloaded > 0) {
+    await extractPending();
+  } else {
+    flyerLog.info("SCHEDULER", "skip extract — nada novo baixado no tick");
+  }
 }
 
 export async function runSchedulerLoop(isBusy?: () => boolean) {

@@ -34,6 +34,8 @@ export async function runFlow(
     maxRetries: number;
     onLog?: (line: string) => void;
     signal?: AbortSignal;
+    /** Discovery: extract-offers only runs when download-flyers got pages. */
+    requireDownloadForExtract?: boolean;
   },
 ): Promise<FlowRunResult> {
   const say = (line: string) => {
@@ -59,6 +61,8 @@ export async function runFlow(
     discoveredFlyerIds: [],
     offersFound: 0,
     networkFlyers: [],
+    downloadedThisRun: 0,
+    requireDownloadForExtract: opts.requireDownloadForExtract === true,
     onLog: say,
   };
 

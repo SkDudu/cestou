@@ -395,6 +395,7 @@ async function runStepOnce(
         fetchPage: state.browserFetch,
         capturedPages: state.capturedPages,
       });
+      state.downloadedThisRun = dl.downloaded;
       return {
         ok: dl.failed === 0,
         message: `downloaded ${dl.downloaded}/${dl.pending} dup=${dl.duplicates} skip=${dl.skipped}`,
@@ -404,6 +405,17 @@ async function runStepOnce(
       };
     }
     case "extract-offers": {
+      if (
+        state.requireDownloadForExtract &&
+        (state.downloadedThisRun ?? 0) === 0
+      ) {
+        say("[EXTRACT] skip — nada novo baixado neste run");
+        return {
+          ok: true,
+          message: "skipped — no new downloads",
+          offersFound: 0,
+        };
+      }
       say("[EXTRACT] iniciando análise de ofertas…");
       const ex = await extractPending({
         supermarketId: state.supermarketId ?? state.ctx.supermarketId,
