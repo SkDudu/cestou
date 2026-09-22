@@ -76,6 +76,14 @@ export const adminApi = {
     startUrl?: string;
     status?: "DRAFT" | "TESTING" | "ACTIVE" | "DISABLED";
   }) => apiFetch<{ id: string }>("/admin/scraper-flows", { method: "POST", body: JSON.stringify(data) }),
+  updateScraperFlow: (
+    flowId: string,
+    data: { status: "DRAFT" | "TESTING" | "ACTIVE" | "DISABLED" },
+  ) =>
+    apiFetch<{ id: string; status: string; nextRunAt: string | null; lastRunAt: string | null; updatedAt: string }>(
+      `/admin/scraper-flows/${flowId}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    ),
   startScraperRun: (flowId: string) => apiFetch<{ id: string; status: string }>(`/admin/scraper-flows/${flowId}/runs`, { method: "POST" }),
   scraperRuns: () => apiFetch<Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; flyersFound: number; stepsExecuted: number; storesFound: number; error: string | null; log: string | null; flow: { id: string; name: string; supermarket: { name: string } } }>>("/admin/scraper-runs?limit=60"),
   scraperRun: (runId: string) => apiFetch<{ id: string; status: string; startedAt: string; finishedAt: string | null; flyersFound: number; stepsExecuted: number; storesFound: number; error: string | null; log: string | null; flow: { id: string; name: string; supermarket: { name: string } }; events: Array<{ id: string; sequence: number; type: string; payload: unknown; createdAt: string }> }>(`/admin/scraper-runs/${runId}`),

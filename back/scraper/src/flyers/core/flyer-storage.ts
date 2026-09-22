@@ -10,6 +10,7 @@ import {
   HOUR_MS,
   discoveryBackoffMs,
   earlierNextRunAt,
+  manualNextRunAt,
   nextRunAtFromValidities,
 } from "./discovery-schedule.js";
 
@@ -107,6 +108,23 @@ async function scheduleFlowSuccess(prisma: any, flowId: string) {
   const row = await prisma.scraperFlow.update({
     where: { id: flowId },
     data: { discoveryAttempts: 0, lastRunAt: now, nextRunAt },
+  });
+  return { nextRunAt: row.nextRunAt?.getTime() as number | undefined };
+}
+
+/** After human-triggered run: always push next auto check +1h. */
+async function scheduleFlowManual(prisma: any, flowId: string, ok: boolean) {
+  const flow = await prisma.scraperFlow.findUnique({ where: { id: flowId } });
+  if (!flow) return null;
+  const now = new Date();
+  const nextRunAt = new Date(manualNextRunAt(now.getTime()));
+  const row = await prisma.scraperFlow.update({
+    where: { id: flowId },
+    data: {
+      lastRunAt: now,
+      nextRunAt,
+      ...(ok ? { discoveryAttempts: 0 } : {}),
+    },
   });
   return { nextRunAt: row.nextRunAt?.getTime() as number | undefined };
 }
@@ -261,6 +279,8 @@ async function invoke(path: string, args: Record<string, unknown>) {
     case "scraperRuns.progress": return prisma.scraperRun.update({ where: { id: args.id }, data: { stepsExecuted: args.stepsExecuted, flyersFound: args.flyersFound, storesFound: args.storesFound, log: args.log } });
     case "scraperRuns.finish": return prisma.scraperRun.update({ where: { id: args.id }, data: { status: enumValue(args.status as string), stepsExecuted: args.stepsExecuted, flyersFound: args.flyersFound, storesFound: args.storesFound, error: args.error, log: args.log, finishedAt: new Date() } });
     case "scraperFlows.scheduleNextCheck": return scheduleFlowSuccess(prisma, args.flowId as string);
+    case "scraperFlows.scheduleManualNextCheck":
+      return scheduleFlowManual(prisma, args.flowId as string, Boolean(args.ok));
     case "scraperFlows.listDue": return prisma.scraperFlow.findMany({ where: { status: "ACTIVE", OR: [{ nextRunAt: null }, { nextRunAt: { lte: new Date() } }] } }).then((rows: any[]) => rows.map((row) => ({ ...row, _id: row.id })));
     case "scraperFlows.recordDiscoveryResult": {
       const success = Boolean(args.ok) && Number(args.newFlyers) > 0;
@@ -647,6 +667,13 @@ export async function patchFlyerValidity(args: {
 export async function scheduleNextCheck(flowId: string) {
   return await getClient().mutation(api.scraperFlows.scheduleNextCheck, {
     flowId: flowId as never,
+  });
+}
+
+export async function scheduleManualNextCheck(flowId: string, ok: boolean) {
+  return await getClient().mutation(api.scraperFlows.scheduleManualNextCheck, {
+    flowId: flowId as never,
+    ok,
   });
 }
 

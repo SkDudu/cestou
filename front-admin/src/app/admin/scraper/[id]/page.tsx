@@ -40,6 +40,8 @@ export default function ScraperFlowDetailPage() {
   const [q, setQ] = useState("");
   const [starting, setStarting] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -114,6 +116,30 @@ export default function ScraperFlowDetailPage() {
     }
   }
 
+  async function changeStatus(next: "DRAFT" | "TESTING" | "ACTIVE" | "DISABLED") {
+    if (next === (flow.status ?? "").toUpperCase()) return;
+    setStatusSaving(true);
+    setStatusError(null);
+    try {
+      const updated = await adminApi.updateScraperFlow(flow.id, { status: next });
+      setFlow((current) =>
+        current
+          ? {
+              ...current,
+              status: updated.status,
+              nextRunAt: updated.nextRunAt,
+              lastRunAt: updated.lastRunAt,
+              updatedAt: updated.updatedAt,
+            }
+          : current,
+      );
+    } catch {
+      setStatusError("Não deu pra mudar status.");
+    } finally {
+      setStatusSaving(false);
+    }
+  }
+
   return (
     <div>
       <p className="mb-1 text-xs font-medium text-[var(--ds-color-muted-foreground)]">
@@ -142,7 +168,34 @@ export default function ScraperFlowDetailPage() {
         <OpsKpi
           label="Estado"
           value={estado.title}
-          hint={<p className="pb-1 text-[13px] font-medium" style={{ color: estado.color }}>{estado.hint}</p>}
+          hint={
+            <div className="pb-1">
+              <select
+                className="ds-search mt-1 w-full max-w-[160px]"
+                value={(flow.status ?? "DRAFT").toUpperCase()}
+                disabled={statusSaving}
+                onChange={(e) =>
+                  void changeStatus(e.target.value as "DRAFT" | "TESTING" | "ACTIVE" | "DISABLED")
+                }
+                aria-label="Status do fluxo"
+              >
+                <option value="DRAFT">Rascunho</option>
+                <option value="TESTING">Teste</option>
+                <option value="ACTIVE">Ativo</option>
+                <option value="DISABLED">Pausado</option>
+              </select>
+              {statusError ? (
+                <p className="mt-1 text-[12px] text-[var(--ds-color-danger)]">{statusError}</p>
+              ) : (
+                <p className="mt-1 text-[13px] font-medium" style={{ color: estado.color }}>
+                  {statusSaving ? "salvando…" : estado.hint}
+                  {(flow.status ?? "").toUpperCase() === "ACTIVE"
+                    ? " · entra no scheduler"
+                    : " · só manual"}
+                </p>
+              )}
+            </div>
+          }
           foot={flow.lastRunAt ? `heartbeat ${clock(ms(flow.lastRunAt) ?? 0)}` : "sem heartbeat"}
         />
         <OpsKpi
@@ -241,11 +294,12 @@ export default function ScraperFlowDetailPage() {
   );
 }
 
-function runStatusToOps(status: string): "running" | "ok" | "queue" | "review" | "fail" {
+function runStatusToOps(status: string): "running" | "ok" | "queue" | "review" | "duplicate" | "fail" {
   const value = status.toUpperCase();
   if (value === "RUNNING") return "running";
   if (value === "SUCCESS") return "ok";
   if (value === "FAILED") return "fail";
-  if (value === "PARTIAL" || value === "DUPLICATE") return "review";
+  if (value === "DUPLICATE") return "duplicate";
+  if (value === "PARTIAL") return "review";
   return "queue";
 }

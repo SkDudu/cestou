@@ -163,12 +163,11 @@ export function startSessionServer() {
         const send = startSse(res);
         send({ type: "log", line: "starting…", ts: Date.now() });
         try {
-          const result = await executeFlowById(
-            body.flowId,
-            body.ctx ?? {},
-            (line) => send({ type: "log", line, ts: Date.now() }),
+          const result = await executeFlowById(body.flowId, body.ctx ?? {}, {
+            onLog: (line) => send({ type: "log", line, ts: Date.now() }),
             signal,
-          );
+            manual: true,
+          });
           send({
             type: "done",
             ok: result.ok,

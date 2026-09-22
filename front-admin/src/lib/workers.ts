@@ -1,7 +1,7 @@
 import type { adminApi } from "./api";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
-export type OpsStatus = "running" | "ok" | "queue" | "review" | "fail";
+export type OpsStatus = "running" | "ok" | "queue" | "review" | "duplicate" | "fail";
 
 export function ms(value: string | Date | null | undefined) {
   if (!value) return null;
@@ -25,7 +25,7 @@ export function opsStatus(flowStatus: string, lastStatus: string | undefined, jo
   const last = (lastStatus ?? "").toUpperCase();
   if (flow === "ERROR") return "fail";
   if (last === "CANCELLED") return "queue";
-  if (last === "DUPLICATE") return "review";
+  if (last === "DUPLICATE") return "duplicate";
   if (last === "FAILED") return "fail";
   if (last === "RUNNING") return "running";
   if (last === "SUCCESS") return "ok";

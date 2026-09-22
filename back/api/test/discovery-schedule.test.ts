@@ -3,6 +3,7 @@ import {
   HOUR_MS,
   discoveryBackoffMs,
   earlierNextRunAt,
+  manualNextRunAt,
   nextRunAtFromValidities,
 } from "../../scraper/src/flyers/core/discovery-schedule.js";
 
@@ -52,5 +53,12 @@ describe("earlierNextRunAt", () => {
     expect(earlierNextRunAt(undefined, 100)).toBe(100);
     expect(earlierNextRunAt(200, 100)).toBe(100);
     expect(earlierNextRunAt(50, 100)).toBe(50);
+  });
+});
+
+describe("manualNextRunAt", () => {
+  it("is always now + 1h", () => {
+    const now = Date.parse("2026-09-21T12:00:00.000Z");
+    expect(manualNextRunAt(now)).toBe(now + HOUR_MS);
   });
 });

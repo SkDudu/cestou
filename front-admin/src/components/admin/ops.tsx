@@ -155,12 +155,13 @@ function Clock() {
   );
 }
 
-export function statusDot(kind: "running" | "queue" | "review" | "fail" | "ok") {
+export function statusDot(kind: "running" | "queue" | "review" | "duplicate" | "fail" | "ok") {
   const map = {
     running: "var(--ds-color-success)",
     ok: "var(--ds-color-success)",
     queue: "var(--ds-color-harbor)",
     review: "var(--ds-color-buoy)",
+    duplicate: "var(--ds-color-buoy)",
     fail: "var(--ds-color-danger)",
   };
   return map[kind];

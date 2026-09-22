@@ -17,7 +17,11 @@ export async function processScraperRun(prisma: PrismaClient, runId: string) {
   };
   try {
     const { executeFlowById } = await import("../../../scraper/src/flyers/runner/execute-flow.js");
-    const result = await executeFlowById(run.flowId, {}, { runId: run.id, onLog });
+    const result = await executeFlowById(run.flowId, {}, {
+      runId: run.id,
+      onLog,
+      manual: true,
+    });
     await logs;
     await appendRunEvent(prisma, run.id, "worker.completed", { status: result.ok ? "SUCCESS" : "FAILED" });
   } catch (error) {

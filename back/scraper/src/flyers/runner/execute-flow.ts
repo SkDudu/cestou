@@ -6,6 +6,7 @@ import {
   markExpired,
   progressScraperRun,
   recordDiscoveryResult,
+  scheduleManualNextCheck,
   scheduleNextCheck,
   startScraperRun,
 } from "../core/flyer-storage.js";
@@ -19,6 +20,8 @@ export type ExecuteFlowOpts = {
   signal?: AbortSignal;
   pipeline?: "discovery" | "full";
   runId?: string;
+  /** Admin / CLI / session — next auto check = now + 1h. */
+  manual?: boolean;
 };
 
 export async function executeFlowById(
@@ -180,7 +183,14 @@ export async function executeFlowById(
     if (line) log(line);
   }
 
-  if (result.ok && pipeline === "full") {
+  if (!cancelled && opts.manual) {
+    const scheduled = (await scheduleManualNextCheck(flowId, result.ok)) as {
+      nextRunAt?: number;
+    };
+    if (scheduled?.nextRunAt) {
+      log(`próximo check (manual +1h) ${new Date(scheduled.nextRunAt).toISOString()}`);
+    }
+  } else if (result.ok && pipeline === "full") {
     const scheduled = (await scheduleNextCheck(flowId)) as {
       nextRunAt?: number;
     };
@@ -199,7 +209,7 @@ export async function executeFlowById(
     log: snapLog().slice(0, 100_000),
   });
 
-  if (!cancelled && result.error?.includes("SCOPE_NOT_FOUND")) {
+  if (!cancelled && !opts.manual && result.error?.includes("SCOPE_NOT_FOUND")) {
     await recordDiscoveryResult({
       flowId,
       ok: false,

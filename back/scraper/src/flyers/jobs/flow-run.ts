@@ -19,6 +19,7 @@ export async function runFlowJob() {
   if (!flowId) throw new Error("Usage: flows:run -- --flow=<id>");
   const result = await executeFlowById(flowId, parseCtx(), {
     pipeline: process.argv.includes("--discovery") ? "discovery" : "full",
+    manual: true,
   });
   if (!result.ok) process.exitCode = 1;
 }

@@ -916,6 +916,43 @@ export async function buildApp(options: BuildAppOptions = {}) {
     );
   });
 
+  app.patch("/api/v1/admin/scraper-flows/:flowId", async (request, reply) => {
+    const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
+    if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });
+    const params = z.object({ flowId: z.string().uuid() }).safeParse(request.params);
+    const body = z
+      .object({
+        status: z.enum(["DRAFT", "TESTING", "ACTIVE", "DISABLED"]),
+      })
+      .safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({ code: "INVALID_SCRAPER_FLOW_UPDATE" });
+    }
+
+    const existing = await prisma.scraperFlow.findUnique({ where: { id: params.data.flowId } });
+    if (!existing) return reply.code(404).send({ code: "SCRAPER_FLOW_NOT_FOUND" });
+
+    // ACTIVE + null nextRunAt → due immediately on next scheduler tick
+    const data: { status: typeof body.data.status; nextRunAt?: Date } = {
+      status: body.data.status,
+    };
+    if (body.data.status === "ACTIVE" && !existing.nextRunAt) {
+      data.nextRunAt = new Date();
+    }
+
+    return prisma.scraperFlow.update({
+      where: { id: existing.id },
+      data,
+      select: {
+        id: true,
+        status: true,
+        nextRunAt: true,
+        lastRunAt: true,
+        updatedAt: true,
+      },
+    });
+  });
+
   app.get("/api/v1/admin/flyers", async (request, reply) => {
     const session = await getAdminSession(prisma, request.cookies[ADMIN_SESSION_COOKIE]);
     if (!session) return reply.code(401).send({ code: "UNAUTHORIZED" });

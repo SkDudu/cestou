@@ -9,7 +9,7 @@ const STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const ATTENTION_LIMIT = 8;
 
 type Severity = "fail" | "warn" | "info";
-type OpsStatus = "running" | "ok" | "queue" | "review" | "fail";
+type OpsStatus = "running" | "ok" | "queue" | "review" | "duplicate" | "fail";
 
 export type AttentionItem = {
   id: string;
@@ -51,7 +51,14 @@ export type HomeDashboard = {
 };
 
 const severityRank: Record<Severity, number> = { fail: 0, warn: 1, info: 2 };
-const statusRank: Record<OpsStatus, number> = { fail: 0, review: 1, running: 2, ok: 3, queue: 4 };
+const statusRank: Record<OpsStatus, number> = {
+  fail: 0,
+  review: 1,
+  duplicate: 2,
+  running: 3,
+  ok: 4,
+  queue: 5,
+};
 
 export function useAdminOverview() {
   const [data, setData] = useState<Awaited<ReturnType<typeof adminApi.overview>>>();

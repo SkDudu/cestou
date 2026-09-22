@@ -240,7 +240,7 @@ export default function AdminOverviewPage() {
                   background:
                     w.status === "fail"
                       ? "var(--ds-color-danger)"
-                      : w.status === "review"
+                      : w.status === "review" || w.status === "duplicate"
                         ? "var(--ds-color-buoy)"
                         : w.status === "running"
                           ? "var(--ds-color-success)"

@@ -23,3 +23,8 @@ export function earlierNextRunAt(existingMs: number | null | undefined, candidat
   if (existingMs == null) return candidateMs;
   return Math.min(existingMs, candidateMs);
 }
+
+/** Manual "Rodar agora" / CLI / session — next auto check = now + 1h. */
+export function manualNextRunAt(nowMs: number): number {
+  return nowMs + HOUR_MS;
+}
